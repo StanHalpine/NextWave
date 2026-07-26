@@ -364,8 +364,10 @@ a.nav-cta-mobile { display: none; }
   align-items: center;
 }
 .hero-splash .logo-mark {
-  height: clamp(140px, 19vw, 240px);
+  height: auto;
   width: auto;
+  max-height: clamp(140px, 19vw, 240px);
+  max-width: 100%;
   margin: 0 0 18px;
   filter: drop-shadow(0 1px 20px rgba(0,0,0,0.2));
 }
@@ -822,4 +824,4 @@ textarea { resize: vertical; min-height: 110px; }
 
 
 .logo img { height: 32px; width: auto; display: block; }
-.footer-logo img { height: 58px; width: auto; display: block; }
+.footer-logo img { height: auto; width: auto; max-height: 58px; max-width: 100%; display: block; }
