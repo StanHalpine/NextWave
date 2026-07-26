@@ -538,6 +538,58 @@ a.nav-cta-mobile { display: none; }
   letter-spacing: 0.02em;
 }
 
+/* Contact — reach the right person */
+.contact-people-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 28px;
+}
+.contact-person-card {
+  text-align: center;
+  padding: clamp(28px, 3vw, 40px) 20px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+.contact-person-card.primary {
+  border-color: var(--brass);
+  background: var(--paper);
+}
+.contact-person-avatar {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  margin: 0 auto 18px;
+}
+.contact-person-role {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--sage-deep);
+}
+.contact-person-card h4 {
+  font-size: 18px;
+  margin-top: 8px;
+}
+.contact-person-blurb {
+  font-size: 14px;
+  color: var(--ink-soft);
+  margin-top: 10px;
+}
+.contact-person-email {
+  display: inline-block;
+  margin-top: 16px;
+  font-size: 13px;
+  text-decoration: none;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 2px;
+}
+.contact-person-email:hover { border-color: var(--ink); }
+
+@media (max-width: 760px) {
+  .contact-people-grid { grid-template-columns: 1fr; gap: 20px; }
+}
+
 .ratio-portrait { aspect-ratio: 4 / 5; }
 .ratio-landscape { aspect-ratio: 16 / 10; }
 .ratio-square { aspect-ratio: 1 / 1; }
