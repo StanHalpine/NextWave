@@ -371,6 +371,9 @@ a.nav-cta-mobile { display: none; }
   margin: 0 0 18px;
   filter: drop-shadow(0 1px 20px rgba(0,0,0,0.2));
 }
+@media (max-width: 600px) {
+  .hero-splash .logo-mark { max-height: 110px; }
+}
 .hero-splash .eyebrow { color: var(--brass); justify-content: center; }
 .hero-splash .eyebrow::before { background: var(--brass); }
 .hero-splash .hero-tagline {
