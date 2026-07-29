@@ -738,6 +738,98 @@ section { padding-top: clamp(56px, 8vw, 104px); padding-bottom: clamp(56px, 8vw,
   .tri-grid { grid-template-columns: 1fr; }
 }
 
+.tri-grid-2col { grid-template-columns: repeat(2, 1fr); }
+@media (max-width: 760px) {
+  .tri-grid-2col { grid-template-columns: 1fr; }
+}
+
+/* ==========================================================================
+   Tier cards (membership pricing)
+   ========================================================================== */
+
+.tier-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+}
+.tier-card {
+  background: var(--paper);
+  padding: clamp(28px, 3vw, 40px) clamp(24px, 2.5vw, 32px);
+  display: flex;
+  flex-direction: column;
+}
+.tier-card.featured { background: var(--ink); color: var(--sand); }
+.tier-card.featured .eyebrow { color: var(--brass); }
+.tier-card.featured .eyebrow::before { background: var(--brass); }
+.tier-card.featured .tier-tagline { color: rgba(237,231,221,0.75); }
+.tier-card.featured .tier-features li { color: rgba(237,231,221,0.85); }
+.tier-price {
+  font-family: var(--font-mono);
+  font-size: 36px;
+  margin-top: 16px;
+}
+.tier-price sup { font-size: 14px; opacity: 0.6; font-family: var(--font-body); }
+.tier-tagline {
+  margin-top: 10px;
+  font-size: 14px;
+  color: var(--ink-soft);
+  min-height: 42px;
+}
+.tier-features {
+  list-style: none;
+  margin: 20px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+  flex-grow: 1;
+}
+.tier-features li {
+  font-size: 13.5px;
+  padding-left: 18px;
+  position: relative;
+}
+.tier-features li::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 8px;
+  width: 6px; height: 1px;
+  background: var(--brass);
+}
+.tier-card .btn { margin-top: 26px; justify-content: center; }
+
+@media (max-width: 860px) {
+  .tier-cards { grid-template-columns: 1fr; }
+}
+
+/* ==========================================================================
+   Credit value table
+   ========================================================================== */
+
+.credit-table { border-top: 1px solid var(--line); }
+.credit-table-row {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr;
+  gap: 20px;
+  align-items: center;
+  padding: 18px 0;
+  border-bottom: 1px solid var(--line);
+}
+.credit-table-row.head {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  padding-bottom: 12px;
+}
+.credit-table-row .credits { font-family: var(--font-mono); color: var(--lake-deep); }
+.credit-table-row .price { font-family: var(--font-mono); }
+@media (max-width: 600px) {
+  .credit-table-row { grid-template-columns: 1.6fr 1fr 1fr; gap: 10px; font-size: 14px; }
+}
+
 /* ==========================================================================
    Quote / stat strip
    ========================================================================== */
