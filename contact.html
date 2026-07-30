@@ -200,6 +200,14 @@
 
 <script src="assets/script.js"></script>
 <script>
+  (function () {
+    var interest = new URLSearchParams(window.location.search).get('interest');
+    var field = document.getElementById('interest');
+    if (interest && field && field.querySelector('option[value="' + interest + '"]')) {
+      field.value = interest;
+    }
+  })();
+
   document.getElementById('contact-form').addEventListener('submit', function (e) {
     e.preventDefault();
     var form = e.target;
