@@ -57,6 +57,9 @@
     <div class="container hero-grid">
       <div class="reveal">
         <form id="contact-form" novalidate>
+          <input type="hidden" name="access_key" value="ec10f33e-df13-4265-be37-37a0587166df">
+          <input type="hidden" name="subject" value="New appointment request — NextWave Wellness">
+          <input type="checkbox" name="botcheck" style="display:none;" tabindex="-1" autocomplete="off">
           <div class="form-grid">
             <div class="field">
               <label for="name">Full name</label>
@@ -131,14 +134,14 @@
           <span class="contact-person-role">Chiropractor</span>
           <h4>Dr. Chase L'Heureux</h4>
           <p class="contact-person-blurb">Functional medicine and clinical care questions.</p>
-          <a href="mailto:drlheureux@nextwave-wellness.com" class="contact-person-email">drlheureux@nextwave-wellness.com</a>
+          <a href="mailto:drchase@nextwave-wellness.com" class="contact-person-email">drchase@nextwave-wellness.com</a>
         </div>
         <div class="contact-person-card">
           <div class="contact-person-avatar photo-panel brass"></div>
           <span class="contact-person-role">Clinical Team</span>
           <h4>Nurse Practitioner</h4>
           <p class="contact-person-blurb">Peptide therapy, hormone protocols, and longevity treatment questions.</p>
-          <a href="mailto:np@nextwave-wellness.com" class="contact-person-email">np@nextwave-wellness.com</a>
+          <a href="mailto:stanh@nextwave-wellness.com" class="contact-person-email">stanh@nextwave-wellness.com</a>
         </div>
       </div>
     </div>
@@ -198,8 +201,35 @@
 <script>
   document.getElementById('contact-form').addEventListener('submit', function (e) {
     e.preventDefault();
-    document.getElementById('form-status').textContent =
-      "This form isn't connected yet — once we wire up the backend, requests will route to your front desk team.";
+    var form = e.target;
+    var status = document.getElementById('form-status');
+    var button = form.querySelector('button[type="submit"]');
+    var formData = new FormData(form);
+    var payload = Object.fromEntries(formData);
+
+    button.disabled = true;
+    status.textContent = 'Sending your request...';
+
+    fetch('https://api.web3forms.com/submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify(payload)
+    })
+      .then(function (response) { return response.json(); })
+      .then(function (result) {
+        if (result.success) {
+          status.textContent = "Thanks — we've received your request and will follow up shortly.";
+          form.reset();
+        } else {
+          status.textContent = "Something went wrong sending your request. Please try again or email us directly.";
+        }
+      })
+      .catch(function () {
+        status.textContent = "Something went wrong sending your request. Please try again or email us directly.";
+      })
+      .finally(function () {
+        button.disabled = false;
+      });
   });
 </script>
 </body>
