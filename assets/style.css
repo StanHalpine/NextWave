@@ -973,6 +973,10 @@ textarea { resize: vertical; min-height: 110px; }
   color: var(--ink-soft);
   font-size: 16px;
 }
+.mission-highlight {
+  font-weight: 700;
+  color: #8A6F3E;
+}
 
 
 .logo img { height: 32px; width: auto; display: block; }
