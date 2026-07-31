@@ -1238,3 +1238,87 @@ textarea { resize: vertical; min-height: 110px; }
   border-color: transparent transparent transparent var(--ink);
   margin-left: 3px;
 }
+
+/* ==========================================================================
+   Shot cards + detail lightbox (vitamin shots, and similar item grids)
+   ========================================================================== */
+
+.shot-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: clamp(20px, 3vw, 28px);
+  margin-top: clamp(32px, 4vw, 48px);
+}
+@media (max-width: 860px) {
+  .shot-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 600px) {
+  .shot-grid { grid-template-columns: 1fr; }
+}
+.shot-card {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 20px 20px clamp(24px, 3vw, 28px);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.shot-card-photo { width: 100%; aspect-ratio: 1 / 1; margin-bottom: 18px; }
+.shot-card h3 { font-size: 19px; }
+.shot-card-price {
+  font-family: var(--font-mono);
+  font-size: 20px;
+  color: var(--ink);
+  margin-top: 8px;
+}
+.shot-card-cta {
+  margin-top: 20px;
+  padding: 10px 24px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.shot-dialog {
+  border: none;
+  border-radius: 4px;
+  padding: 0;
+  max-width: 460px;
+  width: calc(100% - 48px);
+  background: transparent;
+}
+.shot-dialog::backdrop {
+  background: rgba(28, 43, 46, 0.55);
+}
+.shot-dialog-inner {
+  position: relative;
+  background: var(--paper);
+  border-radius: 4px;
+  padding: clamp(28px, 4vw, 40px);
+}
+.shot-dialog-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: none;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--ink-soft);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.shot-dialog-close:hover { color: var(--ink); border-color: var(--ink); }
+.shot-dialog-price {
+  font-family: var(--font-mono);
+  font-size: 24px;
+  color: var(--ink);
+  margin-top: 6px;
+}
+.shot-dialog-inner p { margin-top: 16px; color: var(--ink-soft); }

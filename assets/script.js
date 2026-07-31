@@ -57,3 +57,24 @@ document.querySelectorAll('.horizon').forEach(function (h, i) {
   var svg = h.querySelector('svg');
   if (svg) { svg.style.animationDelay = (i * 0.15) + 's'; }
 });
+
+// Item detail lightboxes (e.g. vitamin shot cards) — native <dialog>
+document.querySelectorAll('[data-dialog-target]').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    var dialog = document.getElementById(btn.getAttribute('data-dialog-target'));
+    if (dialog) dialog.showModal();
+  });
+});
+document.querySelectorAll('[data-dialog-close]').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    var dialog = btn.closest('dialog');
+    if (dialog) dialog.close();
+  });
+});
+document.querySelectorAll('dialog').forEach(function (dialog) {
+  dialog.addEventListener('click', function (e) {
+    var r = dialog.getBoundingClientRect();
+    var inside = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+    if (!inside) dialog.close();
+  });
+});
