@@ -190,6 +190,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visib
 .nav-toggle[aria-expanded="true"] span:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
 
 a.nav-cta-mobile { display: none; }
+.nav-item-home { display: none; }
 
 .nav-item-services { position: relative; }
 .nav-services-link { display: inline-flex; align-items: center; gap: 6px; }
@@ -275,6 +276,7 @@ a.nav-cta-mobile { display: none; }
     box-sizing: border-box;
   }
   .nav-links li { width: 100%; }
+  .nav-item-home { display: block; }
   .nav-links.open { transform: translateX(0); }
   .nav-cta { display: none; }
   .nav-toggle { display: block; margin-left: auto; }
