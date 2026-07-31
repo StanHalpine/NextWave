@@ -997,6 +997,9 @@ textarea { resize: vertical; min-height: 110px; }
   width: 100%;
   border-radius: 0;
 }
+@media (min-width: 861px) {
+  .service-hero-photo { aspect-ratio: 32 / 9; }
+}
 .service-hero-cta {
   position: absolute;
   bottom: 14px;
