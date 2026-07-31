@@ -928,7 +928,7 @@ section { padding-top: clamp(56px, 8vw, 104px); padding-bottom: clamp(56px, 8vw,
 
 .stat-strip {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 24px;
 }
 .stat {
