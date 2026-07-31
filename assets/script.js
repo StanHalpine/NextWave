@@ -5,6 +5,24 @@ document.querySelectorAll('[data-nav-toggle]').forEach(function (btn) {
     links.classList.toggle('open');
     var expanded = btn.getAttribute('aria-expanded') === 'true';
     btn.setAttribute('aria-expanded', String(!expanded));
+    var servicesItem = document.querySelector('.nav-item-services');
+    if (servicesItem) {
+      servicesItem.classList.remove('open');
+      servicesItem.querySelector('[data-services-toggle]').setAttribute('aria-expanded', 'false');
+    }
+  });
+});
+
+// Services submenu — only intercepts the tap on mobile, where "Services"
+// opens the submenu instead of navigating straight to services.html
+var mobileNavQuery = window.matchMedia('(max-width: 860px)');
+document.querySelectorAll('[data-services-toggle]').forEach(function (link) {
+  link.addEventListener('click', function (e) {
+    if (!mobileNavQuery.matches) { return; }
+    e.preventDefault();
+    var item = link.closest('.nav-item-services');
+    var isOpen = item.classList.toggle('open');
+    link.setAttribute('aria-expanded', String(isOpen));
   });
 });
 

@@ -191,6 +191,10 @@ a:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visib
 
 a.nav-cta-mobile { display: none; }
 
+.nav-services-link { display: inline-flex; align-items: center; gap: 8px; }
+.nav-chevron { display: none; flex-shrink: 0; }
+.nav-submenu { display: none; }
+
 @media (max-width: 860px) {
   .nav-links {
     position: fixed;
@@ -222,6 +226,45 @@ a.nav-cta-mobile { display: none; }
   a.nav-cta-mobile {
     display: inline-flex;
     margin-top: 8px;
+  }
+
+  .nav-services-link {
+    width: 100%;
+    justify-content: space-between;
+  }
+  .nav-chevron {
+    display: block;
+    color: var(--ink-soft);
+    transition: transform 0.35s ease;
+  }
+  .nav-item-services.open .nav-chevron { transform: rotate(180deg); }
+  .nav-submenu {
+    display: block;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.5s ease;
+  }
+  .nav-item-services.open .nav-submenu { max-height: 720px; }
+  .nav-submenu-horizon { height: 18px; margin: 2px 0 6px; opacity: 0.6; }
+  .nav-submenu-horizon .horizon { height: 18px; }
+  .nav-submenu-group { padding-top: 12px; }
+  .nav-submenu-group .eyebrow { font-size: 11px; }
+  .nav-submenu a {
+    display: block;
+    padding: 8px 0 8px 18px;
+    font-size: 14px;
+    color: var(--ink-soft);
+    text-decoration: none;
+    border-left: 1px solid var(--line);
+  }
+  .nav-submenu a:hover,
+  .nav-submenu a:focus-visible {
+    color: var(--ink);
+    border-left-color: var(--brass);
   }
 }
 
