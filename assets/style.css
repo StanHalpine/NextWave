@@ -1090,6 +1090,16 @@ textarea { resize: vertical; min-height: 110px; }
   z-index: 2;
 }
 
+.service-kicker {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  margin-top: 14px;
+}
+
 .service-crumb {
   display: inline-block;
   font-size: 13px;
