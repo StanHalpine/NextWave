@@ -191,9 +191,65 @@ a:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visib
 
 a.nav-cta-mobile { display: none; }
 
-.nav-services-link { display: inline-flex; align-items: center; gap: 8px; }
-.nav-chevron { display: none; flex-shrink: 0; }
-.nav-submenu { display: none; }
+.nav-item-services { position: relative; }
+.nav-services-link { display: inline-flex; align-items: center; gap: 6px; }
+.nav-chevron { flex-shrink: 0; color: var(--ink-soft); transition: transform 0.35s ease; }
+.nav-item-services.open .nav-chevron { transform: rotate(180deg); }
+
+.nav-submenu {
+  list-style: none;
+  margin: 0;
+  padding: 22px 24px 16px;
+  position: absolute;
+  z-index: 45;
+  top: calc(100% + 20px);
+  left: 0;
+  width: 340px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  box-shadow: 0 20px 48px rgba(28, 43, 46, 0.16);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-8px);
+  transition: opacity 0.25s ease, transform 0.25s ease, visibility 0.25s;
+}
+.nav-item-services.open .nav-submenu {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+.nav-submenu-horizon { height: 18px; margin: 0 0 10px; opacity: 0.6; }
+.nav-submenu-horizon .horizon { height: 18px; }
+.nav-submenu-group { padding-top: 14px; }
+.nav-submenu-group .eyebrow { font-size: 11px; }
+.nav-submenu a {
+  display: block;
+  padding: 7px 0 7px 14px;
+  font-size: 13.5px;
+  color: var(--ink-soft);
+  text-decoration: none;
+  border-left: 1px solid var(--line);
+}
+.nav-submenu a:hover,
+.nav-submenu a:focus-visible {
+  color: var(--ink);
+  border-left-color: var(--brass);
+}
+.nav-submenu-viewall {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.nav-submenu-viewall a {
+  border-left: none;
+  padding: 0;
+  color: var(--ink);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.nav-submenu-viewall a:hover { color: var(--lake-deep); }
 
 @media (max-width: 860px) {
   .nav-links {
@@ -228,44 +284,28 @@ a.nav-cta-mobile { display: none; }
     margin-top: 8px;
   }
 
-  .nav-services-link {
-    width: 100%;
-    justify-content: space-between;
-  }
-  .nav-chevron {
-    display: block;
-    color: var(--ink-soft);
-    transition: transform 0.35s ease;
-  }
-  .nav-item-services.open .nav-chevron { transform: rotate(180deg); }
   .nav-submenu {
-    display: block;
-    list-style: none;
-    margin: 0;
-    padding: 0;
+    position: static;
     width: 100%;
+    background: none;
+    border: none;
+    box-shadow: none;
+    padding: 0;
+    opacity: 1;
+    visibility: visible;
+    transform: none;
     max-height: 0;
     overflow: hidden;
     transition: max-height 0.5s ease;
   }
   .nav-item-services.open .nav-submenu { max-height: 720px; }
-  .nav-submenu-horizon { height: 18px; margin: 2px 0 6px; opacity: 0.6; }
-  .nav-submenu-horizon .horizon { height: 18px; }
+  .nav-submenu-horizon { margin: 10px 0 6px; }
   .nav-submenu-group { padding-top: 12px; }
-  .nav-submenu-group .eyebrow { font-size: 11px; }
   .nav-submenu a {
-    display: block;
     padding: 8px 0 8px 18px;
     font-size: 14px;
-    color: var(--ink-soft);
-    text-decoration: none;
-    border-left: 1px solid var(--line);
   }
-  .nav-submenu a:hover,
-  .nav-submenu a:focus-visible {
-    color: var(--ink);
-    border-left-color: var(--brass);
-  }
+  .nav-submenu-viewall a { padding-left: 0; }
 }
 
 /* ==========================================================================
@@ -1068,6 +1108,48 @@ textarea { resize: vertical; min-height: 110px; }
   max-width: 48ch;
 }
 .service-note strong { color: var(--ink); }
+
+.service-hero-secondary {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 14px;
+  padding-top: clamp(20px, 3vw, 28px);
+}
+
+.service-price {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+.service-price-row {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 26px;
+}
+.service-price-amount {
+  font-family: var(--font-mono);
+  font-size: clamp(34px, 4vw, 44px);
+  color: var(--ink);
+  line-height: 1;
+}
+.service-price-badge {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink);
+  background: var(--brass);
+  padding: 5px 12px;
+  border-radius: 999px;
+}
+.service-price-tiers { display: flex; flex-direction: column; gap: 4px; }
+.service-price-tier { display: flex; align-items: baseline; gap: 10px; }
+.service-price-tier .service-price-amount { font-size: clamp(26px, 3vw, 32px); }
+.service-price-unit { font-size: 14px; color: var(--ink-soft); }
+.service-price-note { font-size: 14px; color: var(--ink-soft); max-width: 42ch; }
 
 .btn-disabled {
   opacity: 0.45;
