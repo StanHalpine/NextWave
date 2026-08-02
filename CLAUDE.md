@@ -135,9 +135,10 @@ code is broken.
   `Photography placeholder` panels on about/contact/services.
 - **"Book now" buttons are disabled** (`.btn-disabled`, `aria-disabled`)
   pending a booking system. "Request a consultation" is the live path.
-  Exception: functional-medicine-consult has no Book now at all — the two read
-  as redundant on a page that *is* the consult. When booking ships, that page
-  should get a real Book now for picking a consult time.
+  Exception: functional-medicine-consult and spinal-postural-assessment have
+  no Book now at all — the two read as redundant on a page that *is* the
+  consult/assessment. When booking ships, those pages should get a real Book
+  now for picking a time.
 - **IV menu** is marked "Coming Soon" — single $185 price until the full menu
   is defined.
 - **Unused images** safe to delete: `ChiroHero.png` (duplicate of
