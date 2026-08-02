@@ -91,6 +91,17 @@ Two variants of the same pattern, both using native `<dialog>`:
   booking only makes sense once a specific panel is chosen — which is why
   biomarker-testing has no page-level Book now.
 
+**Button pair styling** (identical for both card types):
+
+```html
+<div class="test-card-actions">
+  <button type="button" class="btn btn-ghost test-card-cta" data-dialog-target="id">Learn more</button>
+  <span class="btn btn-primary test-card-cta btn-disabled" aria-disabled="true">Book now</span>
+</div>
+```
+
+CSS: `.test-card-actions` (and `.shot-card-actions` — same styles) has `display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 18px;` with `.test-card-cta` as `padding: 10px 20px; font-size: 13px; cursor: pointer;` — allows buttons to wrap on mobile while keeping equal sizing.
+
 Wiring is generic and lives in `script.js`: a button carries
 `data-dialog-target="<dialog-id>"`, the close button carries
 `data-dialog-close`. Backdrop click and Escape also close. Reuse this for any

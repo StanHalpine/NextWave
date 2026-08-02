@@ -1279,23 +1279,17 @@ textarea { resize: vertical; min-height: 110px; }
   margin-top: 8px;
 }
 .shot-card-actions {
+  margin-top: 18px;
   display: flex;
-  gap: 12px;
+  flex-wrap: wrap;
   justify-content: center;
-  margin-top: 20px;
-  width: 100%;
+  gap: 10px;
 }
 
 .shot-card-cta {
-  padding: 10px 24px;
+  padding: 10px 20px;
   font-size: 13px;
   cursor: pointer;
-  flex: 1;
-  min-width: 120px;
-}
-
-.shot-card-actions .btn-ghost {
-  flex: 0.8;
 }
 
 @media (max-width: 600px) {
