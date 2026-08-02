@@ -99,9 +99,21 @@ future multi-item service.
 ### Contact form
 
 `contact.html` submits to Web3Forms. The "Interested in" select is prefilled
-from `?interest=<value>` — service pages link with `?interest=chiropractic` /
-`functional-medicine` / `longevity`, and the membership tier buttons use
-`?interest=membership-prevent|restore|optimize`.
+from `?interest=<value>`.
+
+**Each service page passes its own slug, and the slug is the page filename
+minus `.html`** (`biomarker-testing`, `spinal-xrays`, …). Front desk needs the
+exact service, not just the discipline. The select is grouped by discipline
+with a "not sure which yet" catch-all per group, plus the membership tiers
+(`membership-prevent|restore|optimize`).
+
+**Adding a service page means adding a matching `<option>`** — a slug with no
+option silently falls back to the first entry, which looks like it worked. The
+cross-check is: every `?interest=` value in the repo must exist as an option
+value in `contact.html`.
+
+Inline JS also writes the selected label into the hidden `subject` field, so
+the notification email arrives as "Appointment request: Biomarker Testing".
 
 When any membership value is selected, inline JS swaps the page title, the
 subhead, and the email subject line to membership-request framing. This is a

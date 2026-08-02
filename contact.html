@@ -102,13 +102,35 @@
             <div class="field">
               <label for="interest">Interested in</label>
               <select id="interest" name="interest">
-                <option value="chiropractic">Chiropractic</option>
-                <option value="functional-medicine">Functional Medicine</option>
-                <option value="longevity">Longevity</option>
-                <option value="membership-prevent">Membership — Prevent</option>
-                <option value="membership-restore">Membership — Restore</option>
-                <option value="membership-optimize">Membership — Optimize</option>
-                <option value="membership">Membership — not sure which service yet</option>
+                <optgroup label="Chiropractic">
+                  <option value="chiropractic">Chiropractic — not sure which yet</option>
+                  <option value="spinal-postural-assessment">Full Spinal &amp; Postural Assessment</option>
+                  <option value="manual-adjustment">Manual Adjustment</option>
+                  <option value="spinal-xrays">On-Site Spinal X-Rays</option>
+                </optgroup>
+                <optgroup label="Functional Medicine">
+                  <option value="functional-medicine">Functional Medicine — not sure which yet</option>
+                  <option value="functional-medicine-consult">Functional Medicine Consult</option>
+                  <option value="biomarker-testing">Biomarker Testing</option>
+                  <option value="hormone-optimization">Hormone Optimization</option>
+                  <option value="peptide-therapy">Peptide Therapy</option>
+                  <option value="personal-wellness-planning">Personal Wellness Planning</option>
+                  <option value="supplementation">Guided Supplementation</option>
+                </optgroup>
+                <optgroup label="Longevity">
+                  <option value="longevity">Longevity — not sure which yet</option>
+                  <option value="red-light-therapy">Red Light Bed Therapy</option>
+                  <option value="hyperbaric-oxygen-therapy">Hyperbaric Oxygen Therapy</option>
+                  <option value="vitamin-shots">Vitamin Shots</option>
+                  <option value="iv-therapy">IV Therapy</option>
+                  <option value="body-composition">Body Composition Measuring</option>
+                </optgroup>
+                <optgroup label="Membership">
+                  <option value="membership-prevent">Membership — Prevent</option>
+                  <option value="membership-restore">Membership — Restore</option>
+                  <option value="membership-optimize">Membership — Optimize</option>
+                  <option value="membership">Membership — not sure which tier yet</option>
+                </optgroup>
               </select>
             </div>
             <div class="field">
@@ -243,18 +265,22 @@
 
     var defaultTitle = titleEl ? titleEl.textContent : '';
     var defaultSubhead = subheadEl ? subheadEl.textContent : '';
-    var defaultSubject = subjectField ? subjectField.value : '';
 
     function applyInterestContext() {
-      var isMembership = field && field.value.indexOf('membership') === 0;
+      if (!field) { return; }
+      var isMembership = field.value.indexOf('membership') === 0;
+      var selected = field.selectedOptions[0];
+      var label = selected ? selected.textContent.trim() : '';
+
       if (isMembership) {
         if (titleEl) titleEl.textContent = 'Request your membership.';
         if (subheadEl) subheadEl.textContent = "Tell us about yourself and we'll follow up to get your membership started. Until our online signup is live, our team will reach out by phone or email — whichever you prefer below.";
-        if (subjectField) subjectField.value = 'New membership request — NextWave Wellness';
+        // "Membership — Prevent" reads as just "Prevent" once prefixed below
+        if (subjectField) subjectField.value = 'Membership request: ' + label.replace(/^Membership\s*—\s*/, '') + ' — NextWave Wellness';
       } else {
         if (titleEl) titleEl.textContent = defaultTitle;
         if (subheadEl) subheadEl.textContent = defaultSubhead;
-        if (subjectField) subjectField.value = defaultSubject;
+        if (subjectField) subjectField.value = 'Appointment request: ' + label + ' — NextWave Wellness';
       }
     }
 
