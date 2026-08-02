@@ -1059,9 +1059,9 @@ textarea { resize: vertical; min-height: 110px; }
   padding-bottom: clamp(32px, 4vw, 48px);
 }
 .membership-logo {
-  width: clamp(120px, 14vw, 160px);
+  width: clamp(200px, 24vw, 320px);
   height: auto;
-  margin: 0 auto clamp(32px, 5vw, 48px);
+  margin: 0 auto clamp(40px, 6vw, 56px);
 }
 .page-banner h1 {
   font-size: clamp(38px, 4.6vw, 60px);
