@@ -133,9 +133,11 @@ code is broken.
 - **Placeholders still to fill**: testimonial quotes and photo/video blocks in
   every Learn More section (9 pages); the 6 vitamin shot card photos;
   `Photography placeholder` panels on about/contact/services.
-- **"Book now" buttons are disabled sitewide** (`.btn-disabled`,
-  `aria-disabled`) pending a booking system. "Request a consultation" is the
-  live path.
+- **"Book now" buttons are disabled** (`.btn-disabled`, `aria-disabled`)
+  pending a booking system. "Request a consultation" is the live path.
+  Exception: functional-medicine-consult has no Book now at all — the two read
+  as redundant on a page that *is* the consult. When booking ships, that page
+  should get a real Book now for picking a consult time.
 - **IV menu** is marked "Coming Soon" — single $185 price until the full menu
   is defined.
 - **Unused images** safe to delete: `ChiroHero.png` (duplicate of
