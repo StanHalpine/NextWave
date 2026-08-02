@@ -1375,9 +1375,15 @@ textarea { resize: vertical; min-height: 110px; }
   color: var(--ink);
   margin-top: 12px;
 }
-.test-card-cta {
+.test-card-actions {
   margin-top: 18px;
-  padding: 10px 24px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+.test-card-cta {
+  padding: 10px 20px;
   font-size: 13px;
   cursor: pointer;
 }

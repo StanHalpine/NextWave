@@ -86,7 +86,10 @@ Two variants of the same pattern, both using native `<dialog>`:
 
 - `.shot-card` / `.shot-dialog` — vitamin shots. Has a product photo.
 - `.test-card` / `.test-dialog` — lab panels. Text-only, plus a one-line
-  description; the dialog scrolls internally for long content.
+  description; the dialog scrolls internally for long content. Each card
+  carries its own Learn more + Book now pair in `.test-card-actions`, since
+  booking only makes sense once a specific panel is chosen — which is why
+  biomarker-testing has no page-level Book now.
 
 Wiring is generic and lives in `script.js`: a button carries
 `data-dialog-target="<dialog-id>"`, the close button carries
