@@ -1,0 +1,16 @@
+{
+  "name": "NextWave Wellness",
+  "short_name": "NextWave",
+  "description": "Chiropractic, functional medicine, and longevity care on the lake",
+  "start_url": "/index.html",
+  "display": "standalone",
+  "background_color": "#FFFFFF",
+  "theme_color": "#2B4C5E",
+  "icons": [
+    {
+      "src": "assets/img/AppIcon_180.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    }
+  ]
+}
