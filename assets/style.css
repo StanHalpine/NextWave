@@ -1063,6 +1063,15 @@ textarea { resize: vertical; min-height: 110px; }
   height: auto;
   margin: 0 auto clamp(40px, 6vw, 56px);
 }
+.page-banner-centered .container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+.page-banner-centered .eyebrow { justify-content: center; }
+.page-banner-centered h1 { max-width: 22ch; }
+.page-banner-centered p { max-width: 52ch; }
 .page-banner h1 {
   font-size: clamp(38px, 4.6vw, 60px);
   margin-top: 18px;
