@@ -124,6 +124,9 @@ a:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visib
   text-transform: uppercase;
   margin-top: 3px;
 }
+.logo-icon {
+  display: none !important;
+}
 
 .nav-links {
   display: flex;
@@ -280,7 +283,8 @@ a.nav-cta-mobile { display: none; }
   .nav-links.open { transform: translateX(0); }
   .nav-cta { display: none; }
   .nav-toggle { display: block; margin-left: auto; }
-  .logo img { height: 19px; }
+  .logo-full { display: none !important; }
+  .logo-icon { display: block !important; }
   a.nav-cta-mobile {
     display: inline-flex;
     margin-top: 8px;
