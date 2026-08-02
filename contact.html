@@ -74,8 +74,8 @@
   <section class="page-banner">
     <div class="container reveal">
       <span class="eyebrow">Contact</span>
-      <h1>Request an appointment.</h1>
-      <p>Tell us a little about what you're looking for and a member of our care team will follow up to schedule your first visit or membership consultation.</p>
+      <h1 id="page-title">Request an appointment.</h1>
+      <p id="page-subhead">Tell us a little about what you're looking for and a member of our care team will follow up to schedule your first visit or membership consultation.</p>
     </div>
   </section>
 
@@ -109,6 +109,13 @@
                 <option value="membership-restore">Membership — Restore</option>
                 <option value="membership-optimize">Membership — Optimize</option>
                 <option value="membership">Membership — not sure which service yet</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="preferred-contact">Preferred contact method</label>
+              <select id="preferred-contact" name="preferred_contact">
+                <option value="email">Email</option>
+                <option value="phone">Phone</option>
               </select>
             </div>
             <div class="field full">
@@ -229,11 +236,35 @@
 <script src="assets/script.js"></script>
 <script>
   (function () {
-    var interest = new URLSearchParams(window.location.search).get('interest');
     var field = document.getElementById('interest');
-    if (interest && field && field.querySelector('option[value="' + interest + '"]')) {
-      field.value = interest;
+    var titleEl = document.getElementById('page-title');
+    var subheadEl = document.getElementById('page-subhead');
+    var subjectField = document.querySelector('input[name="subject"]');
+
+    var defaultTitle = titleEl ? titleEl.textContent : '';
+    var defaultSubhead = subheadEl ? subheadEl.textContent : '';
+    var defaultSubject = subjectField ? subjectField.value : '';
+
+    function applyInterestContext() {
+      var isMembership = field && field.value.indexOf('membership') === 0;
+      if (isMembership) {
+        if (titleEl) titleEl.textContent = 'Request your membership.';
+        if (subheadEl) subheadEl.textContent = "Tell us about yourself and we'll follow up to get your membership started. Until our online signup is live, our team will reach out by phone or email — whichever you prefer below.";
+        if (subjectField) subjectField.value = 'New membership request — NextWave Wellness';
+      } else {
+        if (titleEl) titleEl.textContent = defaultTitle;
+        if (subheadEl) subheadEl.textContent = defaultSubhead;
+        if (subjectField) subjectField.value = defaultSubject;
+      }
     }
+
+    var urlInterest = new URLSearchParams(window.location.search).get('interest');
+    if (urlInterest && field && field.querySelector('option[value="' + urlInterest + '"]')) {
+      field.value = urlInterest;
+    }
+
+    applyInterestContext();
+    if (field) { field.addEventListener('change', applyInterestContext); }
   })();
 
   document.getElementById('contact-form').addEventListener('submit', function (e) {
