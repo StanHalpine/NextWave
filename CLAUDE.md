@@ -96,6 +96,20 @@ Wiring is generic and lives in `script.js`: a button carries
 `data-dialog-close`. Backdrop click and Escape also close. Reuse this for any
 future multi-item service.
 
+**Every `.test-dialog` body follows the same three sections**, in order:
+
+1. `<h4>What it is</h4>` — what the test is and does, one paragraph.
+2. A details heading that varies by panel (`Included markers`, `What the
+   panel reveals`, `How to read a result`) — the clinical specifics.
+3. `<div class="test-dialog-benefit">` — who benefits and why it matters.
+   Contains an `.eyebrow` ("Why it matters"), an `h4`, a `.category-list` of
+   candidate types, and closes with a single `<p class="test-dialog-urge">`.
+
+Section 3 is deliberately styled apart — `--sand` panel, brass top rule, and
+a brass left rule on the urge line — so the persuasive copy reads as a
+callout rather than more body text. Each test card also carries a one-line
+"Best for:" under its price that previews this section.
+
 ### Contact form
 
 `contact.html` submits to Web3Forms. The "Interested in" select is prefilled

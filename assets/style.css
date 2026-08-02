@@ -1437,3 +1437,25 @@ textarea { resize: vertical; min-height: 110px; }
 .test-dialog-inner h4 + p { margin-top: 8px; }
 .test-dialog-inner .category-list { margin-top: 12px; }
 .test-dialog-inner .category-list strong { color: var(--ink); }
+
+/* Third section of a test dialog — who benefits, and why it matters */
+.test-dialog-benefit {
+  margin-top: 32px;
+  padding: clamp(22px, 3.5vw, 28px);
+  background: var(--sand);
+  border-top: 2px solid var(--brass);
+  border-radius: 3px;
+}
+.test-dialog-inner .test-dialog-benefit h4 {
+  margin-top: 12px;
+  font-size: 19px;
+  color: var(--ink);
+}
+.test-dialog-benefit .category-list { margin-top: 14px; }
+.test-dialog-inner .test-dialog-benefit p.test-dialog-urge {
+  margin-top: 16px;
+  color: var(--ink);
+  font-size: 15px;
+  border-left: 1px solid var(--brass);
+  padding-left: 16px;
+}
