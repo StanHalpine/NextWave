@@ -1070,7 +1070,7 @@ textarea { resize: vertical; min-height: 110px; }
   text-align: center;
 }
 .page-banner-centered .eyebrow { justify-content: center; }
-.page-banner-centered h1 { max-width: 22ch; }
+.page-banner-centered h1 { max-width: 22ch; color: #2B4C5E; }
 .page-banner-centered p { max-width: 52ch; }
 .page-banner h1 {
   font-size: clamp(38px, 4.6vw, 60px);
