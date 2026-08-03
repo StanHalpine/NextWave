@@ -1064,7 +1064,7 @@ textarea { resize: vertical; min-height: 110px; }
   margin: 0 auto clamp(40px, 6vw, 56px);
 }
 .service-logo {
-  width: clamp(180px, 20vw, 260px);
+  width: clamp(216px, 24vw, 312px);
   height: auto;
   margin: 0 0 clamp(20px, 3vw, 28px);
 }
