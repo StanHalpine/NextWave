@@ -110,7 +110,10 @@
             <li>Quarterly body composition measuring</li>
             <li>Exclusive member pricing on select services</li>
           </ul>
-          <a href="contact.html?interest=membership-prevent" class="btn btn-ghost">Choose Prevent</a>
+          <div class="tier-card-actions">
+            <button type="button" class="btn btn-ghost" data-dialog-target="tier-prevent">Learn more</button>
+            <a href="contact.html?interest=membership-prevent" class="btn btn-ghost">Choose Prevent</a>
+          </div>
         </div>
 
         <div class="tier-card featured">
@@ -123,7 +126,10 @@
             <li>Quarterly body composition measuring</li>
             <li>Exclusive member pricing on select services</li>
           </ul>
-          <a href="contact.html?interest=membership-restore" class="btn btn-primary" style="background:var(--brass); color:var(--ink);">Choose Restore</a>
+          <div class="tier-card-actions">
+            <button type="button" class="btn btn-ghost" data-dialog-target="tier-restore">Learn more</button>
+            <a href="contact.html?interest=membership-restore" class="btn btn-primary" style="background:var(--brass); color:var(--ink);">Choose Restore</a>
+          </div>
         </div>
 
         <div class="tier-card">
@@ -139,12 +145,115 @@
             <li>Quarterly body composition measuring</li>
             <li>Exclusive member pricing on select services</li>
           </ul>
-          <a href="contact.html?interest=membership-optimize" class="btn btn-ghost">Choose Optimize</a>
+          <div class="tier-card-actions">
+            <button type="button" class="btn btn-ghost" data-dialog-target="tier-optimize">Learn more</button>
+            <a href="contact.html?interest=membership-optimize" class="btn btn-ghost">Choose Optimize</a>
+          </div>
         </div>
       </div>
       <p class="frame-note reveal" style="margin-top:24px;">*Biomarker testing covers 50+ markers, including hormone levels, vitamin D, fasting insulin, A1C, triglycerides, CRP, and omega 3:6 ratio.</p>
     </div>
   </section>
+
+  <dialog id="tier-prevent" class="test-dialog">
+    <div class="test-dialog-inner">
+      <button type="button" class="test-dialog-close" data-dialog-close aria-label="Close">✕</button>
+      <span class="eyebrow">Membership</span>
+      <h3>Prevent</h3>
+      <p class="test-dialog-price">$99 <span>/month</span></p>
+      <p class="test-dialog-note">Best for establishing a baseline and staying ahead of small issues before they grow.</p>
+
+      <h4>What it is</h4>
+      <p>Prevent is built for people starting their health journey — you want objective answers about where you stand today, not just another subscription. It centers on a real baseline, established through biomarker testing and body composition measuring, with a provider reviewing that data with you every quarter so small imbalances get caught before they become bigger problems.</p>
+
+      <h4>What's included</h4>
+      <ul class="category-list">
+        <li><strong>Annual biomarker testing</strong> — the Baseline panel, a $225 value, included every year.</li>
+        <li><strong>Quarterly 1:1 provider consult &amp; personal wellness planning</strong> — a $150 value per visit, four times a year, included.</li>
+        <li><strong>Quarterly body composition measuring</strong> — a $55 value per check-in, included.</li>
+        <li><strong>Access to provider-prescribed peptides &amp; hormone optimization</strong>, when clinically appropriate.</li>
+        <li><strong>25% off</strong> manual adjustments, red light therapy, hyperbaric oxygen, spinal X-rays, hormone optimization testing, and IV therapy.</li>
+      </ul>
+
+      <div class="test-dialog-benefit">
+        <span class="eyebrow">Why it matters</span>
+        <h4>The math</h4>
+        <p>$1,188 a year in dues covers roughly $1,045 in included testing, consults, and body composition checks alone — before a single 25%-off visit. Add even a few discounted services over the year and Prevent pays for itself.</p>
+        <ul class="category-list">
+          <li>Best for anyone who wants a documented starting point and a provider checking in quarterly — not a large monthly credit balance to plan around.</li>
+          <li>A natural first tier if you're not sure yet how often you'll come in.</li>
+        </ul>
+        <p class="test-dialog-urge">The sooner you have a baseline, the sooner every future test means something. Prevent is how you start building that record.</p>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="tier-restore" class="test-dialog">
+    <div class="test-dialog-inner">
+      <button type="button" class="test-dialog-close" data-dialog-close aria-label="Close">✕</button>
+      <span class="eyebrow">Membership</span>
+      <h3>Restore</h3>
+      <p class="test-dialog-price">$199 <span>/month</span></p>
+      <p class="test-dialog-note">Best for building a consistent monthly routine across chiropractic and longevity care.</p>
+
+      <h4>What it is</h4>
+      <p>Restore is for people ready to build a consistent routine — using a mix of hands-on care and recovery therapies every month to actively rebuild your foundation, not just monitor it. Your credits carry across chiropractic and longevity services, so you can shift the mix as your body's needs change month to month.</p>
+
+      <h4>What's included</h4>
+      <ul class="category-list">
+        <li><strong>10 credits every month</strong>, usable across chiropractic and longevity services — mix and match adjustments, red light therapy, or hyperbaric sessions as you need them.</li>
+        <li><strong>1 IV therapy or vitamin shot per month</strong>, included — up to a $185 value.</li>
+        <li><strong>Quarterly body composition measuring</strong> — a $55 value per visit, included.</li>
+        <li><strong>25% off</strong> anything beyond your monthly credits, plus spinal X-rays and hormone optimization testing.</li>
+      </ul>
+
+      <div class="test-dialog-benefit">
+        <span class="eyebrow">Why it matters</span>
+        <h4>The math</h4>
+        <p>A typical month: a Hyperbaric 60-minute session (6 credits, a $110 value) plus a Manual Adjustment (3 credits, a $55 value) uses 9 of your 10 credits — $165 in services. Add your included monthly IV therapy or vitamin shot on top, and a single month of Restore can be worth $210–$350 in services for $199 in dues.</p>
+        <ul class="category-list">
+          <li>Best for anyone ready to come in regularly — weekly or biweekly — and wants recovery therapies and hands-on care working together.</li>
+          <li>Popular combination: two adjustments plus a hyperbaric session, alongside your monthly IV or shot.</li>
+        </ul>
+        <p class="test-dialog-urge">Consistency is what turns a single adjustment or one IV drip into an actual health trend. Restore is built for people showing up monthly — not just when something hurts.</p>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="tier-optimize" class="test-dialog">
+    <div class="test-dialog-inner">
+      <button type="button" class="test-dialog-close" data-dialog-close aria-label="Close">✕</button>
+      <span class="eyebrow">Membership</span>
+      <h3>Optimize</h3>
+      <p class="test-dialog-price">$299 <span>/month</span></p>
+      <p class="test-dialog-note">Best for treating recovery and longevity work as a weekly habit, not an occasional treat.</p>
+
+      <h4>What it is</h4>
+      <p>Optimize is the full stack — for people actively optimizing performance, recovery, and longevity, not just addressing what's broken. It combines the most monthly credits, the most IV therapy, and the same annual testing and provider access as Prevent, all in one tier.</p>
+
+      <h4>What's included</h4>
+      <ul class="category-list">
+        <li><strong>2 IV therapies every month</strong>, included — a $370 value.</li>
+        <li><strong>12 credits every month</strong>, usable across chiropractic and longevity services.</li>
+        <li><strong>Annual biomarker testing</strong> — the Baseline panel, a $225 value, included every year.</li>
+        <li><strong>Quarterly 1:1 provider consult &amp; personal wellness planning</strong> — a $150 value per visit, four times a year, included.</li>
+        <li><strong>Quarterly body composition measuring</strong> — a $55 value per check-in, included.</li>
+        <li><strong>Access to provider-prescribed peptides &amp; hormone optimization</strong>, when clinically appropriate.</li>
+        <li><strong>25% off</strong> anything beyond your monthly credits, plus spinal X-rays and hormone optimization testing.</li>
+      </ul>
+
+      <div class="test-dialog-benefit">
+        <span class="eyebrow">Why it matters</span>
+        <h4>The math</h4>
+        <p>Two IV therapies ($370) plus 12 credits spent on two Hyperbaric 60-minute sessions ($220) already total $590 in monthly service value — roughly double the $299 in dues. That's before counting the annual biomarker testing, quarterly consults, and quarterly body composition checks included on top.</p>
+        <ul class="category-list">
+          <li>Best for anyone treating recovery and longevity work as a weekly habit, not an occasional treat.</li>
+          <li>The only tier with two monthly IV therapies and the highest credit allowance.</li>
+        </ul>
+        <p class="test-dialog-urge">At this level, membership isn't really a discount — it's the more efficient way to get care you'd be paying full price for anyway.</p>
+      </div>
+    </div>
+  </dialog>
 
   <section class="section-alt">
     <div class="container">

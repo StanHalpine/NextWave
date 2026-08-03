@@ -354,6 +354,7 @@ a.nav-cta-mobile { display: none; }
   cursor: pointer;
   border: 1px solid transparent;
   font-family: var(--font-body);
+  background: none;
 }
 .btn-primary {
   background: var(--ink);
@@ -894,6 +895,16 @@ section { padding-top: clamp(56px, 8vw, 104px); padding-bottom: clamp(56px, 8vw,
   background: var(--brass);
 }
 .tier-card .btn { margin-top: 26px; justify-content: center; }
+.tier-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 26px;
+}
+.tier-card-actions .btn { margin-top: 0; flex: 1 1 auto; }
+.tier-card.featured .tier-card-actions .btn-ghost { border-color: rgba(237,231,221,0.5); color: var(--sand); }
+.tier-card.featured .tier-card-actions .btn-ghost:hover { background: var(--sand); color: var(--ink); }
 
 @media (max-width: 860px) {
   .tier-cards { grid-template-columns: 1fr; }
