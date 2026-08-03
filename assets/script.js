@@ -60,7 +60,8 @@ document.querySelectorAll('.horizon').forEach(function (h, i) {
 
 // Item detail lightboxes (e.g. vitamin shot cards) — native <dialog>
 document.querySelectorAll('[data-dialog-target]').forEach(function (btn) {
-  btn.addEventListener('click', function () {
+  btn.addEventListener('click', function (e) {
+    e.preventDefault();
     var dialog = document.getElementById(btn.getAttribute('data-dialog-target'));
     if (dialog) dialog.showModal();
   });
