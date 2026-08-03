@@ -121,6 +121,45 @@ a brass left rule on the urge line — so the persuasive copy reads as a
 callout rather than more body text. Each test card also carries a one-line
 "Best for:" under its price that previews this section.
 
+**Membership tier dialogs** (`membership.html`, `#tier-prevent|restore|optimize`)
+reuse `.test-dialog` / `.test-dialog-benefit` verbatim, opened by a "Learn
+more" button placed in a `.tier-card-actions` pair next to each "Choose …"
+button. The three-section pattern adapts to: (1) `What it is` — who the tier
+is for, (2) `What's included` — each perk with its walk-in dollar value
+spelled out, (3) `.test-dialog-benefit` "The math" — a concrete sample
+month/year showing service value against the monthly dues, closing with a
+`.test-dialog-urge` line. Keep the dollar figures tied to real prices on the
+service pages (not the `credit-table` on this same page, which uses older
+IV naming) — re-derive them if pricing changes.
+
+### Logo usage
+
+Three logo assets, each for a different context:
+
+- `Logo_Horizontal.png` — nav bar, desktop only (`.logo-full`).
+- `Waves_2B4C5E.png` — nav bar, mobile only (`.logo-icon`, wave mark alone,
+  no text). The two swap at the same 860px breakpoint the mobile nav uses:
+  `.logo-full { display:none }` / `.logo-icon { display:block }` under
+  `@media (max-width: 860px)`.
+- `Logo-Offset-2B4C5E.png` — stacked mark (icon over wordmark), used inside
+  page content, in two treatments:
+  - **Centered hero** (`.membership-logo`, `clamp(200px, 24vw, 320px)`) —
+    home, membership, and about pages. Add `page-banner-centered` to
+    `.page-banner` to center the logo, eyebrow, and h1 together; content
+    below the horizon divider stays left-justified as normal. `h1` also
+    picks up brand teal (`#2B4C5E`) from this class.
+  - **Left-justified inline** (`.service-logo`, `clamp(216px, 24vw, 312px)`)
+    — contact.html only, above the eyebrow in a normal (non-centered)
+    `.page-banner`. Not used on the 14 service detail pages — tried once,
+    reverted; those pages stay logo-free.
+
+### PWA / app icon
+
+`manifest.json` (root) + `<link rel="apple-touch-icon" href=".../AppIcon_180.png">`
+plus `apple-mobile-web-app-*` meta tags are on all 19 pages, so any new page
+needs the same block copied from an existing `<head>` (mind the `../` prefix
+on service pages).
+
 ### Contact form
 
 `contact.html` submits to Web3Forms. The "Interested in" select is prefilled
@@ -175,7 +214,7 @@ code is broken.
   `Photography placeholder` panels on about/contact/services.
 - **"Book now" buttons are disabled** (`.btn-disabled`, `aria-disabled`)
   pending a booking system. "Request a consultation" is the live path.
-  Exception: functional-medicine-consult and spinal-postural-assessment have
+  Exception: functional-medicine-consult and spinal-postural-exam have
   no Book now at all — the two read as redundant on a page that *is* the
   consult/assessment. When booking ships, those pages should get a real Book
   now for picking a time.
