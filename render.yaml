@@ -58,6 +58,11 @@ services:
       - key: HOLD_TTL_MINUTES
         value: "10"
 
+      # demo | beta | live — drives the patient-facing banner. Stays "demo"
+      # until the practice opens and real patients can book.
+      - key: BOOKING_MODE
+        value: demo
+
       # Basic Auth over the whole demo. Set these in the Render dashboard.
       - key: DEMO_USER
         sync: false

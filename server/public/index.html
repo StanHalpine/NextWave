@@ -12,10 +12,10 @@
 </head>
 <body>
 
-<div class="demo-banner">
-  <strong>BETA</strong> — online booking is new. Your request is reviewed by our
-  front desk, who will confirm by phone or email before it's final.
-</div>
+<!-- Filled from /api/config. Hidden until the mode is known, so a slow
+     network can never briefly show a real patient a "demo" label, or a
+     tester a "live" one. -->
+<div class="demo-banner" id="mode-banner" hidden></div>
 
 <header class="site-head">
   <div class="wrap">

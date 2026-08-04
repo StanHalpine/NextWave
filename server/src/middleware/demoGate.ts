@@ -49,7 +49,7 @@ const PUBLIC_PATHS = new Set([
 ]);
 
 /** Patient-facing API surface. Prefix-matched. */
-const PUBLIC_API = ['/api/services', '/api/availability', '/api/holds', '/api/bookings'];
+const PUBLIC_API = ['/api/config', '/api/services', '/api/availability', '/api/holds', '/api/bookings'];
 
 function isPublic(path: string): boolean {
   if (PUBLIC_PATHS.has(path)) return true;

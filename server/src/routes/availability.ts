@@ -13,6 +13,14 @@ const query = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'date must be YYYY-MM-DD.'),
 });
 
+/**
+ * GET /api/config — public, non-sensitive deployment facts the booking page
+ * needs before it can render honestly (chiefly: is this real?).
+ */
+availabilityRouter.get('/config', (_req, res) => {
+  res.json({ mode: config.bookingMode, timezone: config.clinicTimezone });
+});
+
 /** GET /api/services — the picker on the booking page. */
 availabilityRouter.get('/services', async (_req, res) => {
   const services = await prisma.service.findMany({

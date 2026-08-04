@@ -424,6 +424,32 @@
     }).catch(function () { localStorage.removeItem(HOLD_KEY); });
   }
 
+  /**
+   * The banner is driven by BOOKING_MODE on the server, not hard-coded here,
+   * so a test deployment cannot silently present itself as the real thing.
+   * Fails closed: if the mode cannot be fetched, show the demo warning rather
+   * than nothing, because wrongly claiming "real" is the costlier error.
+   */
+  function applyMode() {
+    var el = $('mode-banner');
+    var COPY = {
+      demo: '<strong>DEMO</strong> — sample data only. Nothing booked here is a real appointment.',
+      beta: '<strong>BETA</strong> — online booking is new. Your request is reviewed by our '
+          + 'front desk, who will confirm by phone or email before it is final.',
+      live: null,
+    };
+    api('/api/config').then(function (c) {
+      var copy = COPY[c.mode];
+      if (!copy) { el.hidden = true; return; }
+      el.innerHTML = copy;
+      el.hidden = false;
+    }).catch(function () {
+      el.innerHTML = COPY.demo;
+      el.hidden = false;
+    });
+  }
+
+  applyMode();
   loadServices();
   resume();
 })();

@@ -31,9 +31,30 @@ export const CLINIC_HOURS: Record<number, { open: string; close: string }> = {
   // 7 (Sunday) — closed.
 };
 
+/**
+ * What this deployment actually is, which drives the banner a patient sees.
+ *
+ *   demo — fixtures only, nothing here is a real appointment. The correct
+ *          setting until the practice opens.
+ *   beta — real patients, real bookings, but the flow is new and every
+ *          request is confirmed manually by the front desk.
+ *   live — normal operation, no banner.
+ *
+ * Config rather than markup so promoting a deployment is an env change, and
+ * so a test instance can never silently claim to be the real thing.
+ */
+export type BookingMode = 'demo' | 'beta' | 'live';
+
+function mode(): BookingMode {
+  const v = (process.env.BOOKING_MODE ?? 'demo').toLowerCase();
+  if (v === 'demo' || v === 'beta' || v === 'live') return v;
+  throw new Error(`BOOKING_MODE must be demo, beta or live — got "${v}"`);
+}
+
 export const config = {
   port: int('PORT', 4000),
   databaseUrl: required('DATABASE_URL'),
+  bookingMode: mode(),
   clinicTimezone: process.env.CLINIC_TIMEZONE ?? 'America/Chicago',
   holdTtlMinutes: int('HOLD_TTL_MINUTES', 10),
   frontDeskToken: process.env.FRONT_DESK_TOKEN ?? '',
