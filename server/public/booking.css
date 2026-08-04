@@ -52,9 +52,28 @@ body {
 .site-head {
   background: var(--lake-deep);
   color: var(--paper);
-  padding: 20px 0;
+  padding: 12px 0;
   margin-bottom: 28px;
 }
+.header-content {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.back-btn {
+  background: transparent;
+  border: 1px solid rgba(247, 244, 238, 0.4);
+  border-radius: 6px;
+  color: var(--paper);
+  padding: 8px 12px;
+  cursor: pointer;
+  font-family: var(--font-body);
+  font-size: 13px;
+  flex-shrink: 0;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+.back-btn:hover { background: rgba(247, 244, 238, 0.12); border-color: rgba(247, 244, 238, 0.6); }
+.header-text { flex: 1; }
 .brand { font-size: 19px; font-weight: 600; display: block; }
 .brand-sub { font-size: 12px; opacity: 0.72; letter-spacing: 0.04em; }
 

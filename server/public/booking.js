@@ -604,6 +604,7 @@
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
+  $('back-btn').addEventListener('click', function () { history.back(); });
   $('again-btn').addEventListener('click', resetToStart);
   $('date-input').addEventListener('change', function (e) {
     if (e.target.value) pickDay(e.target.value);
