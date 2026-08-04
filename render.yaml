@@ -63,7 +63,7 @@ services:
       # coming_soon | demo | beta | live. Use coming_soon once the marketing
       # site links here but the practice has not opened.
       - key: BOOKING_MODE
-        value: demo
+        value: coming_soon
 
       # Shown on the coming-soon page, e.g. "November".
       - key: OPENING_WHEN
