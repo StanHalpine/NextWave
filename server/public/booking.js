@@ -382,6 +382,11 @@
     });
 
     loadSlots();
+
+    // Smooth tween to the time picker.
+    setTimeout(function () {
+      $('step-time').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 100);
   }
 
   // ---- step 3: slots -----------------------------------------------------

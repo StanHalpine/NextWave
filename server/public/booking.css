@@ -34,6 +34,7 @@ body {
 }
 
 .wrap { max-width: 760px; margin: 0 auto; padding: 0 20px; }
+.wrap.narrow { max-width: 320px; }  /* For calendar step, tighter on desktop */
 
 /* Sets expectations before a patient invests time in the form: a request is
    not a confirmed appointment. Brass rather than a warning colour — this is
@@ -57,7 +58,7 @@ body {
 .brand { font-size: 19px; font-weight: 600; display: block; }
 .brand-sub { font-size: 12px; opacity: 0.72; letter-spacing: 0.04em; }
 
-.step { margin-bottom: 34px; }
+.step { margin-bottom: 34px; transition: opacity 0.3s ease; }
 .step-head { display: flex; align-items: center; gap: 11px; margin-bottom: 14px; }
 .step-num {
   width: 25px; height: 25px; flex: none;
@@ -369,6 +370,12 @@ form .opt { font-size: 11px; opacity: 0.6; }
 @media (max-width: 560px) {
   .service-list { grid-template-columns: 1fr; }
   .brand-sub { display: block; }
+}
+
+/* Calendar view narrower on desktop — no need to fill the page width. */
+@media (min-width: 561px) {
+  #step-date .day-strip { max-width: 320px; margin-left: 0; margin-right: 0; }
+  .date-pick { justify-content: center; }
 }
 
 /* ---- coming soon ------------------------------------------------------- */
