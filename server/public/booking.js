@@ -23,6 +23,8 @@
     subOption: null,
     // Whether the 'first visit?' question has been answered this session.
     newPatientAnswered: false,
+    // Whether the current service is a redirect due to new patient requirement.
+    newPatientRedirect: false,
   };
 
   var $ = function (id) { return document.getElementById(id); };
@@ -199,9 +201,14 @@
     no.textContent = 'No, this is my first visit';
     no.addEventListener('click', function () {
       state.newPatientAnswered = true;
+      state.newPatientRedirect = true;
       state.subOption = null; // belonged to the service we are leaving
       toast('Starting you with a ' + target.name + ' instead.');
       lockToService(target);
+      // Show the disclaimer when the calendar loads
+      setTimeout(function () {
+        $('step-disclaimer').hidden = false;
+      }, 100);
     });
 
     row.appendChild(yes);
@@ -292,7 +299,9 @@
       // Picking a different service invalidates the panel/shot that came with
       // the old one — carrying it over would mislabel the booking.
       state.subOption = null;
+      state.newPatientRedirect = false;
       box.hidden = true;
+      $('step-disclaimer').hidden = true;
       show('service-groups', true);
     });
   }
@@ -590,6 +599,7 @@
     clearHold();
     state.service = null; state.date = null; state.slot = null; state.subOption = null;
     state.newPatientAnswered = false;
+    state.newPatientRedirect = false;
     show('variant-choice', false);
     show('new-patient-check', false);
     show('step-service', true);
@@ -597,6 +607,7 @@
     show('step-time', false);
     show('step-details', false);
     show('step-done', false);
+    $('step-disclaimer').hidden = true;
     [].forEach.call(document.querySelectorAll('.service-btn'), function (b) { b.classList.remove('sel'); });
     $('details-form').reset();
     $('submit-btn').disabled = false;

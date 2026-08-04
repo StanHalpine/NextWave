@@ -91,6 +91,18 @@ body {
 
 .muted { color: var(--ink-soft); font-size: 13px; }
 
+/* ---- disclaimer --------------------------------------------------------- */
+
+.disclaimer {
+  background: var(--sand);
+  border-left: 3px solid var(--sage);
+  border-radius: 0 8px 8px 0;
+  padding: 18px 20px;
+  margin-bottom: 22px;
+}
+.disclaimer h2 { margin: 0 0 10px; font-size: 16px; color: var(--sage-deep); }
+.disclaimer-why { margin: 0; font-size: 13px; line-height: 1.6; color: var(--ink-soft); }
+
 /* ---- services ---------------------------------------------------------- */
 
 /* Shown instead of the full service list when arriving via a "Book now" deep
