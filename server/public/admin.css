@@ -1,7 +1,7 @@
 /* Configuration screen. Inherits the palette and topbar from dashboard.css;
    this file only adds what the admin views need. */
 
-.admin-wrap { max-width: 980px; margin: 0 auto; padding: 24px 20px 60px; }
+.admin-wrap { max-width: 980px; margin: 0 auto; padding: 24px 20px 110px; }
 
 .tabs { display: flex; gap: 4px; }
 .tab-btn {
@@ -172,4 +172,72 @@
   width: 260px;
   max-width: 100%;
   margin-right: 8px;
+}
+
+/* ---- save bar ---------------------------------------------------------- */
+
+.save-bar {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 13px 20px;
+  background: var(--ink);
+  color: var(--paper);
+  box-shadow: 0 -3px 14px rgba(28, 43, 46, 0.22);
+}
+.save-info { flex: 1; min-width: 200px; }
+.save-info strong { display: block; font-size: 14px; }
+/* Names what is pending, so "3 unsaved changes" is never a mystery. */
+#save-what { font-size: 12px; opacity: 0.72; }
+.save-bar .btn { font-size: 13px; padding: 8px 16px; }
+.save-bar #save-discard { background: transparent; border: 1px solid rgba(247,244,238,0.4); color: var(--paper); }
+.save-bar #save-discard:hover { background: rgba(247,244,238,0.12); }
+
+/* A record with unsaved edits, so the pending count can be traced to a row. */
+.row-card.dirty { border-left-color: var(--brass); background: #fdfaf3; }
+.row-card.dirty::after {
+  content: 'unsaved';
+  float: right;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  color: var(--brass);
+  text-transform: uppercase;
+}
+
+/* ---- inline editable fields -------------------------------------------- */
+
+.inline-name, .inline-type, .inline-cap {
+  font-family: var(--font-body);
+  padding: 6px 9px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+}
+/* Only outlined on hover/focus, so a page of inputs does not read as a form. */
+.inline-name:hover, .inline-type:hover, .inline-cap:hover,
+.inline-name:focus, .inline-type:focus, .inline-cap:focus {
+  border-color: var(--line);
+  background: var(--paper);
+  outline: none;
+}
+.inline-name { font-size: 15px; font-weight: 600; min-width: 200px; }
+.inline-type { font-family: var(--font-mono); font-size: 11px; width: 150px; }
+.inline-cap { font-family: var(--font-mono); font-size: 12px; width: 58px; }
+.cap-wrap { display: inline-flex; align-items: center; gap: 4px; }
+.cap-label { font-size: 11px; color: var(--ink-soft); }
+
+.inline-role {
+  font-family: var(--font-body);
+  font-size: 12px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--paper);
+  color: var(--ink);
 }

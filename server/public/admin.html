@@ -81,6 +81,16 @@
     <section class="panel" id="danger-zone" hidden></section>
 
   </main>
+  <!-- Sticky, so it is visible no matter how far down the page an edit was
+       made. Hidden until something is actually pending. -->
+  <div class="save-bar" id="save-bar" hidden>
+    <div class="save-info">
+      <strong id="save-count"></strong>
+      <span id="save-what"></span>
+    </div>
+    <button class="btn" id="save-discard">Discard</button>
+    <button class="btn btn-approve" id="save-go">Save changes</button>
+  </div>
 </div>
 
 <div class="toast" id="toast"></div>
