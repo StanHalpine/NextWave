@@ -59,8 +59,23 @@ holdsRouter.post('/holds', async (req, res) => {
   try {
     const result = await prisma.$transaction(
       async (tx) => {
-        const service = await tx.service.findUnique({ where: { id: serviceId } });
+        const service = await tx.service.findUnique({
+          where: { id: serviceId },
+          include: { options: { select: { label: true } } },
+        });
         if (!service) return { status: 404 as const, error: 'Unknown service.' };
+
+        // subOption arrives from a ?option= URL parameter, so it is untrusted
+        // input. Reject anything that is not a real option for this service —
+        // otherwise a hand-edited link could label a booking arbitrarily.
+        if (subOption) {
+          if (service.options.length === 0) {
+            return { status: 400 as const, error: `${service.name} has no options to choose from.` };
+          }
+          if (!service.options.some((o) => o.label === subOption)) {
+            return { status: 400 as const, error: `"${subOption}" is not an option for ${service.name}.` };
+          }
+        }
 
         // --- serialize on the scarce resources, then the providers ---------
         await tx.$queryRaw`

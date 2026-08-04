@@ -62,8 +62,9 @@ const resources = [
 // matching page in /services; hyperbaric is two rows because the site sells it
 // as two durations at two prices.
 //
-// NOTE: the spec's Service model has no price field, so it is not stored
-// here. See the handoff notes.
+// `priceCents` / `priceNote` are taken verbatim from each service page. Null
+// price means the page shows none, or the price depends on the chosen option
+// (see serviceOptions below).
 //
 // `slug` matches the marketing site's page filename (minus .html) — same
 // convention as the `?interest=<slug>` links on the contact form. It is what
@@ -74,25 +75,25 @@ const resources = [
 
 const services = [
   // Chiropractic
-  { id: S(1), slug: 'manual-adjustment', category: 'Chiropractic', name: 'Manual Adjustment', durationMin: 30, bufferMin: 5, requiredRole: StaffRole.CHIROPRACTOR, resourceType: 'ADJUSTING_ROOM' },
-  { id: S(2), slug: 'spinal-postural-exam', category: 'Chiropractic', name: 'Spinal & Postural Exam', durationMin: 45, bufferMin: 10, requiredRole: StaffRole.CHIROPRACTOR, resourceType: 'ADJUSTING_ROOM' },
-  { id: S(3), slug: 'spinal-xrays', category: 'Chiropractic', name: 'Spinal X-Rays', durationMin: 30, bufferMin: 10, requiredRole: StaffRole.CHIROPRACTOR, resourceType: 'XRAY_SUITE' },
+  { id: S(1), slug: 'manual-adjustment', category: 'Chiropractic', name: 'Manual Adjustment', durationMin: 30, bufferMin: 5, requiredRole: StaffRole.CHIROPRACTOR, resourceType: 'ADJUSTING_ROOM' , priceCents: 5500, newPatientSlug: 'spinal-postural-exam' },
+  { id: S(2), slug: 'spinal-postural-exam', category: 'Chiropractic', name: 'Spinal & Postural Exam', durationMin: 45, bufferMin: 10, requiredRole: StaffRole.CHIROPRACTOR, resourceType: 'ADJUSTING_ROOM' , priceCents: null },
+  { id: S(3), slug: 'spinal-xrays', category: 'Chiropractic', name: 'Spinal X-Rays', durationMin: 30, bufferMin: 10, requiredRole: StaffRole.CHIROPRACTOR, resourceType: 'XRAY_SUITE' , priceCents: 25000, priceNote: 'Exam & full spine X-rays' },
 
   // Functional Medicine
-  { id: S(4), slug: 'functional-medicine-consult', category: 'Functional Medicine', name: 'Functional Medicine Consult', durationMin: 30, bufferMin: 10, requiredRole: StaffRole.NURSE_PRACTITIONER, resourceType: 'CONSULT_ROOM' },
-  { id: S(5), slug: 'biomarker-testing', category: 'Functional Medicine', name: 'Biomarker Testing', durationMin: 20, bufferMin: 5, requiredRole: StaffRole.REGISTERED_NURSE, resourceType: 'LAB_DRAW' },
-  { id: S(6), slug: 'hormone-optimization', category: 'Functional Medicine', name: 'Hormone Optimization', durationMin: 30, bufferMin: 10, requiredRole: StaffRole.NURSE_PRACTITIONER, resourceType: 'CONSULT_ROOM' },
-  { id: S(7), slug: 'body-composition', category: 'Functional Medicine', name: 'Body Composition', durationMin: 15, bufferMin: 5, requiredRole: StaffRole.REGISTERED_NURSE, resourceType: 'INBODY_STATION' },
-  { id: S(8), slug: 'supplementation', category: 'Functional Medicine', name: 'Supplementation', durationMin: 20, bufferMin: 5, requiredRole: StaffRole.NURSE_PRACTITIONER, resourceType: 'CONSULT_ROOM' },
-  { id: S(9), slug: 'personal-wellness-planning', category: 'Functional Medicine', name: 'Personal Wellness Planning', durationMin: 45, bufferMin: 10, requiredRole: StaffRole.NURSE_PRACTITIONER, resourceType: 'CONSULT_ROOM' },
+  { id: S(4), slug: 'functional-medicine-consult', category: 'Functional Medicine', name: 'Functional Medicine Consult', durationMin: 30, bufferMin: 10, requiredRole: StaffRole.NURSE_PRACTITIONER, resourceType: 'CONSULT_ROOM' , priceCents: 15000, priceNote: '30 minute consult — includes InBody body composition measuring' },
+  { id: S(5), slug: 'biomarker-testing', category: 'Functional Medicine', name: 'Biomarker Testing', durationMin: 20, bufferMin: 5, requiredRole: StaffRole.REGISTERED_NURSE, resourceType: 'LAB_DRAW' , priceCents: null, priceNote: 'Price varies by panel' },
+  { id: S(6), slug: 'hormone-optimization', category: 'Functional Medicine', name: 'Hormone Optimization', durationMin: 30, bufferMin: 10, requiredRole: StaffRole.NURSE_PRACTITIONER, resourceType: 'CONSULT_ROOM' , priceCents: 35000, priceNote: 'Walk-in — includes DUTCH testing and 30 minute consult' },
+  { id: S(7), slug: 'body-composition', category: 'Functional Medicine', name: 'Body Composition', durationMin: 15, bufferMin: 5, requiredRole: StaffRole.REGISTERED_NURSE, resourceType: 'INBODY_STATION' , priceCents: 5500, priceNote: 'Walk-in rate' },
+  { id: S(8), slug: 'supplementation', category: 'Functional Medicine', name: 'Supplementation', durationMin: 20, bufferMin: 5, requiredRole: StaffRole.NURSE_PRACTITIONER, resourceType: 'CONSULT_ROOM' , priceCents: null },
+  { id: S(9), slug: 'personal-wellness-planning', category: 'Functional Medicine', name: 'Personal Wellness Planning', durationMin: 45, bufferMin: 10, requiredRole: StaffRole.NURSE_PRACTITIONER, resourceType: 'CONSULT_ROOM' , priceCents: null },
 
   // Longevity
-  { id: S(10), slug: 'iv-therapy', category: 'Longevity', name: 'IV Therapy', durationMin: 60, bufferMin: 15, requiredRole: StaffRole.REGISTERED_NURSE, resourceType: 'IV_CHAIR' },
-  { id: S(11), slug: 'vitamin-shots', category: 'Longevity', name: 'Vitamin Shots', durationMin: 15, bufferMin: 5, requiredRole: StaffRole.REGISTERED_NURSE, resourceType: 'SHOT_ROOM' },
-  { id: S(12), slug: 'hyperbaric-oxygen-therapy', category: 'Longevity', name: 'Hyperbaric Oxygen Therapy (60 min)', durationMin: 60, bufferMin: 15, requiredRole: StaffRole.REGISTERED_NURSE, resourceType: 'CHAMBER' },
-  { id: S(13), slug: 'hyperbaric-oxygen-therapy', category: 'Longevity', name: 'Hyperbaric Oxygen Therapy (90 min)', durationMin: 90, bufferMin: 15, requiredRole: StaffRole.REGISTERED_NURSE, resourceType: 'CHAMBER' },
-  { id: S(14), slug: 'red-light-therapy', category: 'Longevity', name: 'Red Light Therapy', durationMin: 10, bufferMin: 5, requiredRole: StaffRole.REGISTERED_NURSE, resourceType: 'RED_LIGHT_BED' },
-  { id: S(15), slug: 'peptide-therapy', category: 'Longevity', name: 'Peptide Therapy', durationMin: 30, bufferMin: 10, requiredRole: StaffRole.NURSE_PRACTITIONER, resourceType: 'CONSULT_ROOM' },
+  { id: S(10), slug: 'iv-therapy', category: 'Longevity', name: 'IV Therapy', durationMin: 60, bufferMin: 15, requiredRole: StaffRole.REGISTERED_NURSE, resourceType: 'IV_CHAIR' , priceCents: 18500, priceNote: 'Members save 25%. Two per month included with Optimize.' },
+  { id: S(11), slug: 'vitamin-shots', category: 'Longevity', name: 'Vitamin Shots', durationMin: 15, bufferMin: 5, requiredRole: StaffRole.REGISTERED_NURSE, resourceType: 'SHOT_ROOM' , priceCents: null, priceNote: 'Price varies by shot' },
+  { id: S(12), slug: 'hyperbaric-oxygen-therapy', category: 'Longevity', name: 'Hyperbaric Oxygen Therapy (60 min)', durationMin: 60, bufferMin: 15, requiredRole: StaffRole.REGISTERED_NURSE, resourceType: 'CHAMBER' , priceCents: 11000 },
+  { id: S(13), slug: 'hyperbaric-oxygen-therapy', category: 'Longevity', name: 'Hyperbaric Oxygen Therapy (90 min)', durationMin: 90, bufferMin: 15, requiredRole: StaffRole.REGISTERED_NURSE, resourceType: 'CHAMBER' , priceCents: 16500 },
+  { id: S(14), slug: 'red-light-therapy', category: 'Longevity', name: 'Red Light Therapy', durationMin: 10, bufferMin: 5, requiredRole: StaffRole.REGISTERED_NURSE, resourceType: 'RED_LIGHT_BED' , priceCents: 5500, priceNote: 'Full-dose 10 minute session — 3 credits' },
+  { id: S(15), slug: 'peptide-therapy', category: 'Longevity', name: 'Peptide Therapy', durationMin: 30, bufferMin: 10, requiredRole: StaffRole.NURSE_PRACTITIONER, resourceType: 'CONSULT_ROOM' , priceCents: null, priceNote: 'Pricing varies by prescription — reviewed with you during your consultation.' },
 ];
 
 // --------------------------------------------------------------------------
@@ -156,6 +157,32 @@ const staff: Array<{
   },
 ];
 
+// --------------------------------------------------------------------------
+// Service options — the specific shot or panel a patient picks on a card.
+// Each carries its own price, which is why these are rows rather than a plain
+// string. Storing them also makes Booking.subOption verifiable: the API now
+// rejects an option that does not belong to the service.
+//
+// Prices are read from the cards on vitamin-shots.html / biomarker-testing.html.
+// --------------------------------------------------------------------------
+
+const serviceOptions: Array<{ serviceId: string; label: string; priceCents: number; sortOrder: number }> = [
+  // Vitamin shots
+  { serviceId: S(11), label: 'Vitamin B12',              priceCents: 3500, sortOrder: 1 },
+  { serviceId: S(11), label: 'Glutathione',              priceCents: 4500, sortOrder: 2 },
+  { serviceId: S(11), label: 'NAD (25 mg)',              priceCents: 4500, sortOrder: 3 },
+  { serviceId: S(11), label: 'Vitamin D3 (12,500 IU)',   priceCents: 4500, sortOrder: 4 },
+  { serviceId: S(11), label: 'NAD (50 mg)',              priceCents: 5500, sortOrder: 5 },
+  { serviceId: S(11), label: 'Vitamin D3 (50,000 IU)',   priceCents: 5500, sortOrder: 6 },
+
+  // Biomarker panels
+  { serviceId: S(5), label: 'Baseline',            priceCents: 22500,  sortOrder: 1 },
+  { serviceId: S(5), label: 'Food Sensitivity',    priceCents: 35000,  sortOrder: 2 },
+  { serviceId: S(5), label: 'Total Toxin Testing', priceCents: 90000,  sortOrder: 3 },
+  { serviceId: S(5), label: 'Gut Health',          priceCents: 90000,  sortOrder: 4 },
+  { serviceId: S(5), label: 'Galleri Cancer Test', priceCents: 105000, sortOrder: 5 },
+];
+
 async function main() {
   for (const r of resources) {
     await prisma.resource.upsert({ where: { id: r.id }, create: r, update: r });
@@ -166,6 +193,15 @@ async function main() {
     await prisma.service.upsert({ where: { id: s.id }, create: s, update: s });
   }
   console.log(`  services        ${services.length}`);
+
+  for (const o of serviceOptions) {
+    await prisma.serviceOption.upsert({
+      where: { serviceId_label: { serviceId: o.serviceId, label: o.label } },
+      create: o,
+      update: o,
+    });
+  }
+  console.log(`  serviceOptions  ${serviceOptions.length}`);
 
   let shiftCount = 0;
   for (const person of staff) {

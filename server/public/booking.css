@@ -19,6 +19,11 @@
 
 * { box-sizing: border-box; }
 
+/* The `hidden` attribute sets display:none only at the browser-default level,
+   so any `display:` rule of ours silently defeats it — an element stays laid
+   out while reporting hidden===true. This makes hidden actually hide. */
+[hidden] { display: none !important; }
+
 body {
   margin: 0;
   background: var(--paper);
@@ -108,6 +113,48 @@ body {
   cursor: pointer;
 }
 
+/* Price shown alongside the locked service. Kept visually quieter than the
+   service name — it is confirmation, not the headline. */
+.locked-price { font-family: var(--font-mono); font-size: 14px; color: var(--sage-deep); margin-left: 6px; }
+.locked-note { font-size: 12px; color: var(--ink-soft); font-weight: 400; margin-top: 3px; }
+
+/* ---- variant choice (hyperbaric 60 / 90) ------------------------------- */
+
+.variant-choice {
+  background: var(--sand);
+  border-left: 3px solid var(--brass);
+  border-radius: 0 8px 8px 0;
+  padding: 15px 17px;
+}
+.variant-q { margin: 0 0 12px; font-weight: 600; }
+.variant-row { display: flex; gap: 10px; flex-wrap: wrap; }
+.variant-btn {
+  flex: 1 1 150px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px 16px;
+  cursor: pointer;
+  font-family: var(--font-body);
+  color: var(--ink);
+  text-align: left;
+}
+.variant-btn:hover { border-color: var(--sage); background: #fff; }
+.variant-dur { display: block; font-size: 15px; font-weight: 600; }
+.variant-price { display: block; font-family: var(--font-mono); font-size: 14px; color: var(--sage-deep); margin-top: 3px; }
+
+/* ---- new patient check ------------------------------------------------- */
+
+.np-check {
+  background: var(--sand);
+  border-left: 3px solid var(--lake);
+  border-radius: 0 8px 8px 0;
+  padding: 15px 17px;
+}
+.np-q { margin: 0 0 5px; font-weight: 600; }
+.np-why { margin: 0 0 13px; font-size: 13px; color: var(--ink-soft); }
+.np-row { display: flex; gap: 9px; flex-wrap: wrap; }
+
 .service-group { margin-bottom: 20px; }
 .service-group h3 {
   margin: 0 0 9px;
@@ -167,7 +214,29 @@ body {
   border: 1px solid var(--line); border-radius: 6px; background: var(--paper); color: var(--ink);
 }
 
-.slot-grid { display: grid; gap: 7px; grid-template-columns: repeat(auto-fill, minmax(86px, 1fr)); }
+.slot-grid { display: block; }
+
+/* Part-of-day heading. The count lets someone see at a glance whether the
+   morning is worth expanding before they scroll it. */
+.slot-part {
+  margin: 16px 0 8px;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  font-weight: 600;
+}
+.slot-part:first-child { margin-top: 0; }
+.slot-part span {
+  font-family: var(--font-mono);
+  letter-spacing: 0;
+  background: var(--sand);
+  border-radius: 10px;
+  padding: 1px 7px;
+  margin-left: 5px;
+  font-weight: 400;
+}
+.slot-row { display: grid; gap: 7px; grid-template-columns: repeat(auto-fill, minmax(86px, 1fr)); }
 .slot-btn {
   font-family: var(--font-mono);
   font-size: 13px;
@@ -211,6 +280,15 @@ body {
   background: var(--paper);
 }
 .summary .svc { font-weight: 600; }
+.summary-price {
+  font-family: var(--font-mono);
+  font-size: 16px;
+  color: var(--sage-deep);
+  margin-top: 7px;
+  padding-top: 7px;
+  border-top: 1px solid var(--line-soft);
+}
+.summary-price.muted { font-size: 13px; color: var(--ink-soft); }
 .summary .when { font-family: var(--font-mono); font-size: 13px; color: var(--ink-soft); }
 
 /* ---- form -------------------------------------------------------------- */

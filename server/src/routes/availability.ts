@@ -33,6 +33,13 @@ availabilityRouter.get('/services', async (_req, res) => {
       durationMin: true,
       requiredRole: true,
       resourceType: true,
+      priceCents: true,
+      priceNote: true,
+      newPatientSlug: true,
+      options: {
+        select: { label: true, priceCents: true },
+        orderBy: { sortOrder: 'asc' },
+      },
     },
   });
   res.json({ services });

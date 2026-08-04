@@ -31,6 +31,11 @@
 
 * { box-sizing: border-box; }
 
+/* `hidden` only sets display:none at browser-default specificity, so any
+   `display:` rule defeats it silently. Nothing here currently trips over
+   that, but the failure is invisible until it isn't. */
+[hidden] { display: none !important; }
+
 body {
   margin: 0;
   font-family: var(--font-body);

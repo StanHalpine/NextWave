@@ -94,7 +94,22 @@ model Service {
   bufferMin    Int
   requiredRole StaffRole
   resourceType String
-  bookings     Booking[]
+
+  /// Headline price in cents. Null where the service has no single price —
+  /// either it varies by prescription (peptide therapy) or by chosen option
+  /// (vitamin shots, biomarker panels — see ServiceOption).
+  priceCents Int?
+  /// Qualifier shown beside the price, taken verbatim from the service page
+  /// ("Walk-in rate", "Pricing varies by prescription").
+  priceNote String?
+
+  /// Service a FIRST-TIME patient should book instead. Manual adjustment
+  /// requires a completed spinal & postural exam, so a new patient choosing
+  /// it is redirected rather than left for the front desk to correct.
+  newPatientSlug String?
+
+  bookings Booking[]
+  options  ServiceOption[]
 
   @@index([slug])
 
@@ -131,6 +146,27 @@ model Booking {
   @@index([staffId, startTime, endTime])
   @@index([status, startTime])
   @@index([startTime])
+}
+
+/// A specific variant of a service that a patient picks on the service page —
+/// a vitamin shot, or a biomarker panel. Each has its own price, which is why
+/// this is a table rather than a string on Booking.
+///
+/// It also makes `Booking.subOption` verifiable: before this existed, the
+/// booking API accepted whatever `?option=` string arrived from the URL. Now a
+/// submitted option must match a real row for that service.
+model ServiceOption {
+  id         String  @id @default(uuid())
+  serviceId  String
+  label      String // "Vitamin B12", "Galleri Cancer Test"
+  priceCents Int
+  /// Display order on the service page; lowest first.
+  sortOrder  Int     @default(0)
+
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@unique([serviceId, label])
+  @@index([serviceId])
 }
 
 /// A clinical note a provider wrote about a visit. This is a MEDICAL RECORD,

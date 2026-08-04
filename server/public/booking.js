@@ -21,6 +21,8 @@
     // ?option= and is stored on Booking.subOption so the front desk knows
     // which one was requested rather than just the parent service.
     subOption: null,
+    // Whether the 'first visit?' question has been answered this session.
+    newPatientAnswered: false,
   };
 
   var $ = function (id) { return document.getElementById(id); };
@@ -71,6 +73,28 @@
     return h12 + ':' + p[1] + ' ' + suffix;
   }
 
+  /** 105000 → "$1,050". Whole dollars: every price on the site is round. */
+  function money(cents) {
+    if (cents == null) return null;
+    return '$' + (cents / 100).toLocaleString('en-US', { maximumFractionDigits: 0 });
+  }
+
+  /**
+   * What this booking costs, as far as we can state it. An option's price
+   * beats the service price — a B12 shot is $35 even though Vitamin Shots
+   * has no headline price. Returns null when genuinely unknown (peptide
+   * therapy), so the UI can say so rather than imply free.
+   */
+  function priceFor(service, optionLabel) {
+    if (!service) return null;
+    if (optionLabel && service.options) {
+      for (var i = 0; i < service.options.length; i++) {
+        if (service.options[i].label === optionLabel) return money(service.options[i].priceCents);
+      }
+    }
+    return money(service.priceCents);
+  }
+
   // ---- step 1: services --------------------------------------------------
 
   function loadServices() {
@@ -94,7 +118,18 @@
           b.type = 'button';
           b.className = 'service-btn';
           b.dataset.slug = s.slug;
-          b.innerHTML = esc(s.name) + '<span class="dur">' + s.durationMin + ' min</span>';
+          var p = priceFor(s, null);
+          // Services whose price depends on the option show "From $x" rather
+          // than nothing, so the list never looks like some things are free.
+          if (!p && s.options && s.options.length) {
+            var lowest = s.options.reduce(function (m, o) {
+              return o.priceCents < m ? o.priceCents : m;
+            }, s.options[0].priceCents);
+            p = 'From ' + money(lowest);
+          }
+          b.innerHTML = esc(s.name)
+            + '<span class="dur">' + s.durationMin + ' min'
+            + (p ? ' · <strong>' + esc(p) + '</strong>' : '') + '</span>';
           b.addEventListener('click', function () { pickService(s); });
           list.appendChild(b);
         });
@@ -114,10 +149,65 @@
       b.classList.toggle('sel', b.dataset.slug === s.slug);
     });
 
+    // Some services assume a prior visit. Ask before showing days, so a
+    // first-timer is redirected instead of booking something they are not
+    // eligible for and being corrected by phone.
+    if (s.newPatientSlug && !state.newPatientAnswered) {
+      askNewPatient(s);
+      return;
+    }
+    proceedToDays();
+  }
+
+  function proceedToDays() {
+    show('new-patient-check', false);
     show('step-date', true);
     show('step-time', false);
     buildDays();
     $('step-date').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  function askNewPatient(s) {
+    var target = state.services.filter(function (x) { return x.slug === s.newPatientSlug; })[0];
+    // If the prerequisite service is missing from the catalogue, do not block
+    // the booking — let it through and let the front desk sort it out.
+    if (!target) { state.newPatientAnswered = true; proceedToDays(); return; }
+
+    show('step-date', false);
+    var box = $('new-patient-check');
+    box.hidden = false;
+    box.innerHTML =
+      '<p class="np-q">Have you been to NextWave before?</p>'
+      + '<p class="np-why">' + esc(s.name) + ' is for patients who have already completed a '
+      + esc(target.name) + '.</p>';
+
+    var row = document.createElement('div');
+    row.className = 'np-row';
+
+    var yes = document.createElement('button');
+    yes.type = 'button';
+    yes.className = 'btn btn-primary';
+    yes.textContent = "Yes, I'm an existing patient";
+    yes.addEventListener('click', function () {
+      state.newPatientAnswered = true;
+      proceedToDays();
+    });
+
+    var no = document.createElement('button');
+    no.type = 'button';
+    no.className = 'btn btn-ghost';
+    no.textContent = 'No, this is my first visit';
+    no.addEventListener('click', function () {
+      state.newPatientAnswered = true;
+      state.subOption = null; // belonged to the service we are leaving
+      toast('Starting you with a ' + target.name + ' instead.');
+      lockToService(target);
+    });
+
+    row.appendChild(yes);
+    row.appendChild(no);
+    box.appendChild(row);
+    box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
 
   // ---- deep link: "Book now" on a service page -----------------------
@@ -149,11 +239,40 @@
       state.subOption = null;
       return;
     }
-    // A slug can map to more than one row (hyperbaric's 60/90-minute
-    // variants share one page). Default to the shorter session; a future
-    // `?duration=` param can disambiguate once that page is wired.
     matches.sort(function (a, b) { return a.durationMin - b.durationMin; });
+
+    // One slug, several services — hyperbaric sells a 60- and a 90-minute
+    // session off a single page at different prices. Silently taking the
+    // shorter one books the wrong thing, so ask.
+    if (matches.length > 1) {
+      offerVariants(matches);
+      return;
+    }
     lockToService(matches[0]);
+  }
+
+  function offerVariants(list) {
+    show('service-groups', false);
+    var box = $('variant-choice');
+    box.hidden = false;
+    box.innerHTML = '<p class="variant-q">Which session would you like?</p>';
+
+    var row = document.createElement('div');
+    row.className = 'variant-row';
+    list.forEach(function (s) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'variant-btn';
+      var p = priceFor(s, null);
+      b.innerHTML = '<span class="variant-dur">' + s.durationMin + ' minutes</span>'
+        + (p ? '<span class="variant-price">' + esc(p) + '</span>' : '');
+      b.addEventListener('click', function () {
+        box.hidden = true;
+        lockToService(s);
+      });
+      row.appendChild(b);
+    });
+    box.appendChild(row);
   }
 
   function lockToService(s) {
@@ -161,9 +280,12 @@
     show('service-groups', false);
     var box = $('service-locked');
     box.hidden = false;
+    var lp = priceFor(s, state.subOption);
     box.innerHTML =
       '<div class="locked-name">' + esc(s.name)
       + (state.subOption ? ' <span class="locked-option">' + esc(state.subOption) + '</span>' : '')
+      + (lp ? ' <span class="locked-price">' + esc(lp) + '</span>' : '')
+      + (s.priceNote && !state.subOption ? '<div class="locked-note">' + esc(s.priceNote) + '</div>' : '')
       + '</div>'
       + '<button type="button" class="locked-change" id="change-service-btn">Not what you meant? Choose a different service</button>';
     $('change-service-btn').addEventListener('click', function () {
@@ -241,13 +363,38 @@
         $('slot-note').textContent = d.slots.length + ' open '
           + (d.slots.length === 1 ? 'time' : 'times') + ' · times shown in ' + d.timezone;
 
+        // 45 slots in one list is a long scroll on a phone. Grouping by part
+        // of day lets someone jump to the window they actually want.
+        var parts = [
+          { name: 'Morning', from: 0, to: 12, slots: [] },
+          { name: 'Afternoon', from: 12, to: 17, slots: [] },
+          { name: 'Evening', from: 17, to: 24, slots: [] },
+        ];
         d.slots.forEach(function (s) {
-          var b = document.createElement('button');
-          b.type = 'button';
-          b.className = 'slot-btn';
-          b.textContent = ampm(s.localTime);
-          b.addEventListener('click', function () { takeHold(s, b); });
-          grid.appendChild(b);
+          var hour = parseInt(s.localTime.split(':')[0], 10);
+          for (var i = 0; i < parts.length; i++) {
+            if (hour >= parts[i].from && hour < parts[i].to) { parts[i].slots.push(s); break; }
+          }
+        });
+
+        parts.forEach(function (part) {
+          if (!part.slots.length) return;
+          var h = document.createElement('h3');
+          h.className = 'slot-part';
+          h.innerHTML = esc(part.name) + ' <span>' + part.slots.length + '</span>';
+          grid.appendChild(h);
+
+          var row = document.createElement('div');
+          row.className = 'slot-row';
+          part.slots.forEach(function (s) {
+            var b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'slot-btn';
+            b.textContent = ampm(s.localTime);
+            b.addEventListener('click', function () { takeHold(s, b); });
+            row.appendChild(b);
+          });
+          grid.appendChild(row);
         });
       })
       .catch(function (e) {
@@ -296,7 +443,13 @@
           weekday: 'long', month: 'long', day: 'numeric',
           hour: 'numeric', minute: '2-digit',
         })) + '</div>'
-      + '<div class="when">' + esc(h.resource) + (h.staff ? ' · ' + esc(h.staff) : '') + '</div>';
+      + '<div class="when">' + esc(h.resource) + (h.staff ? ' · ' + esc(h.staff) : '') + '</div>'
+      + (function () {
+          var p = priceFor(state.service, h.subOption);
+          if (p) return '<div class="summary-price">' + esc(p) + '</div>';
+          // Never leave price silently blank — say it is confirmed later.
+          return '<div class="summary-price muted">Price confirmed at your visit</div>';
+        })();
 
     startCountdown(new Date(h.expiresAt));
     $('step-details').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -370,7 +523,9 @@
         show('step-details', false);
         show('step-done', true);
         $('done-detail').innerHTML = '<strong>' + esc(b.service)
-          + (b.subOption ? ' — ' + esc(b.subOption) : '') + '</strong><br>'
+          + (b.subOption ? ' — ' + esc(b.subOption) : '')
+          + (function () { var p = priceFor(state.service, b.subOption); return p ? ' · ' + esc(p) : ''; })()
+          + '</strong><br>'
           + esc(new Date(b.start).toLocaleString(undefined, {
               weekday: 'long', month: 'long', day: 'numeric',
               hour: 'numeric', minute: '2-digit',
@@ -389,6 +544,9 @@
   function resetToStart() {
     clearHold();
     state.service = null; state.date = null; state.slot = null; state.subOption = null;
+    state.newPatientAnswered = false;
+    show('variant-choice', false);
+    show('new-patient-check', false);
     show('step-service', true);
     show('step-date', false);
     show('step-time', false);
