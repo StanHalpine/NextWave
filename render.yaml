@@ -1,8 +1,15 @@
 # Render blueprint for the NextWave scheduling demo.
 #
-# In Render: New → Blueprint → connect this repo → point at server/render.yaml.
-# It provisions the Postgres instance and the web service together and wires
+# Must live at the REPOSITORY ROOT — Render only looks for render.yaml here,
+# not in subdirectories. `rootDir: server` below is what points the build and
+# start commands at the server/ folder.
+#
+# In Render: New → Blueprint → connect this repo → select branch.
+# Provisions the Postgres instance and the web service together and wires
 # DATABASE_URL between them.
+#
+# This file does NOT affect the existing static site that serves
+# nextwave-wellness.com — manually created Render services ignore render.yaml.
 #
 # Values marked sync:false are NOT stored in this file — Render prompts for
 # them at deploy time. Never commit secrets here; this file is public in the

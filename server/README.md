@@ -22,12 +22,12 @@ The dashboard asks for `FRONT_DESK_TOKEN` once and keeps it in `localStorage`.
 
 ## Deploying the demo to Render
 
-`server/render.yaml` is a Blueprint that provisions the Postgres instance and
+`render.yaml` (repo root) is a Blueprint that provisions the Postgres instance and
 the web service together and wires `DATABASE_URL` between them.
 
 1. Push this branch to GitHub.
-2. Render → **New → Blueprint** → connect the repo → point it at
-   `server/render.yaml`.
+2. Render → **New → Blueprint** → connect the repo → choose the branch.
+   Render finds `render.yaml` at the repo root automatically.
 3. Render prompts for the two `sync: false` values — pick a username and
    password for `DEMO_USER` / `DEMO_PASSWORD`. That pair is the Basic Auth
    credential you hand to anyone you want in.
