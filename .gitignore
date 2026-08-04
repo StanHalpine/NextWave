@@ -1,0 +1,11 @@
+# The backend lives on the scheduling-engine branch and deploys separately.
+# These entries exist on main too, because switching branches leaves the
+# untracked server/ files (including server/.env) sitting on disk — without
+# this, a `git add -A` while on main would commit real secrets.
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
