@@ -27,7 +27,12 @@ services:
     runtime: node
     plan: free # sleeps after ~15 min idle; first request back takes ~30s
     rootDir: server
-    buildCommand: npm ci && npx prisma generate && npx prisma migrate deploy && npm run build
+    # --include=dev is required. NODE_ENV=production (set below, correctly, for
+    # the runtime) makes npm skip devDependencies — which is where typescript,
+    # @types/node, the Prisma CLI and tsx all live. Without this the build dies
+    # on "TS2688: Cannot find type definition file for 'node'", and `npm run
+    # seed` would later fail too because tsx would be absent.
+    buildCommand: npm ci --include=dev && npx prisma generate && npx prisma migrate deploy && npm run build
     startCommand: npm start
     healthCheckPath: /health
     envVars:
