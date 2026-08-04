@@ -313,16 +313,8 @@
       + (lp ? ' <span class="locked-price">' + esc(lp) + '</span>' : '')
       + (s.priceNote && !state.subOption ? '<div class="locked-note">' + esc(s.priceNote) + '</div>' : '')
       + '</div>'
-      + '<button type="button" class="locked-change" id="change-service-btn">Not what you meant? Choose a different service</button>';
-    $('change-service-btn').addEventListener('click', function () {
-      // Picking a different service invalidates the panel/shot that came with
-      // the old one — carrying it over would mislabel the booking.
-      state.subOption = null;
-      state.newPatientRedirect = false;
-      box.hidden = true;
-      $('step-disclaimer').hidden = true;
-      show('service-groups', true);
-    });
+      + '<a class="locked-change" href="' + SITE + '/services.html">'
+      + 'Not what you meant? Choose a different service</a>';
   }
 
   // ---- step 2: days ------------------------------------------------------
@@ -558,13 +550,22 @@
     state.hold = null;
   }
 
+  /**
+   * Cancel — give the slot back and return to the service page they came from.
+   *
+   * Navigates away rather than resetting to step 1, because the in-app service
+   * picker is not a route we send anyone to: services are chosen on the
+   * marketing site. Fires the release without awaiting it; the request is
+   * already in flight when the page unloads, and an unexpired hold would lapse
+   * on its own regardless.
+   */
   $('release-btn').addEventListener('click', function () {
-    if (!state.hold) return;
-    var id = state.hold.holdId;
-    clearHold();
-    api('/api/holds/' + id, { method: 'DELETE' }).catch(function () { /* expiry handles it */ });
-    toast('Slot released.');
-    resetToStart();
+    if (state.hold) {
+      var id = state.hold.holdId;
+      clearHold();
+      api('/api/holds/' + id, { method: 'DELETE' }).catch(function () { /* expiry handles it */ });
+    }
+    leaveApp();
   });
 
   $('details-form').addEventListener('submit', function (e) {
@@ -612,27 +613,7 @@
       });
   });
 
-  // ---- reset / resume ----------------------------------------------------
-
-  function resetToStart() {
-    clearHold();
-    state.service = null; state.date = null; state.slot = null; state.subOption = null;
-    state.newPatientAnswered = false;
-    state.newPatientRedirect = false;
-    show('variant-choice', false);
-    show('new-patient-check', false);
-    show('step-service', true);
-    show('step-date', false);
-    show('step-time', false);
-    show('step-details', false);
-    show('step-done', false);
-    $('step-disclaimer').hidden = true;
-    [].forEach.call(document.querySelectorAll('.service-btn'), function (b) { b.classList.remove('sel'); });
-    $('details-form').reset();
-    $('submit-btn').disabled = false;
-    $('submit-btn').textContent = 'Request appointment';
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  }
+  // ---- resume ------------------------------------------------------------
 
   // ---- back navigation ---------------------------------------------------
 
@@ -644,14 +625,23 @@
    * to go back to and the button would appear dead. Fall back to the service
    * page they were looking at, or the services index.
    */
+  var SITE = 'https://nextwave-wellness.com';
+
+  /** The marketing page for the service they arrived from, if we know it. */
+  function servicePageUrl() {
+    var slug = new URLSearchParams(location.search).get('service');
+    return slug ? SITE + '/services/' + slug + '.html' : SITE + '/services.html';
+  }
+
   function leaveApp() {
-    var SITE = 'https://nextwave-wellness.com';
+    // history.back() returns them to the exact page they came from, which is
+    // the service page. Only usable when they actually arrived from the site —
+    // opening this link directly leaves nothing to go back to.
     if (document.referrer && document.referrer.indexOf('nextwave-wellness.com') !== -1) {
       history.back();
       return;
     }
-    var slug = new URLSearchParams(location.search).get('service');
-    location.href = slug ? SITE + '/services/' + slug + '.html' : SITE + '/services.html';
+    location.href = servicePageUrl();
   }
 
   /** Which step the patient is currently looking at. */
@@ -673,7 +663,8 @@
   function goBack() {
     switch (currentStep()) {
       case 'done':
-        resetToStart();
+        // Already submitted; there is nothing to go back to in the flow.
+        location.href = SITE + '/services.html';
         return;
 
       case 'details':
@@ -712,13 +703,17 @@
     var step = currentStep();
     var label = step === 'details' ? '← Change time'
       : step === 'datetime' && $('service-locked').hidden ? '← Choose service'
-      : step === 'done' ? '← Start over'
+      : step === 'done' ? '← Back to site'
       : '← Back';
     $('back-btn').textContent = label;
   }
 
   $('back-btn').addEventListener('click', goBack);
-  $('again-btn').addEventListener('click', resetToStart);
+  // Back to the marketing site's service list rather than the in-app picker —
+  // every booking starts from a "Book now" button on nextwave-wellness.com.
+  $('again-btn').addEventListener('click', function () {
+    location.href = SITE + '/services.html';
+  });
   $('date-input').addEventListener('change', function (e) {
     if (e.target.value) pickDay(e.target.value);
   });
