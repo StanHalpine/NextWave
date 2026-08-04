@@ -1,14 +1,19 @@
 /**
  * Seed the Resource / Staff / StaffSchedule / Service matrices.
  *
- * Idempotent AND non-destructive: every row uses a fixed UUID, and `update` is
- * deliberately empty. Re-running fills a fresh database but NEVER overwrites an
- * existing row.
+ * RUNS ONCE, ON AN EMPTY DATABASE ONLY.
  *
- * That matters because this runs on every deploy (see render.yaml) and the
- * admin screen lets staff, shifts, rooms and prices be edited. If the seed
- * still wrote `update: <row>`, every deploy would silently revert the practice's
- * real data back to these placeholders.
+ * This executes on every deploy (see render.yaml), so it must not fight the
+ * admin screen. Two earlier attempts were not enough:
+ *
+ *   `update: <row>`  overwrote edits on every deploy.
+ *   `update: {}`     stopped overwrites, but `upsert` still RECREATED rows the
+ *                    admin had deleted, and shifts were re-added to anyone
+ *                    whose roster had been deliberately cleared.
+ *
+ * Deleting a provider and having them reappear after the next deploy is the
+ * same bug wearing a different hat. The only safe rule is: if the practice has
+ * configured anything at all, leave the database alone.
  *
  * PROVENANCE — read before trusting these numbers:
  *
@@ -190,6 +195,18 @@ const serviceOptions: Array<{ serviceId: string; label: string; priceCents: numb
 ];
 
 async function main() {
+  // The presence of ANY service means this database has been set up already —
+  // either by a previous seed or by hand. Adding to it from here would undo
+  // deletions and resurrect placeholders.
+  const alreadyConfigured = await prisma.service.count();
+  if (alreadyConfigured > 0) {
+    console.log(`  skipped — database already has ${alreadyConfigured} service(s).`);
+    console.log('  Seeding only ever populates an empty database, so admin edits');
+    console.log('  and deletions survive every deploy. To re-seed from scratch,');
+    console.log('  clear the Service table first.');
+    return;
+  }
+
   for (const r of resources) {
     // update:{} — never clobber a room the admin screen has edited.
     await prisma.resource.upsert({ where: { id: r.id }, create: r, update: {} });

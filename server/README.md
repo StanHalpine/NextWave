@@ -33,9 +33,10 @@ the web service together and wires `DATABASE_URL` between them.
    credential you hand to anyone you want in.
 4. Deploy. The build runs `prisma migrate deploy`, so the schema is created
    automatically.
-5. **Seed it.** Migrations create empty tables; the rooms, services and staff
-   come from the seed. In the Render shell for the service:
-   `npm run seed`
+5. **Seeding is automatic and runs once.** The build runs `npm run seed`, which
+   populates an EMPTY database and then never touches it again. Once the admin
+   screen has been used, deploys leave the configuration completely alone —
+   deleted staff stay deleted, cleared rosters stay cleared.
 6. Grab `FRONT_DESK_TOKEN` from the service's Environment tab (Render generates
    it) — that is what signs you into the front desk grid.
 
