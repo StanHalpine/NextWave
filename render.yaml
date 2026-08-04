@@ -32,7 +32,13 @@ services:
     # @types/node, the Prisma CLI and tsx all live. Without this the build dies
     # on "TS2688: Cannot find type definition file for 'node'", and `npm run
     # seed` would later fail too because tsx would be absent.
-    buildCommand: npm ci --include=dev && npx prisma generate && npx prisma migrate deploy && npm run build
+    #
+    # `npm run seed` runs on EVERY deploy, deliberately. Migrations create empty
+    # tables, so without it the booking page has no services to offer and the
+    # app looks broken. The seed is idempotent — fixed UUIDs with upserts — and
+    # touches only Resource / Service / Staff / StaffSchedule. It never touches
+    # Booking, User or VisitNote, so re-running it cannot destroy demo activity.
+    buildCommand: npm ci --include=dev && npx prisma generate && npx prisma migrate deploy && npm run build && npm run seed
     startCommand: npm start
     healthCheckPath: /health
     envVars:
