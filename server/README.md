@@ -69,7 +69,8 @@ offered only when all four hold at once:
 2. a provider of the service's `requiredRole` is rostered across it
 3. that provider has no conflicting booking **anywhere** — staff contention is
    global, so an RN on an IV drip is unavailable for a lab draw
-4. a room of the service's `resourceType` has spare capacity
+4. one of the rooms assigned to the service (see `ServiceRoom`) has spare
+   capacity — a service may list several, and any of them will do
 
 Effective concurrency is therefore `min(free rooms, free qualified staff)`.
 

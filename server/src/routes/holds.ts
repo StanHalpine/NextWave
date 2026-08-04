@@ -78,11 +78,15 @@ holdsRouter.post('/holds', async (req, res) => {
         }
 
         // --- serialize on the scarce resources, then the providers ---------
+        // Locks every room this service may use. ORDER BY id is load-bearing:
+        // two services sharing rooms (consult rooms serve five) must take the
+        // locks in the same sequence or they deadlock against each other.
         await tx.$queryRaw`
-          SELECT id FROM "Resource"
-          WHERE type = ${service.resourceType}
-          ORDER BY id
-          FOR UPDATE`;
+          SELECT r.id FROM "Resource" r
+          JOIN "ServiceRoom" sr ON sr."resourceId" = r.id
+          WHERE sr."serviceId" = ${serviceId}
+          ORDER BY r.id
+          FOR UPDATE OF r`;
         await tx.$queryRaw`
           SELECT id FROM "Staff"
           WHERE role = ${service.requiredRole}::"StaffRole"

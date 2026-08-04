@@ -37,11 +37,11 @@ enum NoteKind {
 }
 
 model User {
-  id        String   @id @default(uuid())
+  id        String    @id @default(uuid())
   name      String
   email     String
   phone     String
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
   bookings  Booking[]
 
   @@index([email])
@@ -74,16 +74,36 @@ model StaffSchedule {
 }
 
 model Resource {
-  id          String    @id @default(uuid())
+  id          String        @id @default(uuid())
   name        String // e.g., "IV Chair 1", "Hyperbaric Chamber"
   type        String // "IV_CHAIR", "CHAMBER", "RED_LIGHT_BED", "CONSULT_ROOM"
-  maxCapacity Int       @default(1)
+  maxCapacity Int           @default(1)
   /// Soft delete — a decommissioned room keeps its past bookings.
   /// Inactive resources are excluded from availability.
-  active      Boolean   @default(true)
+  active      Boolean       @default(true)
   bookings    Booking[]
+  services    ServiceRoom[]
 
   @@index([type])
+}
+
+/// Which rooms a service may be delivered in.
+///
+/// Replaces the old `Service.resourceType` string, which allowed exactly one
+/// room type per service — so Vitamin Shots queued for the single Shot Room
+/// while four IV chairs sat idle. A service is bookable in ANY of its listed
+/// rooms; the engine takes whichever is free.
+///
+/// Rooms are shared: several services can list the same room and they contend
+/// for it normally, since occupancy is counted per room across all services.
+model ServiceRoom {
+  serviceId  String
+  resourceId String
+  service    Service  @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  resource   Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+
+  @@id([serviceId, resourceId])
+  @@index([resourceId])
 }
 
 model Service {
@@ -100,7 +120,6 @@ model Service {
   durationMin  Int
   bufferMin    Int
   requiredRole StaffRole
-  resourceType String
 
   /// Headline price in cents. Null where the service has no single price —
   /// either it varies by prescription (peptide therapy) or by chosen option
@@ -108,7 +127,7 @@ model Service {
   priceCents Int?
   /// Qualifier shown beside the price, taken verbatim from the service page
   /// ("Walk-in rate", "Pricing varies by prescription").
-  priceNote String?
+  priceNote  String?
 
   /// Service a FIRST-TIME patient should book instead. Manual adjustment
   /// requires a completed spinal & postural exam, so a new patient choosing
@@ -117,9 +136,9 @@ model Service {
 
   bookings Booking[]
   options  ServiceOption[]
+  rooms    ServiceRoom[]
 
   @@index([slug])
-
   @@index([category])
 }
 
@@ -163,12 +182,12 @@ model Booking {
 /// booking API accepted whatever `?option=` string arrived from the URL. Now a
 /// submitted option must match a real row for that service.
 model ServiceOption {
-  id         String  @id @default(uuid())
+  id         String @id @default(uuid())
   serviceId  String
   label      String // "Vitamin B12", "Galleri Cancer Test"
   priceCents Int
   /// Display order on the service page; lowest first.
-  sortOrder  Int     @default(0)
+  sortOrder  Int    @default(0)
 
   service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
 
@@ -199,7 +218,7 @@ model VisitNote {
   createdAt DateTime @default(now())
 
   /// Set when this row supersedes an earlier note. Null on an original.
-  amendsId String? @unique
+  amendsId    String? @unique
   /// Why this amendment was made — required when amending, for the audit trail.
   amendReason String?
 

@@ -332,15 +332,14 @@
       var warnBox = $('room-warning');
       warnBox.innerHTML = '';
 
-      // A service whose room type has no active room can never be booked, and
-      // the booking page just shows "no availability" without explaining why.
-      var activeTypes = {};
-      r.resources.forEach(function (x) { if (x.active) activeTypes[x.type] = true; });
-      var missing = r.requiredTypes.filter(function (t) { return !activeTypes[t]; });
-      if (missing.length) {
+      // A service left with no active room can never be booked, and the
+      // booking page can only say "no availability". Name the services rather
+      // than the room type — that is what a patient actually cannot book.
+      if (r.strandedServices && r.strandedServices.length) {
         warnBox.appendChild(el('div', 'warn-box bad',
-          '<strong>No active room for:</strong> ' + esc(missing.join(', '))
-          + '. Services needing these cannot be booked at all.'));
+          '<strong>Not bookable — no active room:</strong> '
+          + esc(r.strandedServices.join(', '))
+          + '. Assign a room under Services, or reactivate one here.'));
       }
 
       var box = $('room-list');
@@ -418,8 +417,12 @@
     api('/api/admin/resources', {
       method: 'POST',
       body: JSON.stringify({ name: name.trim(), type: type.trim().toUpperCase(), maxCapacity: 1 }),
-    }).then(function () { toast('Room added.'); refreshAll(); })
-      .catch(function (e) { toast(e.message, true); });
+    }).then(function (r) {
+      toast(r.inheritedServices
+        ? 'Room added — already enabled for ' + r.inheritedServices + ' service(s) that use this room type.'
+        : 'Room added. Assign it to services under the Services tab.');
+      refreshAll();
+    }).catch(function (e) { toast(e.message, true); });
   });
 
   // ---- services ----------------------------------------------------------
@@ -431,18 +434,103 @@
       var cat = null;
       r.services.forEach(function (s) {
         if (s.category !== cat) { cat = s.category; box.appendChild(el('div', 'svc-cat', esc(cat))); }
-        box.appendChild(serviceCard(s));
+        box.appendChild(serviceCard(s, r.resources));
       });
     }).catch(function (e) { if (e.message !== 'unauthorised') toast(e.message, true); });
   }
 
-  function serviceCard(s) {
+  /**
+   * Which rooms a service may use. A service is bookable in ANY ticked room,
+   * so ticking more rooms adds capacity — vitamin shots in the IV chairs as
+   * well as the shot room. Rooms are shared: several services can tick the
+   * same room and they contend for it normally.
+   */
+  function roomPicker(s, resources, onChange) {
+    var wrap = el('div', 'room-picker');
+    var chosen = {};
+    s.roomIds.forEach(function (id) { chosen[id] = true; });
+
+    var summary = el('button', 'room-summary');
+    summary.type = 'button';
+
+    var panel = el('div', 'room-panel');
+    panel.hidden = true;
+
+    function label() {
+      var names = resources.filter(function (r) { return chosen[r.id]; })
+        .map(function (r) { return r.name; });
+      if (!names.length) return 'No rooms — not bookable';
+      if (names.length === resources.length) return 'Any room (' + names.length + ')';
+      return names.length + ' room' + (names.length === 1 ? '' : 's') + ': ' + names.join(', ');
+    }
+    function refresh() {
+      summary.textContent = label();
+      summary.classList.toggle('empty', Object.keys(chosen).filter(function (k) { return chosen[k]; }).length === 0);
+    }
+
+    summary.addEventListener('click', function () { panel.hidden = !panel.hidden; });
+
+    // Grouped by type, because that is how rooms are actually interchangeable —
+    // ticking all four IV chairs is one visual sweep rather than four hunts.
+    var byType = {};
+    resources.forEach(function (r) { (byType[r.type] = byType[r.type] || []).push(r); });
+
+    Object.keys(byType).forEach(function (type) {
+      var group = el('div', 'room-group');
+      var head = el('div', 'room-group-head');
+
+      var all = el('button', 'room-all');
+      all.type = 'button';
+      all.textContent = type.replace(/_/g, ' ').toLowerCase();
+      all.addEventListener('click', function () {
+        // Toggle the whole type in one click.
+        var everyOn = byType[type].every(function (r) { return chosen[r.id]; });
+        byType[type].forEach(function (r) {
+          chosen[r.id] = !everyOn;
+          panel.querySelector('input[value="' + r.id + '"]').checked = !everyOn;
+        });
+        refresh();
+        onChange(selected());
+      });
+      head.appendChild(all);
+      group.appendChild(head);
+
+      byType[type].forEach(function (r) {
+        var lab = el('label', 'room-opt' + (r.active ? '' : ' inactive'));
+        var cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.value = r.id;
+        cb.checked = !!chosen[r.id];
+        cb.addEventListener('change', function () {
+          chosen[r.id] = cb.checked;
+          refresh();
+          onChange(selected());
+        });
+        lab.appendChild(cb);
+        lab.appendChild(document.createTextNode(' ' + r.name + (r.active ? '' : ' (inactive)')));
+        group.appendChild(lab);
+      });
+      panel.appendChild(group);
+    });
+
+    function selected() {
+      return resources.filter(function (r) { return chosen[r.id]; }).map(function (r) { return r.id; });
+    }
+
+    refresh();
+    wrap.appendChild(summary);
+    wrap.appendChild(panel);
+    wrap.selected = selected;
+    return wrap;
+  }
+
+  function serviceCard(s, resources) {
     var card = el('div', 'row-card');
     var grid = el('div', 'svc-grid');
 
     var left = el('div');
     left.appendChild(el('div', 'row-name', esc(s.name)));
-    left.appendChild(el('div', 'row-meta', esc(s.resourceType) + ' · ' + esc(s.requiredRole)));
+    left.appendChild(el('div', 'row-meta', esc(s.requiredRole)));
     if (s.options.length) {
       left.appendChild(el('div', 'row-meta',
         s.options.length + ' priced options: '
@@ -462,6 +550,8 @@
       return d;
     }
 
+    var picker;
+
     function queueService() {
       markDirty('service:' + s.id, s.name, function () {
         var priceRaw = inputs.price.value.trim();
@@ -473,6 +563,7 @@
             // Empty means "no single price", not zero — peptide therapy and
             // the option-priced services genuinely have none.
             priceCents: priceRaw === '' ? null : Math.round(parseFloat(priceRaw) * 100),
+            roomIds: picker.selected(),
           }),
         });
       }, card);
@@ -483,6 +574,13 @@
     grid.appendChild(field('Price $', 'price', money(s.priceCents), { type: 'number', min: '0' }));
 
     card.appendChild(grid);
+
+    var rooms = el('div', 'svc-rooms');
+    rooms.appendChild(el('label', 'svc-rooms-label', 'Rooms this can happen in'));
+    picker = roomPicker(s, resources, queueService);
+    rooms.appendChild(picker);
+    card.appendChild(rooms);
+
     return card;
   }
 

@@ -214,9 +214,26 @@ async function main() {
   console.log(`  resources       ${resources.length}`);
 
   for (const s of services) {
-    await prisma.service.upsert({ where: { id: s.id }, create: s, update: {} });
+    const { resourceType, ...row } = s;
+    await prisma.service.upsert({ where: { id: row.id }, create: row, update: {} });
   }
   console.log(`  services        ${services.length}`);
+
+  // Service ↔ room links. `resourceType` above is now only the seed's shorthand
+  // for "every room of this type" — the real relationship lives in ServiceRoom
+  // and is edited per-room in the admin screen.
+  let links = 0;
+  for (const s of services) {
+    for (const r of resources.filter((x) => x.type === s.resourceType)) {
+      await prisma.serviceRoom.upsert({
+        where: { serviceId_resourceId: { serviceId: s.id, resourceId: r.id } },
+        create: { serviceId: s.id, resourceId: r.id },
+        update: {},
+      });
+      links++;
+    }
+  }
+  console.log(`  serviceRooms    ${links}`);
 
   for (const o of serviceOptions) {
     await prisma.serviceOption.upsert({

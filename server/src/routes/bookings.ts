@@ -66,10 +66,11 @@ bookingsRouter.post('/bookings', async (req, res) => {
         }
 
         await tx.$queryRaw`
-          SELECT id FROM "Resource"
-          WHERE type = ${hold.service.resourceType}
-          ORDER BY id
-          FOR UPDATE`;
+          SELECT r.id FROM "Resource" r
+          JOIN "ServiceRoom" sr ON sr."resourceId" = r.id
+          WHERE sr."serviceId" = ${hold.serviceId}
+          ORDER BY r.id
+          FOR UPDATE OF r`;
 
         const now = new Date();
         const lapsed = !hold.holdExpiresAt || hold.holdExpiresAt <= now;
@@ -233,10 +234,11 @@ bookingsRouter.patch('/bookings/:id', requireFrontDesk, async (req, res) => {
       // for the same chair, both approved in quick succession.
       if (next === 'CONFIRMED') {
         await tx.$queryRaw`
-          SELECT id FROM "Resource"
-          WHERE type = ${booking.service.resourceType}
-          ORDER BY id
-          FOR UPDATE`;
+          SELECT r.id FROM "Resource" r
+          JOIN "ServiceRoom" sr ON sr."resourceId" = r.id
+          WHERE sr."serviceId" = ${booking.serviceId}
+          ORDER BY r.id
+          FOR UPDATE OF r`;
 
         const room = await tx.resource.findUniqueOrThrow({ where: { id: booking.resourceId } });
         const rivals = await tx.booking.findMany({

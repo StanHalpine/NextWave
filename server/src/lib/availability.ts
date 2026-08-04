@@ -109,15 +109,24 @@ export async function computeDayAvailability(
   const openAt = wallClockToUtc(dateISO, hours.open);
   const closeAt = wallClockToUtc(dateISO, hours.close);
 
-  // ---- rooms of the required type -------------------------------------
-  // `active: true` — a decommissioned room keeps its history but must never
-  // be offered for a new booking.
+  // ---- rooms this service may be delivered in --------------------------
+  // Any listed room will do; the engine takes whichever is free. `active:
+  // true` — a decommissioned room keeps its history but must never be
+  // offered for a new booking.
   const resources = await db.resource.findMany({
-    where: { type: service.resourceType, active: true },
+    where: { active: true, services: { some: { serviceId } } },
     orderBy: { id: 'asc' },
   });
   if (resources.length === 0) {
-    return { ...base, closedReason: `No ${service.resourceType} room is available.` };
+    // Distinguish "never configured" from "all its rooms are switched off" —
+    // they need different fixes in the admin screen.
+    const anyLinked = await db.serviceRoom.count({ where: { serviceId } });
+    return {
+      ...base,
+      closedReason: anyLinked > 0
+        ? `Every room for ${service.name} is currently inactive.`
+        : `No room has been assigned to ${service.name}.`,
+    };
   }
 
   // ---- providers rostered on this weekday ------------------------------

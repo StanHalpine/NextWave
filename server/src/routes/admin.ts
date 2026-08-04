@@ -165,18 +165,23 @@ adminRouter.get('/admin/resources', async (_req, res) => {
     orderBy: [{ active: 'desc' }, { type: 'asc' }, { name: 'asc' }],
     include: { _count: { select: { bookings: true } } },
   });
-  // Which room types the services actually ask for — so the UI can warn about
-  // a type with no active room, which silently makes that service unbookable.
-  const needed = await prisma.service.findMany({
-    select: { resourceType: true },
-    distinct: ['resourceType'],
+  // Services left with no ACTIVE room cannot be booked at all, and the booking
+  // page can only say "no availability". Naming the service beats naming a
+  // room type — it points straight at what a patient cannot book.
+  const services = await prisma.service.findMany({
+    select: { name: true, rooms: { select: { resource: { select: { active: true } } } } },
+    orderBy: { name: 'asc' },
   });
+  const stranded = services
+    .filter((s) => !s.rooms.some((r) => r.resource.active))
+    .map((s) => s.name);
+
   res.json({
     resources: resources.map((r) => ({
       id: r.id, name: r.name, type: r.type, maxCapacity: r.maxCapacity,
       active: r.active, bookingCount: r._count.bookings,
     })),
-    requiredTypes: needed.map((n) => n.resourceType).sort(),
+    strandedServices: stranded,
   });
 });
 
@@ -190,8 +195,29 @@ const resourceBody = z.object({
 adminRouter.post('/admin/resources', async (req, res) => {
   const parsed = resourceBody.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Invalid body.' });
+
   const r = await prisma.resource.create({ data: parsed.data });
-  res.status(201).json({ ...r, bookingCount: 0 });
+
+  // A new room starts assigned to whatever its siblings of the same type
+  // already serve. Without this, adding "IV Chair 5" would be a silent no-op:
+  // no error, no extra capacity, just fewer slots than expected — the same
+  // class of quiet failure as a provider with no shifts.
+  const siblings = await prisma.serviceRoom.findMany({
+    where: { resource: { type: r.type, id: { not: r.id } } },
+    select: { serviceId: true },
+    distinct: ['serviceId'],
+  });
+  if (siblings.length > 0) {
+    await prisma.serviceRoom.createMany({
+      data: siblings.map((s) => ({ serviceId: s.serviceId, resourceId: r.id })),
+    });
+  }
+
+  res.status(201).json({
+    ...r,
+    bookingCount: 0,
+    inheritedServices: siblings.length,
+  });
 });
 
 const resourcePatch = resourceBody.partial().extend({ active: z.boolean().optional() }).strict();
@@ -333,9 +359,25 @@ adminRouter.post('/admin/purge', async (req, res) => {
 adminRouter.get('/admin/services', async (_req, res) => {
   const services = await prisma.service.findMany({
     orderBy: [{ category: 'asc' }, { name: 'asc' }],
-    include: { options: { orderBy: { sortOrder: 'asc' } } },
+    include: {
+      options: { orderBy: { sortOrder: 'asc' } },
+      rooms: { select: { resourceId: true } },
+    },
   });
-  res.json({ services });
+  // The picker needs every room, including inactive ones — a service may
+  // legitimately still be linked to a room that is temporarily switched off.
+  const resources = await prisma.resource.findMany({
+    orderBy: [{ type: 'asc' }, { name: 'asc' }],
+    select: { id: true, name: true, type: true, active: true },
+  });
+  res.json({
+    services: services.map((s) => ({
+      ...s,
+      rooms: undefined,
+      roomIds: s.rooms.map((r) => r.resourceId),
+    })),
+    resources,
+  });
 });
 
 const servicePatch = z.object({
@@ -343,6 +385,10 @@ const servicePatch = z.object({
   bufferMin: z.number().int().min(0).max(240).optional(),
   priceCents: z.number().int().min(0).max(10_000_00).nullable().optional(),
   priceNote: z.string().trim().max(200).nullable().optional(),
+  /// Rooms this service may be delivered in. Replaces the whole set.
+  /// Not .uuid() — seeded ids are UUID-shaped but not valid hex
+  /// ("re500u4c-…"), and existence is proven against the table below anyway.
+  roomIds: z.array(z.string().min(1).max(64)).optional(),
 }).strict();
 
 adminRouter.patch('/admin/services/:id', async (req, res) => {
@@ -352,12 +398,35 @@ adminRouter.patch('/admin/services/:id', async (req, res) => {
   const existing = await prisma.service.findUnique({ where: { id: req.params.id } });
   if (!existing) return res.status(404).json({ error: 'Unknown service.' });
 
-  const svc = await prisma.service.update({ where: { id: existing.id }, data: parsed.data });
+  const { roomIds, ...fields } = parsed.data;
+
+  // A service with no rooms cannot be booked at all, and the booking page can
+  // only say "no availability" without explaining why. Refuse rather than let
+  // the schedule go quietly empty.
+  if (roomIds && roomIds.length === 0) {
+    return res.status(400).json({
+      error: `${existing.name} needs at least one room, or nobody can book it.`,
+    });
+  }
+  if (roomIds) {
+    const found = await prisma.resource.count({ where: { id: { in: roomIds } } });
+    if (found !== roomIds.length) return res.status(400).json({ error: 'Unknown room.' });
+  }
+
+  const svc = await prisma.$transaction(async (tx) => {
+    if (roomIds) {
+      await tx.serviceRoom.deleteMany({ where: { serviceId: existing.id } });
+      await tx.serviceRoom.createMany({
+        data: roomIds.map((resourceId) => ({ serviceId: existing.id, resourceId })),
+      });
+    }
+    return tx.service.update({ where: { id: existing.id }, data: fields });
+  });
 
   // Changing a duration does not retime bookings already made at the old
   // length; say so rather than let the difference go unnoticed.
   let note: string | undefined;
-  if (parsed.data.durationMin != null && parsed.data.durationMin !== existing.durationMin) {
+  if (fields.durationMin != null && fields.durationMin !== existing.durationMin) {
     const affected = await prisma.booking.count({
       where: { serviceId: svc.id, status: { in: ['PENDING_REVIEW', 'CONFIRMED'] }, startTime: { gte: new Date() } },
     });

@@ -244,3 +244,67 @@
   background: var(--paper);
   color: var(--ink);
 }
+
+/* ---- room picker ------------------------------------------------------- */
+
+.svc-rooms { margin-top: 12px; border-top: 1px dashed var(--line); padding-top: 11px; }
+.svc-rooms-label {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  margin-bottom: 6px;
+}
+
+.room-summary {
+  width: 100%;
+  text-align: left;
+  font-family: var(--font-body);
+  font-size: 13px;
+  padding: 8px 11px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--paper);
+  color: var(--ink);
+  cursor: pointer;
+}
+.room-summary:hover { background: var(--sand); }
+.room-summary::after { content: ' ▾'; opacity: 0.5; }
+/* A service with nothing ticked cannot be booked at all — say so in the
+   control itself, not only in the warning box at the top of the Rooms tab. */
+.room-summary.empty { border-color: var(--st-declined); color: var(--st-declined); }
+
+.room-panel {
+  margin-top: 8px;
+  padding: 11px 13px;
+  background: var(--sand);
+  border-radius: 8px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(165px, 1fr));
+}
+.room-group-head { margin-bottom: 4px; }
+/* Ticks or clears a whole room type at once — four IV chairs in one click. */
+.room-all {
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--lake);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.room-opt {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  padding: 2px 0;
+  cursor: pointer;
+}
+.room-opt.inactive { opacity: 0.55; }
+.room-opt input { margin: 0; }
