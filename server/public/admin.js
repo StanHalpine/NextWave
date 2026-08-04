@@ -280,9 +280,14 @@
         + '<input type="time" class="s-start" value="' + esc(shift ? shift.startTime : '09:00') + '">'
         + '<span class="row-meta">to</span>'
         + '<input type="time" class="s-end" value="' + esc(shift ? shift.endTime : '17:00') + '">';
-      var del = el('button', 'shift-del', '&times;');
-      del.title = 'Remove this shift';
+      // Labelled, not a bare "×" — a lone glyph at the end of a row of time
+      // pickers is easy to miss entirely, which is how this went unnoticed.
+      var del = el('button', 'shift-del', 'Remove');
+      del.title = 'Remove this working day';
+      del.setAttribute('aria-label', 'Remove this working day');
       del.addEventListener('click', function () { r.remove(); refreshWarning(); queueShifts(); });
+      r.appendChild(del);
+
       [].forEach.call(r.querySelectorAll('select,input'), function (f) {
         f.addEventListener('change', queueShifts);
       });

@@ -88,13 +88,16 @@
 .shift-row input[type="time"] { font-family: var(--font-mono); }
 .shift-del {
   background: none;
-  border: none;
+  border: 1px solid transparent;
+  border-radius: 5px;
   color: var(--st-declined);
   cursor: pointer;
-  font-size: 16px;
+  font-family: var(--font-body);
+  font-size: 12px;
   line-height: 1;
-  padding: 2px 6px;
+  padding: 5px 10px;
 }
+.shift-del:hover { border-color: var(--st-declined); background: #f7e9e6; }
 .shift-empty { font-size: 12px; color: var(--st-declined); margin: 0 0 8px; }
 .shift-tools { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
 
