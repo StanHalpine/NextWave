@@ -16,6 +16,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { requireFrontDesk } from '../middleware/frontDesk.js';
+import { config } from '../config.js';
 
 export const adminRouter = Router();
 adminRouter.use('/admin', requireFrontDesk);
@@ -248,6 +249,80 @@ adminRouter.delete('/admin/resources/:id', async (req, res) => {
     deactivated: true,
     reason: `Kept because ${r.name} appears in ${r._count.bookings} booking(s). `
       + 'Deactivated instead — it takes no new bookings.',
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Purge — demo mode only
+// ---------------------------------------------------------------------------
+
+/** GET /api/admin/purge — what a purge would delete, without deleting it. */
+adminRouter.get('/admin/purge', async (_req, res) => {
+  const [bookings, users, notes] = await Promise.all([
+    prisma.booking.count(),
+    prisma.user.count(),
+    prisma.visitNote.count(),
+  ]);
+  res.json({
+    allowed: config.bookingMode === 'demo',
+    mode: config.bookingMode,
+    wouldDelete: { bookings, patients: users, visitNotes: notes },
+  });
+});
+
+const PURGE_PHRASE = 'DELETE ALL BOOKINGS';
+
+/**
+ * POST /api/admin/purge — delete every booking, patient and clinical note.
+ *
+ * Two locks, because this is the most destructive operation in the system and
+ * it is irreversible:
+ *
+ *   1. BOOKING_MODE must be "demo". Once the practice flips to beta or live
+ *      this endpoint refuses outright — it cannot destroy real patient records
+ *      even with a valid token, and no code change is needed to secure it.
+ *   2. The exact phrase must be sent in the body, so a stray click or a
+ *      replayed request cannot trigger it.
+ *
+ * Configuration (services, rooms, staff, shifts) is never touched.
+ */
+adminRouter.post('/admin/purge', async (req, res) => {
+  if (config.bookingMode !== 'demo') {
+    return res.status(403).json({
+      error: `Refused: BOOKING_MODE is "${config.bookingMode}". Purging is only possible `
+        + 'in demo mode, so real patient records cannot be destroyed from here.',
+    });
+  }
+
+  const body = z.object({ confirm: z.string() }).strict().safeParse(req.body);
+  if (!body.success || body.data.confirm !== PURGE_PHRASE) {
+    return res.status(400).json({ error: `Send {"confirm":"${PURGE_PHRASE}"} to proceed.` });
+  }
+
+  const before = {
+    bookings: await prisma.booking.count(),
+    patients: await prisma.user.count(),
+    visitNotes: await prisma.visitNote.count(),
+  };
+
+  // Order matters: VisitNote restricts deletion of its Booking and Staff, and
+  // amendments reference the note they supersede, so break the chain first.
+  await prisma.$transaction(async (tx) => {
+    await tx.visitNote.updateMany({ data: { amendsId: null } });
+    await tx.visitNote.deleteMany({});
+    await tx.booking.deleteMany({});
+    await tx.user.deleteMany({});
+  });
+
+  console.warn('[admin] PURGE executed — deleted', before);
+  res.json({
+    purged: true,
+    deleted: before,
+    kept: {
+      services: await prisma.service.count(),
+      resources: await prisma.resource.count(),
+      staff: await prisma.staff.count(),
+    },
   });
 });
 

@@ -421,6 +421,55 @@
     loadStaff();
     loadRooms();
     loadServices();
+    loadDangerZone();
+  }
+
+  /**
+   * Purge controls, shown only when the server reports demo mode. The server
+   * refuses regardless of what the UI does — this just avoids offering a
+   * button that cannot work.
+   */
+  function loadDangerZone() {
+    api('/api/admin/purge').then(function (r) {
+      var box = $('danger-zone');
+      if (!r.allowed) { box.hidden = true; return; }
+      box.hidden = false;
+
+      var d = r.wouldDelete;
+      var total = d.bookings + d.patients + d.visitNotes;
+      box.innerHTML =
+        '<div class="danger">'
+        + '<h2>Clear all booking data</h2>'
+        + '<p>Deletes every booking, patient record and clinical note. Services, '
+        + 'rooms, staff and shifts are kept. <strong>This cannot be undone.</strong> '
+        + 'Only possible while BOOKING_MODE is <code>demo</code>.</p>'
+        + '<div class="counts">' + d.bookings + ' bookings · ' + d.patients
+        + ' patients · ' + d.visitNotes + ' clinical notes</div>'
+        + (total === 0 ? '<p class="counts">Nothing to clear.</p>' : '')
+        + '</div>';
+
+      if (total === 0) return;
+
+      var row = document.createElement('div');
+      var input = document.createElement('input');
+      input.placeholder = 'Type DELETE ALL BOOKINGS';
+      var go = el('button', 'btn btn-decline', 'Clear everything');
+      go.addEventListener('click', function () {
+        api('/api/admin/purge', {
+          method: 'POST',
+          body: JSON.stringify({ confirm: input.value.trim() }),
+        }).then(function (res) {
+          toast('Cleared ' + res.deleted.bookings + ' bookings, '
+            + res.deleted.patients + ' patients, ' + res.deleted.visitNotes + ' notes.');
+          loadDangerZone();
+          loadStaff();
+          loadRooms();
+        }).catch(function (e) { toast(e.message, true); });
+      });
+      row.appendChild(input);
+      row.appendChild(go);
+      box.querySelector('.danger').appendChild(row);
+    }).catch(function () { $('danger-zone').hidden = true; });
   }
 
   $('gate-go').addEventListener('click', function () {

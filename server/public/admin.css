@@ -150,3 +150,26 @@
 }
 .svc-field label { font-size: 10px; color: var(--ink-soft); text-transform: uppercase; letter-spacing: 0.08em; display: block; margin-bottom: 2px; }
 .svc-cat { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-soft); margin: 20px 0 8px; font-weight: 600; }
+
+/* ---- danger zone ------------------------------------------------------- */
+
+.danger {
+  border: 1px solid var(--st-declined);
+  border-radius: 8px;
+  padding: 16px 18px;
+  background: #f7e9e6;
+}
+.danger h2 { margin: 0 0 6px; font-size: 16px; color: #8f4a3f; }
+.danger p { margin: 0 0 12px; font-size: 13px; color: var(--ink-soft); }
+.danger .counts { font-family: var(--font-mono); font-size: 12px; margin-bottom: 12px; }
+.danger input {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--paper);
+  width: 260px;
+  max-width: 100%;
+  margin-right: 8px;
+}
