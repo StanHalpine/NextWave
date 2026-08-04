@@ -1,8 +1,14 @@
 /**
  * Seed the Resource / Staff / StaffSchedule / Service matrices.
  *
- * Idempotent: every row uses a fixed UUID and `upsert`, so re-running updates
- * in place rather than duplicating. Safe to run against a populated database.
+ * Idempotent AND non-destructive: every row uses a fixed UUID, and `update` is
+ * deliberately empty. Re-running fills a fresh database but NEVER overwrites an
+ * existing row.
+ *
+ * That matters because this runs on every deploy (see render.yaml) and the
+ * admin screen lets staff, shifts, rooms and prices be edited. If the seed
+ * still wrote `update: <row>`, every deploy would silently revert the practice's
+ * real data back to these placeholders.
  *
  * PROVENANCE — read before trusting these numbers:
  *
@@ -185,12 +191,13 @@ const serviceOptions: Array<{ serviceId: string; label: string; priceCents: numb
 
 async function main() {
   for (const r of resources) {
-    await prisma.resource.upsert({ where: { id: r.id }, create: r, update: r });
+    // update:{} — never clobber a room the admin screen has edited.
+    await prisma.resource.upsert({ where: { id: r.id }, create: r, update: {} });
   }
   console.log(`  resources       ${resources.length}`);
 
   for (const s of services) {
-    await prisma.service.upsert({ where: { id: s.id }, create: s, update: s });
+    await prisma.service.upsert({ where: { id: s.id }, create: s, update: {} });
   }
   console.log(`  services        ${services.length}`);
 
@@ -198,7 +205,7 @@ async function main() {
     await prisma.serviceOption.upsert({
       where: { serviceId_label: { serviceId: o.serviceId, label: o.label } },
       create: o,
-      update: o,
+      update: {},
     });
   }
   console.log(`  serviceOptions  ${serviceOptions.length}`);
@@ -206,10 +213,13 @@ async function main() {
   let shiftCount = 0;
   for (const person of staff) {
     const { shifts, ...row } = person;
-    await prisma.staff.upsert({ where: { id: row.id }, create: row, update: row });
+    await prisma.staff.upsert({ where: { id: row.id }, create: row, update: {} });
 
-    // Shifts have no natural key, so replace the set rather than upserting.
-    await prisma.staffSchedule.deleteMany({ where: { staffId: row.id } });
+    // Only seed shifts for a member who has none. Replacing the set here
+    // would destroy a roster edited through the admin screen on every deploy.
+    const existingShifts = await prisma.staffSchedule.count({ where: { staffId: row.id } });
+    if (existingShifts > 0) continue;
+
     for (const shift of shifts) {
       for (const dayOfWeek of shift.days) {
         await prisma.staffSchedule.create({

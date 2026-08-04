@@ -110,18 +110,21 @@ export async function computeDayAvailability(
   const closeAt = wallClockToUtc(dateISO, hours.close);
 
   // ---- rooms of the required type -------------------------------------
+  // `active: true` — a decommissioned room keeps its history but must never
+  // be offered for a new booking.
   const resources = await db.resource.findMany({
-    where: { type: service.resourceType },
+    where: { type: service.resourceType, active: true },
     orderBy: { id: 'asc' },
   });
   if (resources.length === 0) {
-    return { ...base, closedReason: `No ${service.resourceType} room is configured.` };
+    return { ...base, closedReason: `No ${service.resourceType} room is available.` };
   }
 
   // ---- providers rostered on this weekday ------------------------------
   const staff = await db.staff.findMany({
     where: {
       role: service.requiredRole as StaffRole,
+      active: true, // departed providers keep their records but take no bookings
       schedules: { some: { dayOfWeek: weekday } },
     },
     include: { schedules: { where: { dayOfWeek: weekday } } },

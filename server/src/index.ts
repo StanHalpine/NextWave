@@ -9,6 +9,7 @@ import { holdsRouter } from './routes/holds.js';
 import { bookingsRouter } from './routes/bookings.js';
 import { frontDeskRouter } from './routes/frontDesk.js';
 import { notesRouter } from './routes/notes.js';
+import { adminRouter } from './routes/admin.js';
 import { demoGate } from './middleware/demoGate.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -35,6 +36,7 @@ app.use('/api', holdsRouter);
 app.use('/api', bookingsRouter);
 app.use('/api', frontDeskRouter);
 app.use('/api', notesRouter);
+app.use('/api', adminRouter);
 
 // Dashboard + booking widget assets.
 app.use(express.static(path.join(__dirname, '..', 'public')));

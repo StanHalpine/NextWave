@@ -51,6 +51,10 @@ model Staff {
   id         String          @id @default(uuid())
   name       String
   role       StaffRole
+  /// Soft delete. A departed provider must keep their historical bookings and
+  /// authored clinical notes, so rows are deactivated, never removed.
+  /// Inactive staff are excluded from availability.
+  active     Boolean         @default(true)
   schedules  StaffSchedule[]
   bookings   Booking[]
   visitNotes VisitNote[]
@@ -74,6 +78,9 @@ model Resource {
   name        String // e.g., "IV Chair 1", "Hyperbaric Chamber"
   type        String // "IV_CHAIR", "CHAMBER", "RED_LIGHT_BED", "CONSULT_ROOM"
   maxCapacity Int       @default(1)
+  /// Soft delete — a decommissioned room keeps its past bookings.
+  /// Inactive resources are excluded from availability.
+  active      Boolean   @default(true)
   bookings    Booking[]
 
   @@index([type])

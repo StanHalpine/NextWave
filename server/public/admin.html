@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Configuration — NextWave Wellness</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="dashboard.css">
+<link rel="stylesheet" href="admin.css">
+</head>
+<body>
+
+<div id="gate" class="gate" hidden>
+  <h2>Front desk sign-in</h2>
+  <p>Enter the front desk access token. It is stored in this browser only.</p>
+  <input type="password" id="gate-token" placeholder="Access token" autocomplete="current-password">
+  <button class="btn btn-approve" id="gate-go">Open configuration</button>
+  <p id="gate-err" style="color:#b4746a;margin-top:10px;" hidden></p>
+</div>
+
+<div id="app" hidden>
+  <div class="demo-banner-fd">
+    <strong>CONFIGURATION</strong> — changes here alter what patients can book.
+    <a href="dashboard.html">Front desk grid →</a>
+    <a href="index.html">Booking page →</a>
+  </div>
+
+  <header class="topbar">
+    <h1>Configuration</h1>
+    <div class="spacer"></div>
+    <nav class="tabs">
+      <button class="tab-btn active" data-tab="staff">Staff &amp; shifts</button>
+      <button class="tab-btn" data-tab="rooms">Rooms</button>
+      <button class="tab-btn" data-tab="services">Services</button>
+    </nav>
+    <button class="btn btn-ghost" id="signout">Sign out</button>
+  </header>
+
+  <main class="admin-wrap">
+
+    <section class="panel" id="tab-staff">
+      <div class="panel-head">
+        <div>
+          <h2>Staff &amp; shifts</h2>
+          <p class="hint">Who works here and when. Shifts decide which appointment
+          times exist — a service with nobody rostered shows no availability at all.</p>
+        </div>
+        <button class="btn btn-approve" id="add-staff">Add staff member</button>
+      </div>
+      <div id="staff-list"></div>
+    </section>
+
+    <section class="panel" id="tab-rooms" hidden>
+      <div class="panel-head">
+        <div>
+          <h2>Rooms &amp; equipment</h2>
+          <p class="hint">Physical capacity. Counts here cap how many patients can
+          be seen at once — this is the ceiling on your daily throughput.</p>
+        </div>
+        <button class="btn btn-approve" id="add-room">Add room</button>
+      </div>
+      <div id="room-warning"></div>
+      <div id="room-list"></div>
+    </section>
+
+    <section class="panel" id="tab-services" hidden>
+      <div class="panel-head">
+        <div>
+          <h2>Services</h2>
+          <p class="hint">Duration, turnaround buffer and price. Duration and buffer
+          together decide how many appointments fit in a day.</p>
+        </div>
+      </div>
+      <div id="service-list"></div>
+    </section>
+
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="admin.js"></script>
+</body>
+</html>

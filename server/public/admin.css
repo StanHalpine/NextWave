@@ -1,0 +1,152 @@
+/* Configuration screen. Inherits the palette and topbar from dashboard.css;
+   this file only adds what the admin views need. */
+
+.admin-wrap { max-width: 980px; margin: 0 auto; padding: 24px 20px 60px; }
+
+.tabs { display: flex; gap: 4px; }
+.tab-btn {
+  font-family: var(--font-body);
+  font-size: 13px;
+  padding: 7px 14px;
+  border-radius: 6px;
+  border: 1px solid rgba(247, 244, 238, 0.28);
+  background: transparent;
+  color: var(--paper);
+  cursor: pointer;
+}
+.tab-btn:hover { background: rgba(247, 244, 238, 0.12); }
+.tab-btn.active { background: var(--paper); color: var(--ink); border-color: var(--paper); }
+
+.panel { margin-bottom: 34px; }
+.panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+.panel-head h2 { margin: 0 0 4px; font-size: 18px; }
+.panel-head .hint { margin: 0; font-size: 13px; color: var(--ink-soft); max-width: 62ch; }
+
+/* ---- cards ------------------------------------------------------------- */
+
+.row-card {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--sage);
+  border-radius: 0 8px 8px 0;
+  padding: 14px 16px;
+  margin-bottom: 10px;
+}
+/* Deactivated rows stay visible — they still own history — but read as inert. */
+.row-card.inactive { opacity: 0.6; border-left-color: var(--st-cancelled); background: var(--sand); }
+
+.row-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.row-name { font-weight: 600; font-size: 15px; }
+.row-meta { font-size: 12px; color: var(--ink-soft); font-family: var(--font-mono); }
+.row-actions { margin-left: auto; display: flex; gap: 7px; flex-wrap: wrap; }
+.row-actions .btn { font-size: 12px; padding: 5px 11px; }
+
+.pill {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  border-radius: 3px;
+  padding: 2px 7px;
+  background: var(--sand);
+  color: var(--ink-soft);
+}
+.pill.role { background: var(--lake); color: var(--paper); }
+.pill.off { background: var(--st-cancelled); color: #fff; }
+.pill.cap { background: var(--sage-deep); color: var(--paper); }
+
+/* ---- shifts ------------------------------------------------------------ */
+
+.shifts { margin-top: 12px; border-top: 1px dashed var(--line); padding-top: 11px; }
+.shift-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 7px;
+  flex-wrap: wrap;
+}
+.shift-row select, .shift-row input {
+  font-family: var(--font-body);
+  font-size: 13px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--paper);
+  color: var(--ink);
+}
+.shift-row input[type="time"] { font-family: var(--font-mono); }
+.shift-del {
+  background: none;
+  border: none;
+  color: var(--st-declined);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 2px 6px;
+}
+.shift-empty { font-size: 12px; color: var(--st-declined); margin: 0 0 8px; }
+.shift-tools { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+
+/* ---- inline edit form -------------------------------------------------- */
+
+.edit-form {
+  margin-top: 12px;
+  padding: 13px;
+  background: var(--sand);
+  border-radius: 8px;
+  display: grid;
+  gap: 9px;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  align-items: end;
+}
+.edit-form label { font-size: 11px; color: var(--ink-soft); display: block; }
+.edit-form input, .edit-form select {
+  width: 100%;
+  font-family: var(--font-body);
+  font-size: 14px;
+  padding: 7px 9px;
+  margin-top: 3px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--paper);
+  color: var(--ink);
+}
+.edit-form .form-actions { display: flex; gap: 7px; grid-column: 1 / -1; }
+
+/* ---- warnings ---------------------------------------------------------- */
+
+.warn-box {
+  background: #f6efe0;
+  border-left: 3px solid var(--brass);
+  border-radius: 0 8px 8px 0;
+  padding: 11px 14px;
+  margin-bottom: 14px;
+  font-size: 13px;
+}
+.warn-box.bad { background: #f7e9e6; border-left-color: var(--st-declined); }
+
+.svc-grid { display: grid; gap: 9px; grid-template-columns: 1fr auto auto auto; align-items: center; }
+@media (max-width: 700px) { .svc-grid { grid-template-columns: 1fr; } }
+.svc-grid input {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--paper);
+  color: var(--ink);
+  width: 92px;
+}
+.svc-field label { font-size: 10px; color: var(--ink-soft); text-transform: uppercase; letter-spacing: 0.08em; display: block; margin-bottom: 2px; }
+.svc-cat { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-soft); margin: 20px 0 8px; font-weight: 600; }
