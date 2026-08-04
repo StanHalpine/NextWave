@@ -81,6 +81,21 @@ body {
   padding: 13px 15px;
 }
 .locked-name { font-weight: 600; font-size: 15px; }
+
+/* The specific panel / shot chosen on a service page card. Visually distinct
+   from the service name so it reads as a refinement, not a second service. */
+.locked-option {
+  display: inline-block;
+  font-weight: 500;
+  font-size: 12px;
+  background: var(--lake);
+  color: var(--paper);
+  border-radius: 4px;
+  padding: 2px 8px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.summary .locked-option { background: var(--sage-deep); }
 .locked-change {
   background: none;
   border: none;

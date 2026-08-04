@@ -15,7 +15,13 @@
 
   var HOLD_KEY = 'nw.booking.hold';
 
-  var state = { services: [], service: null, date: null, slot: null, hold: null, timer: null };
+  var state = {
+    services: [], service: null, date: null, slot: null, hold: null, timer: null,
+    // Specific panel / shot chosen on a card, e.g. "Vitamin B12". Arrives via
+    // ?option= and is stored on Booking.subOption so the front desk knows
+    // which one was requested rather than just the parent service.
+    subOption: null,
+  };
 
   var $ = function (id) { return document.getElementById(id); };
 
@@ -49,6 +55,21 @@
   function show(id, on) { $(id).hidden = !on; }
 
   function slug(s) { return s.toLowerCase().replace(/[^a-z]+/g, '-'); }
+
+  /**
+   * "14:30" → "2:30 PM". The API returns clinic-local wall time in 24-hour
+   * form; patients read 12-hour. Formatting here rather than server-side keeps
+   * the API unambiguous — the front desk grid deliberately stays on 24-hour,
+   * where it is denser and staff are used to it.
+   */
+  function ampm(hhmm) {
+    var p = hhmm.split(':');
+    var h = parseInt(p[0], 10);
+    var suffix = h < 12 ? 'AM' : 'PM';
+    var h12 = h % 12;
+    if (h12 === 0) h12 = 12;
+    return h12 + ':' + p[1] + ' ' + suffix;
+  }
 
   // ---- step 1: services --------------------------------------------------
 
@@ -112,12 +133,20 @@
    * it from a list of fifteen.
    */
   function applyDeepLink() {
-    var wanted = new URLSearchParams(location.search).get('service');
+    var params = new URLSearchParams(location.search);
+    var wanted = params.get('service');
     if (!wanted) return;
+
+    // ?option= names a specific panel or shot chosen from a card on the
+    // service page (biomarker-testing, vitamin-shots). Trimmed and length-
+    // capped to match the server's own validation on subOption.
+    var opt = (params.get('option') || '').trim();
+    state.subOption = opt ? opt.slice(0, 120) : null;
 
     var matches = state.services.filter(function (s) { return s.slug === wanted; });
     if (!matches.length) {
       toast('That service link looks out of date — choose from the list below.', true);
+      state.subOption = null;
       return;
     }
     // A slug can map to more than one row (hyperbaric's 60/90-minute
@@ -133,9 +162,14 @@
     var box = $('service-locked');
     box.hidden = false;
     box.innerHTML =
-      '<div class="locked-name">' + esc(s.name) + '</div>'
+      '<div class="locked-name">' + esc(s.name)
+      + (state.subOption ? ' <span class="locked-option">' + esc(state.subOption) + '</span>' : '')
+      + '</div>'
       + '<button type="button" class="locked-change" id="change-service-btn">Not what you meant? Choose a different service</button>';
     $('change-service-btn').addEventListener('click', function () {
+      // Picking a different service invalidates the panel/shot that came with
+      // the old one — carrying it over would mislabel the booking.
+      state.subOption = null;
       box.hidden = true;
       show('service-groups', true);
     });
@@ -211,7 +245,7 @@
           var b = document.createElement('button');
           b.type = 'button';
           b.className = 'slot-btn';
-          b.textContent = s.localTime;
+          b.textContent = ampm(s.localTime);
           b.addEventListener('click', function () { takeHold(s, b); });
           grid.appendChild(b);
         });
@@ -228,9 +262,12 @@
     [].forEach.call(document.querySelectorAll('.slot-btn'), function (b) { b.disabled = true; });
     btn.classList.add('sel');
 
+    var payload = { serviceId: state.service.id, start: slot.start };
+    if (state.subOption) payload.subOption = state.subOption;
+
     api('/api/holds', {
       method: 'POST',
-      body: JSON.stringify({ serviceId: state.service.id, start: slot.start }),
+      body: JSON.stringify(payload),
     }).then(function (h) {
       state.slot = slot;
       state.hold = h;
@@ -249,8 +286,12 @@
     show('step-date', false);
     show('step-service', false);
 
+    // h.subOption comes back from the server, so what's shown is what was
+    // actually stored — not the client's local copy of what it meant to send.
     $('summary').innerHTML =
-      '<div class="svc">' + esc(h.service) + '</div>'
+      '<div class="svc">' + esc(h.service)
+      + (h.subOption ? ' <span class="locked-option">' + esc(h.subOption) + '</span>' : '')
+      + '</div>'
       + '<div class="when">' + esc(new Date(h.start).toLocaleString(undefined, {
           weekday: 'long', month: 'long', day: 'numeric',
           hour: 'numeric', minute: '2-digit',
@@ -328,7 +369,8 @@
         clearHold();
         show('step-details', false);
         show('step-done', true);
-        $('done-detail').innerHTML = '<strong>' + esc(b.service) + '</strong><br>'
+        $('done-detail').innerHTML = '<strong>' + esc(b.service)
+          + (b.subOption ? ' — ' + esc(b.subOption) : '') + '</strong><br>'
           + esc(new Date(b.start).toLocaleString(undefined, {
               weekday: 'long', month: 'long', day: 'numeric',
               hour: 'numeric', minute: '2-digit',
@@ -346,7 +388,7 @@
 
   function resetToStart() {
     clearHold();
-    state.service = null; state.date = null; state.slot = null;
+    state.service = null; state.date = null; state.slot = null; state.subOption = null;
     show('step-service', true);
     show('step-date', false);
     show('step-time', false);
