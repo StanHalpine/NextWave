@@ -15,6 +15,11 @@ enum StaffRole {
   CHIROPRACTOR
   NURSE_PRACTITIONER
   REGISTERED_NURSE
+  /// Non-clinical. No service currently requires a front desk person, so
+  /// their shifts produce no appointment slots — they are rostered here to
+  /// keep one record of who works when, and so staff logins (spec §7.5) have
+  /// someone to attach to when they arrive.
+  FRONT_DESK
 }
 
 enum BookingStatus {

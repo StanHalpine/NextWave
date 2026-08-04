@@ -22,7 +22,7 @@ export const adminRouter = Router();
 adminRouter.use('/admin', requireFrontDesk);
 
 const HHMM = /^([01]\d|2[0-3]):([0-5]\d)$/;
-const ROLES = ['CHIROPRACTOR', 'NURSE_PRACTITIONER', 'REGISTERED_NURSE'] as const;
+const ROLES = ['CHIROPRACTOR', 'NURSE_PRACTITIONER', 'REGISTERED_NURSE', 'FRONT_DESK'] as const;
 
 // ---------------------------------------------------------------------------
 // Staff + shifts
@@ -37,7 +37,16 @@ adminRouter.get('/admin/staff', async (_req, res) => {
       _count: { select: { bookings: true, visitNotes: true } },
     },
   });
+  // Roles some service actually requires. A role nothing requires (front desk)
+  // produces no appointment slots, so the UI must not warn that an empty
+  // roster is costing availability — for them it simply is not.
+  const delivering = await prisma.service.findMany({
+    select: { requiredRole: true },
+    distinct: ['requiredRole'],
+  });
+
   res.json({
+    deliveringRoles: delivering.map((d) => d.requiredRole),
     staff: staff.map((s) => ({
       id: s.id,
       name: s.name,

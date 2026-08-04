@@ -29,7 +29,12 @@
     ['CHIROPRACTOR', 'Chiropractor'],
     ['NURSE_PRACTITIONER', 'Nurse Practitioner'],
     ['REGISTERED_NURSE', 'Registered Nurse'],
+    ['FRONT_DESK', 'Front Desk'],
   ];
+
+  /** Roles some service requires — the server decides, so this stays true if
+      a service is ever created that needs a front desk person. */
+  var deliveringRoles = [];
 
   var $ = function (id) { return document.getElementById(id); };
 
@@ -183,6 +188,7 @@
 
   function loadStaff() {
     return api('/api/admin/staff').then(function (r) {
+      deliveringRoles = r.deliveringRoles || [];
       var box = $('staff-list');
       box.innerHTML = '';
       if (!r.staff.length) {
@@ -255,6 +261,11 @@
   function shiftEditor(s, card) {
     var wrap = el('div', 'shifts');
     var rows = el('div');
+    if (deliveringRoles.indexOf(s.role) === -1) {
+      wrap.appendChild(el('p', 'shift-note',
+        'Rostered hours only — no service requires this role, so these do not '
+        + 'create appointment slots.'));
+    }
 
     function queueShifts() {
       markDirty('shifts:' + s.id, s.name + '’s shifts', function () {
@@ -295,10 +306,13 @@
     }
 
     // A provider with no shifts produces no availability at all — the single
-    // most confusing way for the schedule to look broken.
+    // most confusing way for the schedule to look broken. Front desk staff
+    // deliver no services, so an empty roster costs nothing and saying
+    // otherwise would be a false alarm.
+    var delivers = deliveringRoles.indexOf(s.role) !== -1;
     var warn = el('p', 'shift-empty');
     function refreshWarning() {
-      warn.hidden = rows.children.length > 0;
+      warn.hidden = rows.children.length > 0 || !delivers;
       warn.textContent = 'No shifts — ' + s.name + ' offers no appointment times.';
     }
 
