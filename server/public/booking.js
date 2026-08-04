@@ -56,7 +56,15 @@
     });
   }
 
-  function show(id, on) { $(id).hidden = !on; }
+  /**
+   * Every step transition goes through here, so the back button's label is
+   * refreshed in one place rather than at each of the dozen call sites that
+   * change which step is visible.
+   */
+  function show(id, on) {
+    $(id).hidden = !on;
+    if (typeof refreshBackLabel === 'function') refreshBackLabel();
+  }
 
   function slug(s) { return s.toLowerCase().replace(/[^a-z]+/g, '-'); }
 
@@ -205,10 +213,21 @@
       state.subOption = null; // belonged to the service we are leaving
       toast('Starting you with a ' + target.name + ' instead.');
       lockToService(target);
-      // Show the disclaimer when the calendar loads
-      setTimeout(function () {
-        $('step-disclaimer').hidden = false;
-      }, 100);
+
+      // Duration comes from the catalogue, so it stays correct if the exam is
+      // re-timed in the admin screen. Shown up front because 45 minutes is a
+      // materially different commitment from the 30-minute visit they clicked.
+      var d = $('step-disclaimer');
+      d.innerHTML =
+        '<h2>First visit assessment required</h2>'
+        + '<p class="disclaimer-time">Allow <strong>' + target.durationMin
+        + ' minutes</strong> for this appointment.</p>'
+        + '<p class="disclaimer-why">Every new patient starts with a ' + esc(target.name)
+        + ' before ' + esc(s.name).toLowerCase() + '. It establishes your baseline, identifies '
+        + 'the structural issues driving your symptoms, and rules out anything that would make '
+        + 'treatment unsafe — so the care that follows is built on what your body actually needs '
+        + 'rather than guesswork.</p>';
+      d.hidden = false;
     });
 
     row.appendChild(yes);
@@ -615,12 +634,90 @@
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
-  $('back-btn').addEventListener('click', function () { history.back(); });
-  $('change-time-btn').addEventListener('click', function () {
-    show('step-details', false);
-    show('step-time', true);
-    $('step-time').scrollIntoView({ behavior: 'smooth', block: 'start' });
-  });
+  // ---- back navigation ---------------------------------------------------
+
+  /**
+   * Leaves the booking app entirely.
+   *
+   * history.back() only works if the patient actually arrived from somewhere;
+   * opening the link directly (or landing here from a bookmark) leaves nothing
+   * to go back to and the button would appear dead. Fall back to the service
+   * page they were looking at, or the services index.
+   */
+  function leaveApp() {
+    var SITE = 'https://nextwave-wellness.com';
+    if (document.referrer && document.referrer.indexOf('nextwave-wellness.com') !== -1) {
+      history.back();
+      return;
+    }
+    var slug = new URLSearchParams(location.search).get('service');
+    location.href = slug ? SITE + '/services/' + slug + '.html' : SITE + '/services.html';
+  }
+
+  /** Which step the patient is currently looking at. */
+  function currentStep() {
+    if (!$('step-done').hidden) return 'done';
+    if (!$('step-details').hidden) return 'details';
+    if (!$('step-date').hidden) return 'datetime';
+    return 'service';
+  }
+
+  /**
+   * Step-aware back.
+   *
+   * enterDetails() hides the date and time steps, so from the details form
+   * there is nothing on screen to go back to — Back used to call
+   * history.back() and drop the patient onto the marketing site, with no way
+   * to change the day or time they had just picked.
+   */
+  function goBack() {
+    switch (currentStep()) {
+      case 'done':
+        resetToStart();
+        return;
+
+      case 'details':
+        // The slot they are abandoning must not stay held — otherwise they
+        // cannot re-pick the very time they just left, and it blocks others.
+        if (state.hold) {
+          var id = state.hold.holdId;
+          clearHold();
+          api('/api/holds/' + id, { method: 'DELETE' }).catch(function () { /* expiry handles it */ });
+        }
+        state.slot = null;
+        show('step-details', false);
+        show('step-date', true);
+        show('step-time', true);
+        loadSlots();  // re-read: the grid is stale after a hold was released
+        $('step-time').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        return;
+
+      case 'datetime':
+        // A deep link means they chose the service on the marketing page, so
+        // "back" belongs there rather than to a picker they never saw.
+        if (!$('service-locked').hidden) { leaveApp(); return; }
+        show('step-date', false);
+        show('step-time', false);
+        show('step-service', true);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        return;
+
+      default:
+        leaveApp();
+    }
+  }
+
+  /** Keeps the label honest about where the button actually goes. */
+  function refreshBackLabel() {
+    var step = currentStep();
+    var label = step === 'details' ? '← Change time'
+      : step === 'datetime' && $('service-locked').hidden ? '← Choose service'
+      : step === 'done' ? '← Start over'
+      : '← Back';
+    $('back-btn').textContent = label;
+  }
+
+  $('back-btn').addEventListener('click', goBack);
   $('again-btn').addEventListener('click', resetToStart);
   $('date-input').addEventListener('change', function (e) {
     if (e.target.value) pickDay(e.target.value);

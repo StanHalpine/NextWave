@@ -72,10 +72,9 @@
 
   <!-- Step 2 — date -->
   <section class="step" id="step-date" hidden>
-    <div id="step-disclaimer" class="disclaimer" hidden>
-      <h2>First visit assessment required</h2>
-      <p class="disclaimer-why">Before proceeding with your requested service, we conduct a comprehensive spinal & postural exam for all new patients. This assessment is essential for understanding your baseline health, identifying any structural issues, and creating a personalized treatment plan that's safe and effective for you.</p>
-    </div>
+    <!-- Filled by askNewPatient() so the service name and its real duration
+         come from the catalogue rather than being hard-coded here. -->
+    <div id="step-disclaimer" class="disclaimer" hidden></div>
     <div class="step-head"><span class="step-num">2</span><h2>Choose a day</h2></div>
     <div class="day-strip" id="day-strip"></div>
     <label class="date-pick">
@@ -93,10 +92,9 @@
 
   <!-- Step 4 — details -->
   <section class="step" id="step-details" hidden>
-    <div class="step-head">
-      <span class="step-num">4</span><h2>Your details</h2>
-      <button type="button" class="change-time-btn" id="change-time-btn" title="Change date or time">← Change time</button>
-    </div>
+    <!-- No "change time" control here — the header Back button is step-aware
+         and relabels itself to "← Change time" on this step. -->
+    <div class="step-head"><span class="step-num">4</span><h2>Your details</h2></div>
 
     <div class="hold-bar" id="hold-bar">
       <span class="hold-dot"></span>

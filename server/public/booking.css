@@ -88,19 +88,6 @@ body {
   display: flex; align-items: center; justify-content: center;
 }
 .step h2 { margin: 0; font-size: 18px; font-weight: 600; flex: 1; }
-.change-time-btn {
-  background: transparent;
-  border: none;
-  color: var(--lake);
-  font-size: 12px;
-  cursor: pointer;
-  font-family: var(--font-body);
-  text-decoration: underline;
-  padding: 0;
-  margin-left: auto;
-}
-.change-time-btn:hover { opacity: 0.8; }
-
 .muted { color: var(--ink-soft); font-size: 13px; }
 
 /* ---- disclaimer --------------------------------------------------------- */
@@ -112,7 +99,11 @@ body {
   padding: 18px 20px;
   margin-bottom: 22px;
 }
-.disclaimer h2 { margin: 0 0 10px; font-size: 16px; color: var(--sage-deep); }
+.disclaimer h2 { margin: 0 0 8px; font-size: 16px; color: var(--sage-deep); }
+/* The time commitment, called out above the rationale — it is the fact most
+   likely to change whether the patient can take the appointment at all. */
+.disclaimer-time { margin: 0 0 10px; font-size: 14px; }
+.disclaimer-time strong { font-family: var(--font-mono); color: var(--sage-deep); }
 .disclaimer-why { margin: 0; font-size: 13px; line-height: 1.6; color: var(--ink-soft); }
 
 /* ---- services ---------------------------------------------------------- */
