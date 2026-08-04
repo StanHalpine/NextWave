@@ -306,30 +306,69 @@
       + String(d.getDate()).padStart(2, '0');
   }
 
+  var DAY_COUNT = 14;
+
+  /**
+   * The day strip, greyed out to match reality.
+   *
+   * Which days are bookable depends on the SERVICE — a chiropractor working
+   * Monday to Thursday means no chiropractic on Friday, even though the clinic
+   * is open and other services are available. This used to hard-code Sunday as
+   * the only closed day, so the calendar offered Fridays it would then refuse.
+   *
+   * Rendered enabled-but-pending first so the strip appears immediately, then
+   * corrected when the server answers. Days are never enabled by that pass,
+   * only disabled, so a slow reply cannot briefly offer a closed day.
+   */
   function buildDays() {
     var strip = $('day-strip');
     strip.innerHTML = '';
     var today = new Date();
-    for (var i = 0; i < 14; i++) {
+
+    for (var i = 0; i < DAY_COUNT; i++) {
       var d = new Date(today.getFullYear(), today.getMonth(), today.getDate() + i);
       var iso = localDateISO(d);
       var b = document.createElement('button');
       b.type = 'button';
-      b.className = 'day-btn' + (d.getDay() === 0 ? ' shut' : '');
-      // Carry the date on the element. Deriving the index by date arithmetic
-      // is off-by-one prone (a noon-vs-midnight comparison rounds up).
+      b.className = 'day-btn pending';
       b.dataset.date = iso;
       b.innerHTML = '<span class="dow">' + ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()] + '</span>'
         + '<span class="dnum">' + d.getDate() + '</span>';
-      if (d.getDay() === 0) {
-        b.disabled = true;
-        b.title = 'Closed on Sundays';
-      } else {
-        b.addEventListener('click', pickDay.bind(null, iso));
-      }
+      b.addEventListener('click', pickDay.bind(null, iso));
       strip.appendChild(b);
     }
     $('date-input').min = localDateISO(today);
+
+    if (!state.service) return;
+    api('/api/availability/days?serviceId=' + encodeURIComponent(state.service.id)
+        + '&days=' + DAY_COUNT)
+      .then(function (r) {
+        var byDate = {};
+        r.days.forEach(function (x) { byDate[x.date] = x; });
+
+        [].forEach.call(strip.querySelectorAll('.day-btn'), function (btn) {
+          var info = byDate[btn.dataset.date];
+          btn.classList.remove('pending');
+          if (!info || info.open) return;
+          btn.classList.add('shut');
+          btn.disabled = true;
+          btn.title = info.reason || 'No appointments available on this day.';
+        });
+
+        var openCount = r.days.filter(function (x) { return x.open; }).length;
+        if (openCount === 0) {
+          $('slot-note').textContent =
+            'No appointments available in the next two weeks for this service.';
+          show('step-time', true);
+        }
+      })
+      .catch(function () {
+        // Leave every day clickable rather than wrongly closing them; picking
+        // a closed day still shows the reason on the next step.
+        [].forEach.call(strip.querySelectorAll('.day-btn'), function (btn) {
+          btn.classList.remove('pending');
+        });
+      });
   }
 
   function pickDay(iso) {

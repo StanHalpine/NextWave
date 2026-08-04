@@ -56,6 +56,52 @@ availabilityRouter.get('/services', async (_req, res) => {
   res.json({ services });
 });
 
+const daysQuery = z.object({
+  serviceId: z.string().uuid('serviceId must be a UUID.'),
+  days: z.coerce.number().int().min(1).max(60).optional(),
+});
+
+/**
+ * GET /api/availability/days?serviceId=…&days=14
+ *
+ * Which of the next N clinic-local days have ANY opening for this service.
+ *
+ * Exists so the day picker can grey out days nothing can be booked on. Before
+ * this, the picker hard-coded Sunday as the only closed day, so a service with
+ * no provider rostered on Friday still showed Friday as an ordinary, clickable
+ * button — the calendar appeared to offer an appointment it would then refuse.
+ */
+availabilityRouter.get('/availability/days', async (req, res) => {
+  const parsed = daysQuery.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Invalid query.' });
+  }
+  const { serviceId } = parsed.data;
+  const span = Math.min(parsed.data.days ?? 14, config.maxAdvanceDays);
+
+  const service = await prisma.service.findUnique({ where: { id: serviceId } });
+  if (!service) return res.status(404).json({ error: 'Unknown service.' });
+
+  const today = clinicToday();
+  const now = new Date();
+  const out: Array<{ date: string; open: boolean; reason?: string }> = [];
+
+  // Sequential rather than parallel: each day runs several queries, and a
+  // burst of 14 concurrent transactions is a poor trade against a page that
+  // renders a few hundred milliseconds sooner.
+  for (let i = 0; i < span; i++) {
+    const date = DateTime.fromISO(today).plus({ days: i }).toFormat('yyyy-MM-dd');
+    const day = await computeDayAvailability(prisma, serviceId, date, now);
+    out.push({
+      date,
+      open: Boolean(day && day.slots.length > 0),
+      ...(day?.closedReason ? { reason: day.closedReason } : {}),
+    });
+  }
+
+  res.json({ serviceId, days: out });
+});
+
 /**
  * GET /api/availability?serviceId=…&date=YYYY-MM-DD
  *

@@ -204,7 +204,15 @@ body {
 }
 .day-btn:hover { background: var(--sand); }
 .day-btn.sel { background: var(--lake); color: var(--paper); border-color: var(--lake); }
-.day-btn.shut { opacity: 0.4; cursor: not-allowed; }
+.day-btn.shut {
+  opacity: 0.4;
+  cursor: not-allowed;
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+/* Briefly, while the server says which days are actually bookable. Muted
+   rather than blank so the strip does not visibly reflow. */
+.day-btn.pending { opacity: 0.55; }
 .day-btn .dow { display: block; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.75; }
 .day-btn .dnum { font-weight: 600; }
 
