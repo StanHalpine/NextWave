@@ -1,0 +1,342 @@
+/**
+ * Patient booking flow.
+ *
+ * Service → day → slot → hold → details → request. The hold is taken the
+ * moment a slot is picked, so the patient is filling the form against a slot
+ * that is genuinely reserved rather than racing other patients for it.
+ *
+ * The hold id doubles as the session token (spec §4.2). It lives in
+ * localStorage with its expiry so a refresh mid-form resumes rather than
+ * abandoning the slot.
+ */
+
+(function () {
+  'use strict';
+
+  var HOLD_KEY = 'nw.booking.hold';
+
+  var state = { services: [], service: null, date: null, slot: null, hold: null, timer: null };
+
+  var $ = function (id) { return document.getElementById(id); };
+
+  function api(path, opts) {
+    opts = opts || {};
+    var headers = {};
+    if (opts.body) headers['content-type'] = 'application/json';
+    return fetch(path, Object.assign({}, opts, { headers: headers })).then(function (r) {
+      if (r.status === 204) return null;
+      return r.json().then(function (body) {
+        if (!r.ok) throw new Error(body.error || ('Something went wrong (' + r.status + ')'));
+        return body;
+      });
+    });
+  }
+
+  function toast(msg, isErr) {
+    var t = $('toast');
+    t.textContent = msg;
+    t.className = 'toast show' + (isErr ? ' err' : '');
+    clearTimeout(t._timer);
+    t._timer = setTimeout(function () { t.className = 'toast'; }, 3600);
+  }
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  function show(id, on) { $(id).hidden = !on; }
+
+  function slug(s) { return s.toLowerCase().replace(/[^a-z]+/g, '-'); }
+
+  // ---- step 1: services --------------------------------------------------
+
+  function loadServices() {
+    api('/api/services').then(function (r) {
+      state.services = r.services;
+      var groups = {};
+      r.services.forEach(function (s) { (groups[s.category] = groups[s.category] || []).push(s); });
+
+      var box = $('service-groups');
+      box.innerHTML = '';
+      // Fixed order — the practice is organised around these three disciplines.
+      ['Chiropractic', 'Functional Medicine', 'Longevity'].forEach(function (cat) {
+        if (!groups[cat]) return;
+        var g = document.createElement('div');
+        g.className = 'service-group g-' + slug(cat);
+        g.innerHTML = '<h3>' + esc(cat) + '</h3>';
+        var list = document.createElement('div');
+        list.className = 'service-list';
+        groups[cat].forEach(function (s) {
+          var b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'service-btn';
+          b.innerHTML = esc(s.name) + '<span class="dur">' + s.durationMin + ' min</span>';
+          b.addEventListener('click', function () { pickService(s, b); });
+          list.appendChild(b);
+        });
+        g.appendChild(list);
+        box.appendChild(g);
+      });
+    }).catch(function (e) {
+      $('service-groups').innerHTML = '<p class="muted">Could not load services: ' + esc(e.message) + '</p>';
+    });
+  }
+
+  function pickService(s, btn) {
+    state.service = s;
+    state.slot = null;
+    [].forEach.call(document.querySelectorAll('.service-btn'), function (b) { b.classList.remove('sel'); });
+    btn.classList.add('sel');
+
+    show('step-date', true);
+    show('step-time', false);
+    buildDays();
+    $('step-date').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  // ---- step 2: days ------------------------------------------------------
+
+  /** Local calendar date string, avoiding the UTC shift toISOString() causes. */
+  function localDateISO(d) {
+    return d.getFullYear() + '-'
+      + String(d.getMonth() + 1).padStart(2, '0') + '-'
+      + String(d.getDate()).padStart(2, '0');
+  }
+
+  function buildDays() {
+    var strip = $('day-strip');
+    strip.innerHTML = '';
+    var today = new Date();
+    for (var i = 0; i < 14; i++) {
+      var d = new Date(today.getFullYear(), today.getMonth(), today.getDate() + i);
+      var iso = localDateISO(d);
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'day-btn' + (d.getDay() === 0 ? ' shut' : '');
+      // Carry the date on the element. Deriving the index by date arithmetic
+      // is off-by-one prone (a noon-vs-midnight comparison rounds up).
+      b.dataset.date = iso;
+      b.innerHTML = '<span class="dow">' + ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()] + '</span>'
+        + '<span class="dnum">' + d.getDate() + '</span>';
+      if (d.getDay() === 0) {
+        b.disabled = true;
+        b.title = 'Closed on Sundays';
+      } else {
+        b.addEventListener('click', pickDay.bind(null, iso));
+      }
+      strip.appendChild(b);
+    }
+    $('date-input').min = localDateISO(today);
+  }
+
+  function pickDay(iso) {
+    state.date = iso;
+    state.slot = null;
+    $('date-input').value = iso;
+
+    [].forEach.call(document.querySelectorAll('.day-btn'), function (b) {
+      b.classList.toggle('sel', b.dataset.date === iso);
+    });
+
+    loadSlots();
+  }
+
+  // ---- step 3: slots -----------------------------------------------------
+
+  function loadSlots() {
+    show('step-time', true);
+    var grid = $('slot-grid');
+    grid.innerHTML = '';
+    $('slot-note').textContent = 'Checking availability…';
+
+    api('/api/availability?serviceId=' + encodeURIComponent(state.service.id)
+        + '&date=' + encodeURIComponent(state.date))
+      .then(function (d) {
+        grid.innerHTML = '';
+        if (!d.slots.length) {
+          $('slot-note').textContent = d.closedReason || 'No times available on this day.';
+          return;
+        }
+        $('slot-note').textContent = d.slots.length + ' open '
+          + (d.slots.length === 1 ? 'time' : 'times') + ' · times shown in ' + d.timezone;
+
+        d.slots.forEach(function (s) {
+          var b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'slot-btn';
+          b.textContent = s.localTime;
+          b.addEventListener('click', function () { takeHold(s, b); });
+          grid.appendChild(b);
+        });
+      })
+      .catch(function (e) {
+        $('slot-note').textContent = e.message;
+      });
+    $('step-time').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  // ---- step 4: hold + details -------------------------------------------
+
+  function takeHold(slot, btn) {
+    [].forEach.call(document.querySelectorAll('.slot-btn'), function (b) { b.disabled = true; });
+    btn.classList.add('sel');
+
+    api('/api/holds', {
+      method: 'POST',
+      body: JSON.stringify({ serviceId: state.service.id, start: slot.start }),
+    }).then(function (h) {
+      state.slot = slot;
+      state.hold = h;
+      localStorage.setItem(HOLD_KEY, JSON.stringify({ holdId: h.holdId, expiresAt: h.expiresAt }));
+      enterDetails(h);
+    }).catch(function (e) {
+      toast(e.message, true);
+      // Someone else took it — refresh rather than leaving a dead grid.
+      loadSlots();
+    });
+  }
+
+  function enterDetails(h) {
+    show('step-details', true);
+    show('step-time', false);
+    show('step-date', false);
+    show('step-service', false);
+
+    $('summary').innerHTML =
+      '<div class="svc">' + esc(h.service) + '</div>'
+      + '<div class="when">' + esc(new Date(h.start).toLocaleString(undefined, {
+          weekday: 'long', month: 'long', day: 'numeric',
+          hour: 'numeric', minute: '2-digit',
+        })) + '</div>'
+      + '<div class="when">' + esc(h.resource) + (h.staff ? ' · ' + esc(h.staff) : '') + '</div>';
+
+    startCountdown(new Date(h.expiresAt));
+    $('step-details').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function startCountdown(expiresAt) {
+    clearInterval(state.timer);
+    var bar = $('hold-bar');
+
+    function tick() {
+      var left = Math.max(0, expiresAt - Date.now());
+      var mins = Math.floor(left / 60000);
+      var secs = Math.floor((left % 60000) / 1000);
+      $('hold-clock').textContent = mins + ':' + String(secs).padStart(2, '0');
+
+      bar.className = 'hold-bar' + (left <= 0 ? ' dead' : left < 120000 ? ' warn' : '');
+      $('hold-text').textContent = left <= 0
+        ? 'Your hold expired — the slot may have been taken.'
+        : 'This slot is held for you';
+
+      if (left <= 0) {
+        clearInterval(state.timer);
+        $('submit-btn').textContent = 'Try to submit anyway';
+      }
+    }
+    tick();
+    state.timer = setInterval(tick, 1000);
+  }
+
+  function clearHold() {
+    clearInterval(state.timer);
+    localStorage.removeItem(HOLD_KEY);
+    state.hold = null;
+  }
+
+  $('release-btn').addEventListener('click', function () {
+    if (!state.hold) return;
+    var id = state.hold.holdId;
+    clearHold();
+    api('/api/holds/' + id, { method: 'DELETE' }).catch(function () { /* expiry handles it */ });
+    toast('Slot released.');
+    resetToStart();
+  });
+
+  $('details-form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    if (!state.hold) return;
+
+    var f = e.target;
+    var payload = {
+      holdId: state.hold.holdId,
+      name: f.name.value.trim(),
+      email: f.email.value.trim(),
+      phone: f.phone.value.trim(),
+    };
+    var note = f.patientNote.value.trim();
+    if (note) payload.patientNote = note;
+
+    var err = $('form-err');
+    err.hidden = true;
+    if (!payload.name || !payload.email || !payload.phone) {
+      err.textContent = 'Name, email and phone are all required.';
+      err.hidden = false;
+      return;
+    }
+
+    $('submit-btn').disabled = true;
+    api('/api/bookings', { method: 'POST', body: JSON.stringify(payload) })
+      .then(function (b) {
+        clearHold();
+        show('step-details', false);
+        show('step-done', true);
+        $('done-detail').innerHTML = '<strong>' + esc(b.service) + '</strong><br>'
+          + esc(new Date(b.start).toLocaleString(undefined, {
+              weekday: 'long', month: 'long', day: 'numeric',
+              hour: 'numeric', minute: '2-digit',
+            }));
+        $('step-done').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      })
+      .catch(function (e2) {
+        err.textContent = e2.message;
+        err.hidden = false;
+        $('submit-btn').disabled = false;
+      });
+  });
+
+  // ---- reset / resume ----------------------------------------------------
+
+  function resetToStart() {
+    clearHold();
+    state.service = null; state.date = null; state.slot = null;
+    show('step-service', true);
+    show('step-date', false);
+    show('step-time', false);
+    show('step-details', false);
+    show('step-done', false);
+    [].forEach.call(document.querySelectorAll('.service-btn'), function (b) { b.classList.remove('sel'); });
+    $('details-form').reset();
+    $('submit-btn').disabled = false;
+    $('submit-btn').textContent = 'Request appointment';
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  $('again-btn').addEventListener('click', resetToStart);
+  $('date-input').addEventListener('change', function (e) {
+    if (e.target.value) pickDay(e.target.value);
+  });
+
+  /** A refresh mid-form should resume the hold, not silently drop it. */
+  function resume() {
+    var raw = localStorage.getItem(HOLD_KEY);
+    if (!raw) return;
+    var saved;
+    try { saved = JSON.parse(raw); } catch (e) { localStorage.removeItem(HOLD_KEY); return; }
+
+    api('/api/holds/' + saved.holdId).then(function (h) {
+      if (!h.active) { localStorage.removeItem(HOLD_KEY); return; }
+      state.hold = {
+        holdId: h.holdId, expiresAt: h.expiresAt, start: h.start,
+        service: h.service, resource: h.resource, staff: h.staff,
+      };
+      enterDetails(state.hold);
+      toast('Resumed the slot you were holding.');
+    }).catch(function () { localStorage.removeItem(HOLD_KEY); });
+  }
+
+  loadServices();
+  resume();
+})();

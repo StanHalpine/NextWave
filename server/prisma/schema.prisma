@@ -1,0 +1,161 @@
+// NextWave Wellness — scheduling engine schema.
+// Models follow calendarScheduling.md §2 exactly; only indexes have been added
+// (they change no field, and the availability queries are unusable without them).
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum StaffRole {
+  CHIROPRACTOR
+  NURSE_PRACTITIONER
+  REGISTERED_NURSE
+}
+
+enum BookingStatus {
+  HOLD
+  PENDING_REVIEW
+  CONFIRMED
+  DECLINED
+  CANCELLED
+}
+
+/// SOAP is the standard structure for chiropractic and clinical visit notes,
+/// and maps cleanly onto FHIR Composition sections if this is ever exported to
+/// an EHR. GENERAL is the catch-all for anything that is not a SOAP section.
+enum NoteKind {
+  SUBJECTIVE
+  OBJECTIVE
+  ASSESSMENT
+  PLAN
+  GENERAL
+}
+
+model User {
+  id        String   @id @default(uuid())
+  name      String
+  email     String
+  phone     String
+  createdAt DateTime @default(now())
+  bookings  Booking[]
+
+  @@index([email])
+}
+
+model Staff {
+  id         String          @id @default(uuid())
+  name       String
+  role       StaffRole
+  schedules  StaffSchedule[]
+  bookings   Booking[]
+  visitNotes VisitNote[]
+
+  @@index([role])
+}
+
+model StaffSchedule {
+  id        String @id @default(uuid())
+  staffId   String
+  dayOfWeek Int // 1 (Monday) to 7 (Sunday)
+  startTime String // "08:00"
+  endTime   String // "17:00"
+  staff     Staff  @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  @@index([staffId, dayOfWeek])
+}
+
+model Resource {
+  id          String    @id @default(uuid())
+  name        String // e.g., "IV Chair 1", "Hyperbaric Chamber"
+  type        String // "IV_CHAIR", "CHAMBER", "RED_LIGHT_BED", "CONSULT_ROOM"
+  maxCapacity Int       @default(1)
+  bookings    Booking[]
+
+  @@index([type])
+}
+
+model Service {
+  id           String    @id @default(uuid())
+  category     String // "Chiropractic", "Functional Medicine", "Longevity"
+  name         String
+  durationMin  Int
+  bufferMin    Int
+  requiredRole StaffRole
+  resourceType String
+  bookings     Booking[]
+
+  @@index([category])
+}
+
+model Booking {
+  id            String        @id @default(uuid())
+  userId        String
+  serviceId     String
+  resourceId    String
+  staffId       String?
+  subOption     String? // Selected panel, peptide, or vitamin shot
+  /// Written by the PATIENT at booking time ("recovering from knee surgery").
+  /// Context for the provider — deliberately NOT a clinical note. Clinical
+  /// content belongs in VisitNote, which is attributed and amend-only.
+  patientNote   String?
+  startTime     DateTime
+  endTime       DateTime
+  holdExpiresAt DateTime? // Set to now() + 10 mins when status = HOLD
+  status        BookingStatus @default(HOLD)
+  isRecurring   Boolean       @default(false)
+  createdAt     DateTime      @default(now())
+
+  user       User        @relation(fields: [userId], references: [id])
+  service    Service     @relation(fields: [serviceId], references: [id])
+  resource   Resource    @relation(fields: [resourceId], references: [id])
+  staff      Staff?      @relation(fields: [staffId], references: [id])
+  visitNotes VisitNote[]
+
+  // The availability engine scans by resource/time and by staff/time; the
+  // front desk queue scans by status.
+  @@index([resourceId, startTime, endTime])
+  @@index([staffId, startTime, endTime])
+  @@index([status, startTime])
+  @@index([startTime])
+}
+
+/// A clinical note a provider wrote about a visit. This is a MEDICAL RECORD,
+/// not appointment metadata, and it is modelled accordingly:
+///
+///   * `authorId` is REQUIRED. An unattributed clinical note is not a valid
+///     record, and authorship cannot be reconstructed after the fact.
+///   * Notes are NEVER updated in place. Correcting one creates a new row
+///     pointing at the original via `amendsId`; the original text survives
+///     verbatim. `@unique` on `amendsId` keeps the chain linear — a note can
+///     be amended once, and the amendment can itself be amended.
+///   * Nothing is deleted. `Booking` uses onDelete: Restrict so a booking
+///     carrying clinical notes cannot be removed out from under them.
+///
+/// The effective (current) text of a note is the tail of its amendment chain:
+/// the row that no other row amends.
+model VisitNote {
+  id        String   @id @default(uuid())
+  bookingId String
+  authorId  String
+  kind      NoteKind @default(GENERAL)
+  body      String
+  createdAt DateTime @default(now())
+
+  /// Set when this row supersedes an earlier note. Null on an original.
+  amendsId String? @unique
+  /// Why this amendment was made — required when amending, for the audit trail.
+  amendReason String?
+
+  booking   Booking    @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  author    Staff      @relation(fields: [authorId], references: [id], onDelete: Restrict)
+  amends    VisitNote? @relation("NoteAmendment", fields: [amendsId], references: [id], onDelete: Restrict)
+  amendedBy VisitNote? @relation("NoteAmendment")
+
+  @@index([bookingId, createdAt])
+  @@index([authorId])
+}

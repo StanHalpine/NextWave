@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Front Desk — NextWave Wellness</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="dashboard.css">
+</head>
+<body>
+
+<!-- Token gate. Shown until a working front desk token is stored. -->
+<div id="gate" class="gate" hidden>
+  <h2>Front desk sign-in</h2>
+  <p>Enter the front desk access token. It is stored in this browser only.</p>
+  <input type="password" id="gate-token" placeholder="Access token" autocomplete="current-password">
+  <button class="btn btn-approve" id="gate-go">Open dashboard</button>
+  <p id="gate-err" style="color:#b4746a;margin-top:10px;" hidden></p>
+</div>
+
+<div id="app" hidden>
+  <div class="demo-banner-fd"><strong>DEMO</strong> — sample data only. <a href="index.html">Patient booking view →</a></div>
+  <header class="topbar">
+    <h1>Master Resource Grid</h1>
+    <span class="tz" id="tz"></span>
+
+    <div class="date-nav">
+      <button class="btn btn-ghost" id="prev">‹</button>
+      <input type="date" id="date">
+      <button class="btn btn-ghost" id="next">›</button>
+      <button class="btn btn-ghost" id="today">Today</button>
+    </div>
+
+    <div class="spacer"></div>
+
+    <div class="legend">
+      <span><i style="background:#7c8f7a"></i>Confirmed</span>
+      <span><i style="background:#b9a77c"></i>Pending</span>
+      <span><i style="background:#9aa5a8"></i>Hold</span>
+      <span><i style="background:#b4746a"></i>Declined</span>
+      <span><i style="background:#9c9a95"></i>Cancelled</span>
+    </div>
+
+    <button class="btn btn-ghost" id="refresh">Refresh</button>
+    <button class="btn btn-ghost" id="signout">Sign out</button>
+  </header>
+
+  <div class="wrap">
+    <aside class="queue">
+      <h2>Pending review</h2>
+      <p class="hint">Requests waiting on a decision. Approving checks the room is still free.</p>
+      <div id="pending"></div>
+    </aside>
+
+    <div class="grid-scroll">
+      <div class="grid" id="grid"></div>
+      <div class="empty" id="grid-empty" hidden></div>
+    </div>
+  </div>
+</div>
+
+<dialog id="detail">
+  <div class="dlg-body">
+    <h3 id="d-title">Booking</h3>
+    <dl id="d-fields"></dl>
+    <div id="d-notes" class="d-notes"></div>
+    <div class="dlg-actions" id="d-actions"></div>
+  </div>
+</dialog>
+
+<div class="toast" id="toast"></div>
+
+<script src="dashboard.js"></script>
+</body>
+</html>

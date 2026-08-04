@@ -1,0 +1,52 @@
+# Render blueprint for the NextWave scheduling demo.
+#
+# In Render: New → Blueprint → connect this repo → point at server/render.yaml.
+# It provisions the Postgres instance and the web service together and wires
+# DATABASE_URL between them.
+#
+# Values marked sync:false are NOT stored in this file — Render prompts for
+# them at deploy time. Never commit secrets here; this file is public in the
+# repo.
+
+databases:
+  - name: nextwave-db
+    databaseName: nextwave
+    user: nextwave
+    plan: free # 90-day expiry on free Postgres — move to a paid plan before it lapses
+
+services:
+  - type: web
+    name: nextwave-scheduling
+    runtime: node
+    plan: free # sleeps after ~15 min idle; first request back takes ~30s
+    rootDir: server
+    buildCommand: npm ci && npx prisma generate && npx prisma migrate deploy && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: nextwave-db
+          property: connectionString
+
+      - key: NODE_ENV
+        value: production
+
+      # US Central. Must stay an IANA zone name, never a fixed offset, or every
+      # appointment shifts an hour at the DST switch.
+      - key: CLINIC_TIMEZONE
+        value: America/Chicago
+
+      - key: HOLD_TTL_MINUTES
+        value: "10"
+
+      # Basic Auth over the whole demo. Set these in the Render dashboard.
+      - key: DEMO_USER
+        sync: false
+      - key: DEMO_PASSWORD
+        sync: false
+
+      # Second layer on front desk / clinical routes. Let Render generate it,
+      # then copy the value out of the dashboard to sign in to the grid.
+      - key: FRONT_DESK_TOKEN
+        generateValue: true

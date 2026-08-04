@@ -1,0 +1,431 @@
+/* Front desk dashboard. Palette lifted from assets/style.css so the internal
+   tool reads as the same product as the public site. */
+
+:root {
+  --ink: #1c2b2e;
+  --ink-soft: #33454a;
+  --sand: #ede7dd;
+  --paper: #f7f4ee;
+  --sage: #7c8f7a;
+  --sage-deep: #5c6e5a;
+  --lake: #4c6b72;
+  --lake-deep: #354f55;
+  --brass: #b9a77c;
+  --line: rgba(28, 43, 46, 0.14);
+  --line-soft: rgba(28, 43, 46, 0.08);
+  --font-body: "Quicksand", -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+
+  /* Status colours. Confirmed is the calm one; pending is the loud one,
+     because pending is the only status that needs a human. */
+  --st-confirmed: var(--sage);
+  --st-pending: var(--brass);
+  --st-hold: #9aa5a8;
+  --st-declined: #b4746a;
+  --st-cancelled: #9c9a95;
+
+  --gutter: 68px;
+  --col: 150px;
+  --row-h: 22px; /* one 15-minute row */
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: var(--font-body);
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 14px;
+}
+
+/* ---- top bar ---------------------------------------------------------- */
+
+.demo-banner-fd {
+  background: var(--brass);
+  color: var(--ink);
+  text-align: center;
+  padding: 6px 16px;
+  font-size: 12px;
+}
+.demo-banner-fd a { color: var(--ink); margin-left: 8px; }
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+  padding: 14px 20px;
+  background: var(--lake-deep);
+  color: var(--paper);
+  position: sticky;
+  top: 0;
+  z-index: 40;
+}
+
+.topbar h1 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.topbar .tz {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  opacity: 0.72;
+}
+
+.spacer { flex: 1; }
+
+.date-nav { display: flex; align-items: center; gap: 8px; }
+
+input[type="date"],
+input[type="password"] {
+  font-family: var(--font-body);
+  font-size: 13px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.btn {
+  font-family: var(--font-body);
+  font-size: 13px;
+  padding: 7px 14px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: var(--sand);
+  color: var(--ink);
+  cursor: pointer;
+  transition: filter 0.15s ease;
+}
+.btn:hover { filter: brightness(0.94); }
+.btn-ghost { background: transparent; border-color: rgba(247, 244, 238, 0.4); color: var(--paper); }
+.btn-ghost:hover { background: rgba(247, 244, 238, 0.12); }
+.btn-approve { background: var(--sage-deep); color: var(--paper); }
+.btn-decline { background: transparent; border-color: var(--st-declined); color: var(--st-declined); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ---- layout ----------------------------------------------------------- */
+
+.wrap { display: flex; align-items: flex-start; gap: 0; }
+
+.queue {
+  width: 310px;
+  flex: none;
+  border-right: 1px solid var(--line);
+  height: calc(100vh - 56px);
+  overflow-y: auto;
+  background: var(--sand);
+  padding: 16px;
+}
+
+.queue h2 {
+  margin: 0 0 4px;
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.queue .hint { margin: 0 0 14px; font-size: 12px; color: var(--ink-soft); opacity: 0.8; }
+
+.pending-card {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--brass);
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 10px;
+}
+
+.pending-card .when {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+}
+.pending-card .svc { font-size: 13px; margin: 3px 0; }
+.pending-card .who { font-size: 12px; color: var(--ink-soft); }
+.pending-card .meta { font-size: 11px; color: var(--ink-soft); opacity: 0.85; margin-top: 4px; font-family: var(--font-mono); }
+.pending-card .actions { display: flex; gap: 8px; margin-top: 10px; }
+.pending-card .actions .btn { flex: 1; padding: 6px 8px; font-size: 12px; }
+
+.grid-scroll { flex: 1; overflow: auto; height: calc(100vh - 56px); }
+
+.grid {
+  position: relative;
+  display: grid;
+  grid-auto-flow: column;
+  width: max-content;
+  min-width: 100%;
+}
+
+.col { width: var(--col); flex: none; border-right: 1px solid var(--line-soft); position: relative; }
+.col.gutter { width: var(--gutter); position: sticky; left: 0; z-index: 20; background: var(--paper); border-right: 1px solid var(--line); }
+
+.col-head {
+  height: 46px;
+  position: sticky;
+  top: 0;
+  z-index: 25;
+  background: var(--paper);
+  border-bottom: 1px solid var(--line);
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.col.gutter .col-head { z-index: 30; }
+
+.col-head .name { font-size: 12px; font-weight: 600; line-height: 1.2; }
+.col-head .type { font-size: 10px; font-family: var(--font-mono); color: var(--ink-soft); opacity: 0.7; }
+
+.lane { position: relative; }
+
+.tick {
+  height: var(--row-h);
+  border-bottom: 1px solid var(--line-soft);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--ink-soft);
+  padding-right: 6px;
+  text-align: right;
+  line-height: var(--row-h);
+}
+.tick.hour { border-bottom-color: var(--line); }
+.tick.hour .label { opacity: 1; }
+.tick .label { opacity: 0; }
+.tick.hour { color: var(--ink); font-weight: 600; }
+
+.slot { height: var(--row-h); border-bottom: 1px solid var(--line-soft); }
+.slot.hour { border-bottom-color: var(--line); }
+
+/* Rows outside published clinic hours. Drawn only when a booking lands there,
+   so the front desk can see it rather than having it clipped off-grid. */
+.slot.closed {
+  background-image: repeating-linear-gradient(
+    45deg, rgba(28, 43, 46, 0.05) 0 5px, transparent 5px 10px
+  );
+}
+.tick.closed { opacity: 0.45; }
+
+/* ---- booking blocks --------------------------------------------------- */
+
+.ev {
+  position: absolute;
+  left: 3px;
+  right: 3px;
+  border-radius: 5px;
+  padding: 3px 6px;
+  overflow: hidden;
+  font-size: 11px;
+  line-height: 1.25;
+  cursor: pointer;
+  border-left: 3px solid rgba(0, 0, 0, 0.25);
+  color: #fff;
+}
+.ev .t { font-family: var(--font-mono); font-size: 10px; opacity: 0.9; }
+.ev .s { font-weight: 600; }
+.ev .p { opacity: 0.92; }
+
+/* One-line blocks: keep the name on a single row rather than letting it wrap
+   and get clipped mid-word. */
+.ev-compact { padding: 2px 6px; display: flex; align-items: center; }
+.ev-compact .s {
+  font-size: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ev-CONFIRMED { background: var(--st-confirmed); }
+.ev-PENDING_REVIEW { background: var(--st-pending); }
+.ev-HOLD { background: var(--st-hold); border-left-style: dashed; opacity: 0.85; }
+.ev-DECLINED { background: var(--st-declined); opacity: 0.55; }
+.ev-CANCELLED { background: var(--st-cancelled); opacity: 0.5; text-decoration: line-through; }
+
+/* Buffer tail — the turnaround the room is still blocked for. */
+.buf {
+  position: absolute;
+  left: 3px;
+  right: 3px;
+  border-radius: 0 0 5px 5px;
+  background-image: repeating-linear-gradient(
+    45deg, rgba(28,43,46,0.16) 0 4px, transparent 4px 8px
+  );
+  border: 1px solid var(--line-soft);
+  border-top: none;
+  pointer-events: none;
+}
+
+/* ---- legend + misc ---------------------------------------------------- */
+
+.legend { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; font-size: 11px; }
+.legend span { display: flex; align-items: center; gap: 5px; }
+.legend i { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+
+.empty { padding: 20px; color: var(--ink-soft); font-size: 13px; }
+
+.toast {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--ink);
+  color: var(--paper);
+  padding: 11px 18px;
+  border-radius: 8px;
+  font-size: 13px;
+  z-index: 100;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  max-width: 80vw;
+}
+.toast.show { opacity: 1; }
+.toast.err { background: var(--st-declined); }
+
+dialog {
+  border: none;
+  border-radius: 10px;
+  padding: 0;
+  max-width: 420px;
+  width: 90vw;
+  background: var(--paper);
+  color: var(--ink);
+}
+dialog::backdrop { background: rgba(28, 43, 46, 0.5); }
+.dlg-body { padding: 22px; }
+.dlg-body h3 { margin: 0 0 10px; font-size: 17px; }
+.dlg-body dl { display: grid; grid-template-columns: 96px 1fr; gap: 6px 12px; margin: 0 0 16px; font-size: 13px; }
+.dlg-body dt { color: var(--ink-soft); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; padding-top: 2px; }
+.dlg-body dd { margin: 0; }
+.dlg-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* ---- notes ------------------------------------------------------------ */
+
+dialog { max-width: 560px; }
+.dlg-body { max-height: 84vh; overflow-y: auto; }
+
+.d-notes { border-top: 1px solid var(--line); margin: 4px 0 16px; padding-top: 14px; }
+
+.eyebrow {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  display: block;
+  margin-bottom: 6px;
+}
+
+/* Patient-supplied context. Visually distinct from clinical notes so the two
+   are never mistaken for each other. */
+.patient-note {
+  background: var(--sand);
+  border-left: 3px solid var(--lake);
+  border-radius: 0 6px 6px 0;
+  padding: 10px 12px;
+  margin-bottom: 16px;
+}
+.patient-note p { margin: 0; font-size: 13px; font-style: italic; }
+
+.notes-head { margin-bottom: 8px; }
+.note-empty, .note-loading { font-size: 12px; color: var(--ink-soft); margin: 0 0 12px; }
+
+.note {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--sage);
+  border-radius: 0 6px 6px 0;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  background: var(--paper);
+}
+.note-meta { font-size: 11px; color: var(--ink-soft); margin-bottom: 5px; }
+.note-kind {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  background: var(--sage-deep);
+  color: var(--paper);
+  border-radius: 3px;
+  padding: 2px 6px;
+  margin-right: 7px;
+}
+.note-body { font-size: 13px; line-height: 1.45; white-space: pre-wrap; }
+.note-amended {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--brass);
+  border: 1px solid var(--brass);
+  border-radius: 3px;
+  padding: 1px 5px;
+}
+
+.note-history-toggle, .note-amend-btn {
+  background: none;
+  border: none;
+  padding: 4px 0 0;
+  margin-right: 12px;
+  font-family: var(--font-body);
+  font-size: 11px;
+  color: var(--lake);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+/* Superseded versions. Faded and struck-through so the current text is never
+   ambiguous, but still legible — this is the audit trail. */
+.note-history { margin-top: 8px; border-top: 1px dashed var(--line); padding-top: 8px; }
+.note-old { opacity: 0.65; margin-bottom: 8px; }
+.note-old .note-body { text-decoration: line-through; }
+.note-reason {
+  font-size: 11px;
+  color: var(--ink-soft);
+  border-left: 2px solid var(--brass);
+  padding-left: 7px;
+  margin-top: 4px;
+}
+
+.note-composer, .amend-form {
+  margin-top: 12px;
+  padding: 12px;
+  background: var(--sand);
+  border-radius: 8px;
+}
+.note-input, .note-reason-input, .note-kind-select, .note-author {
+  width: 100%;
+  font-family: var(--font-body);
+  font-size: 13px;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--paper);
+  color: var(--ink);
+  margin-bottom: 8px;
+}
+.note-input { resize: vertical; }
+.note-kind-select, .note-author { width: calc(50% - 4px); display: inline-block; }
+.note-kind-select { margin-right: 6px; }
+.note-actions { display: flex; gap: 8px; }
+.note-actions .btn { font-size: 12px; padding: 6px 12px; }
+
+/* Grid markers so notes are visible without opening a booking. */
+.ev.has-notes::after {
+  content: '';
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.95);
+}
+.ev.has-patient-note { border-left-color: var(--lake); border-left-width: 4px; }
+
+.gate { max-width: 380px; margin: 80px auto; padding: 26px; background: var(--sand); border-radius: 10px; }
+.gate h2 { margin: 0 0 8px; font-size: 17px; }
+.gate p { font-size: 13px; color: var(--ink-soft); margin: 0 0 14px; }
+.gate input { width: 100%; margin-bottom: 12px; }

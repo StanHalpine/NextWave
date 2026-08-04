@@ -1,0 +1,7 @@
+{
+  // Typecheck-only config: covers prisma/seed.ts too, which the build config
+  // deliberately excludes (seed runs through tsx, never compiled).
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "noEmit": true, "rootDir": "." },
+  "include": ["src/**/*.ts", "prisma/**/*.ts"]
+}

@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Book an appointment — NextWave Wellness</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="booking.css">
+</head>
+<body>
+
+<div class="demo-banner">
+  <strong>DEMO</strong> — sample data only. Nothing booked here is a real appointment.
+  <a href="dashboard.html">Front desk view →</a>
+</div>
+
+<header class="site-head">
+  <div class="wrap">
+    <span class="brand">NextWave Wellness</span>
+    <span class="brand-sub">Chiropractic · Functional Medicine · Longevity</span>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <!-- Step 1 — service -->
+  <section class="step" id="step-service">
+    <div class="step-head"><span class="step-num">1</span><h2>Choose a service</h2></div>
+    <div id="service-groups" class="service-groups">
+      <p class="muted">Loading services…</p>
+    </div>
+  </section>
+
+  <!-- Step 2 — date -->
+  <section class="step" id="step-date" hidden>
+    <div class="step-head"><span class="step-num">2</span><h2>Choose a day</h2></div>
+    <div class="day-strip" id="day-strip"></div>
+    <label class="date-pick">
+      or pick a date
+      <input type="date" id="date-input">
+    </label>
+  </section>
+
+  <!-- Step 3 — time -->
+  <section class="step" id="step-time" hidden>
+    <div class="step-head"><span class="step-num">3</span><h2>Choose a time</h2></div>
+    <p class="muted" id="slot-note"></p>
+    <div class="slot-grid" id="slot-grid"></div>
+  </section>
+
+  <!-- Step 4 — details -->
+  <section class="step" id="step-details" hidden>
+    <div class="step-head"><span class="step-num">4</span><h2>Your details</h2></div>
+
+    <div class="hold-bar" id="hold-bar">
+      <span class="hold-dot"></span>
+      <span id="hold-text">Holding your slot…</span>
+      <strong id="hold-clock">10:00</strong>
+    </div>
+
+    <div class="summary" id="summary"></div>
+
+    <form id="details-form" novalidate>
+      <label>Full name <input name="name" required autocomplete="name"></label>
+      <label>Email <input name="email" type="email" required autocomplete="email"></label>
+      <label>Phone <input name="phone" required autocomplete="tel"></label>
+      <label>Anything we should know? <span class="opt">optional</span>
+        <textarea name="patientNote" rows="3" maxlength="2000"
+          placeholder="e.g. recovering from a knee injury"></textarea>
+      </label>
+      <p class="form-err" id="form-err" hidden></p>
+      <div class="form-actions">
+        <button type="submit" class="btn btn-primary" id="submit-btn">Request appointment</button>
+        <button type="button" class="btn btn-ghost" id="release-btn">Release slot</button>
+      </div>
+    </form>
+  </section>
+
+  <!-- Step 5 — done -->
+  <section class="step" id="step-done" hidden>
+    <div class="done-card">
+      <div class="tick">✓</div>
+      <h2>Request received</h2>
+      <p id="done-detail"></p>
+      <p class="muted">The front desk will confirm by phone or email. Your request
+      appears immediately in the front desk queue.</p>
+      <div class="form-actions">
+        <a class="btn btn-ghost" href="dashboard.html">See it in the front desk view</a>
+        <button type="button" class="btn btn-primary" id="again-btn">Book another</button>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script src="booking.js"></script>
+</body>
+</html>
