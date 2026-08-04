@@ -17,8 +17,19 @@ const query = z.object({
  * GET /api/config — public, non-sensitive deployment facts the booking page
  * needs before it can render honestly (chiefly: is this real?).
  */
-availabilityRouter.get('/config', (_req, res) => {
-  res.json({ mode: config.bookingMode, timezone: config.clinicTimezone });
+availabilityRouter.get('/config', (req, res) => {
+  // A correct ?preview= key lets staff through the coming-soon screen to the
+  // real flow. It is a convenience, not a security control — the booking API
+  // stays open either way, so this only changes what the page renders.
+  const key = typeof req.query.preview === 'string' ? req.query.preview : '';
+  const previewing = Boolean(config.previewKey) && key === config.previewKey;
+
+  res.json({
+    mode: previewing && config.bookingMode === 'coming_soon' ? 'demo' : config.bookingMode,
+    previewing,
+    openingWhen: config.openingWhen,
+    timezone: config.clinicTimezone,
+  });
 });
 
 /** GET /api/services — the picker on the booking page. */

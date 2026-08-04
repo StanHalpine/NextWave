@@ -353,3 +353,17 @@ form .opt { font-size: 11px; opacity: 0.6; }
   .service-list { grid-template-columns: 1fr; }
   .brand-sub { display: block; }
 }
+
+/* ---- coming soon ------------------------------------------------------- */
+
+.cs-card {
+  background: var(--sand);
+  border-left: 3px solid var(--lake);
+  border-radius: 0 10px 10px 0;
+  padding: 30px 32px;
+  margin-top: 10px;
+}
+.cs-card h2 { margin: 0 0 10px; font-size: 22px; }
+.cs-card p { margin: 0 0 12px; }
+.cs-card #cs-when { font-weight: 600; color: var(--lake-deep); }
+.cs-card .form-actions { margin-top: 20px; }

@@ -596,18 +596,49 @@
           + 'front desk, who will confirm by phone or email before it is final.',
       live: null,
     };
-    api('/api/config').then(function (c) {
-      var copy = COPY[c.mode];
-      if (!copy) { el.hidden = true; return; }
-      el.innerHTML = copy;
-      el.hidden = false;
-    }).catch(function () {
-      el.innerHTML = COPY.demo;
-      el.hidden = false;
-    });
+
+    // The preview key travels with every request the page makes, so a staff
+    // member testing a coming-soon deployment stays in preview across steps.
+    var preview = new URLSearchParams(location.search).get('preview');
+
+    return api('/api/config' + (preview ? '?preview=' + encodeURIComponent(preview) : ''))
+      .then(function (c) {
+        if (c.mode === 'coming_soon') {
+          // Hide the flow entirely rather than letting someone fill in a form
+          // that cannot result in an appointment.
+          show('booking-flow', false);
+          show('coming-soon', true);
+          $('cs-when').textContent = c.openingWhen
+            ? 'We expect to open in ' + c.openingWhen + '.'
+            : '';
+          el.hidden = true;
+          return false;
+        }
+
+        if (c.previewing) {
+          el.innerHTML = '<strong>STAFF PREVIEW</strong> — the public sees a '
+            + '“coming soon” page. Bookings you make here are real rows in the database.';
+          el.hidden = false;
+        } else {
+          var copy = COPY[c.mode];
+          el.innerHTML = copy || '';
+          el.hidden = !copy;
+        }
+        return true;
+      })
+      .catch(function () {
+        // Fail closed: if the mode is unknown, warn rather than imply the
+        // booking is real.
+        el.innerHTML = COPY.demo;
+        el.hidden = false;
+        return true;
+      });
   }
 
-  applyMode();
-  loadServices();
-  resume();
+  // Services are only loaded once the mode says the flow should exist.
+  applyMode().then(function (open) {
+    if (!open) return;
+    loadServices();
+    resume();
+  });
 })();

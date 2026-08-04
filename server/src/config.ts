@@ -32,29 +32,36 @@ export const CLINIC_HOURS: Record<number, { open: string; close: string }> = {
 };
 
 /**
- * What this deployment actually is, which drives the banner a patient sees.
+ * What this deployment actually is, which drives what a patient sees.
  *
- *   demo — fixtures only, nothing here is a real appointment. The correct
- *          setting until the practice opens.
- *   beta — real patients, real bookings, but the flow is new and every
- *          request is confirmed manually by the front desk.
- *   live — normal operation, no banner.
+ *   coming_soon — the practice has not opened. The booking flow is hidden
+ *                 behind an explanatory page; staff can still reach it with
+ *                 ?preview=<PREVIEW_KEY> to test against real configuration.
+ *   demo        — fixtures only, nothing booked is a real appointment.
+ *   beta        — real patients, real bookings, front desk confirms each one.
+ *   live        — normal operation, no banner.
  *
  * Config rather than markup so promoting a deployment is an env change, and
  * so a test instance can never silently claim to be the real thing.
  */
-export type BookingMode = 'demo' | 'beta' | 'live';
+export type BookingMode = 'coming_soon' | 'demo' | 'beta' | 'live';
+
+const MODES: BookingMode[] = ['coming_soon', 'demo', 'beta', 'live'];
 
 function mode(): BookingMode {
-  const v = (process.env.BOOKING_MODE ?? 'demo').toLowerCase();
-  if (v === 'demo' || v === 'beta' || v === 'live') return v;
-  throw new Error(`BOOKING_MODE must be demo, beta or live — got "${v}"`);
+  const v = (process.env.BOOKING_MODE ?? 'demo').toLowerCase() as BookingMode;
+  if (MODES.includes(v)) return v;
+  throw new Error(`BOOKING_MODE must be one of ${MODES.join(', ')} — got "${v}"`);
 }
 
 export const config = {
   port: int('PORT', 4000),
   databaseUrl: required('DATABASE_URL'),
   bookingMode: mode(),
+  /** Lets staff open the real booking flow while the public sees coming-soon. */
+  previewKey: process.env.PREVIEW_KEY ?? '',
+  /** Shown on the coming-soon page. Free text, e.g. "November". */
+  openingWhen: process.env.OPENING_WHEN ?? '',
   clinicTimezone: process.env.CLINIC_TIMEZONE ?? 'America/Chicago',
   holdTtlMinutes: int('HOLD_TTL_MINUTES', 10),
   frontDeskToken: process.env.FRONT_DESK_TOKEN ?? '',

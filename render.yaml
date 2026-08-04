@@ -60,8 +60,19 @@ services:
 
       # demo | beta | live — drives the patient-facing banner. Stays "demo"
       # until the practice opens and real patients can book.
+      # coming_soon | demo | beta | live. Use coming_soon once the marketing
+      # site links here but the practice has not opened.
       - key: BOOKING_MODE
         value: demo
+
+      # Shown on the coming-soon page, e.g. "November".
+      - key: OPENING_WHEN
+        value: ""
+
+      # Staff can reach the real flow at /?preview=<this> while the public
+      # sees coming-soon. Set in the dashboard; not a security control.
+      - key: PREVIEW_KEY
+        sync: false
 
       # Basic Auth over the whole demo. Set these in the Render dashboard.
       - key: DEMO_USER

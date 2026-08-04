@@ -24,7 +24,25 @@
   </div>
 </header>
 
-<main class="wrap">
+<!-- Shown instead of the whole flow when BOOKING_MODE=coming_soon, so a
+     visitor who clicks "Book now" before the practice opens gets an
+     explanation rather than a booking form that cannot mean anything. -->
+<main class="wrap" id="coming-soon" hidden>
+  <div class="cs-card">
+    <h2>Online booking is opening soon</h2>
+    <p id="cs-when"></p>
+    <p class="muted">Our new clinic is still being fitted out. Once we open,
+    you'll be able to book any service here directly.</p>
+    <p class="muted">In the meantime, send us a request and we'll be in touch
+    as soon as scheduling opens.</p>
+    <div class="form-actions">
+      <a class="btn btn-primary" id="cs-contact" href="https://nextwave-wellness.com/contact.html">Request an appointment</a>
+      <a class="btn btn-ghost" href="https://nextwave-wellness.com/services.html">Back to services</a>
+    </div>
+  </div>
+</main>
+
+<main class="wrap" id="booking-flow">
 
   <!-- Step 1 — service -->
   <section class="step" id="step-service">
