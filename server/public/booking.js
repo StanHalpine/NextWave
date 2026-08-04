@@ -72,28 +72,73 @@
           var b = document.createElement('button');
           b.type = 'button';
           b.className = 'service-btn';
+          b.dataset.slug = s.slug;
           b.innerHTML = esc(s.name) + '<span class="dur">' + s.durationMin + ' min</span>';
-          b.addEventListener('click', function () { pickService(s, b); });
+          b.addEventListener('click', function () { pickService(s); });
           list.appendChild(b);
         });
         g.appendChild(list);
         box.appendChild(g);
       });
+      applyDeepLink();
     }).catch(function (e) {
       $('service-groups').innerHTML = '<p class="muted">Could not load services: ' + esc(e.message) + '</p>';
     });
   }
 
-  function pickService(s, btn) {
+  function pickService(s) {
     state.service = s;
     state.slot = null;
-    [].forEach.call(document.querySelectorAll('.service-btn'), function (b) { b.classList.remove('sel'); });
-    btn.classList.add('sel');
+    [].forEach.call(document.querySelectorAll('.service-btn'), function (b) {
+      b.classList.toggle('sel', b.dataset.slug === s.slug);
+    });
 
     show('step-date', true);
     show('step-time', false);
     buildDays();
     $('step-date').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  // ---- deep link: "Book now" on a service page -----------------------
+
+  /**
+   * `?service=<slug>` arrives from a marketing page's "Book now" button —
+   * see services/manual-adjustment.html. The slug matches the page's own
+   * filename (spec §9), same convention the contact form already uses for
+   * `?interest=`.
+   *
+   * Locks the flow to that service and skips straight to picking a day,
+   * rather than making a patient who already told us what they want re-pick
+   * it from a list of fifteen.
+   */
+  function applyDeepLink() {
+    var wanted = new URLSearchParams(location.search).get('service');
+    if (!wanted) return;
+
+    var matches = state.services.filter(function (s) { return s.slug === wanted; });
+    if (!matches.length) {
+      toast('That service link looks out of date — choose from the list below.', true);
+      return;
+    }
+    // A slug can map to more than one row (hyperbaric's 60/90-minute
+    // variants share one page). Default to the shorter session; a future
+    // `?duration=` param can disambiguate once that page is wired.
+    matches.sort(function (a, b) { return a.durationMin - b.durationMin; });
+    lockToService(matches[0]);
+  }
+
+  function lockToService(s) {
+    pickService(s);
+    show('service-groups', false);
+    var box = $('service-locked');
+    box.hidden = false;
+    box.innerHTML =
+      '<div class="locked-name">' + esc(s.name) + '</div>'
+      + '<button type="button" class="locked-change" id="change-service-btn">Not what you meant? Choose a different service</button>';
+    $('change-service-btn').addEventListener('click', function () {
+      box.hidden = true;
+      show('service-groups', true);
+    });
   }
 
   // ---- step 2: days ------------------------------------------------------

@@ -19,6 +19,7 @@ availabilityRouter.get('/services', async (_req, res) => {
     orderBy: [{ category: 'asc' }, { name: 'asc' }],
     select: {
       id: true,
+      slug: true,
       name: true,
       category: true,
       durationMin: true,

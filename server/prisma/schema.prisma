@@ -81,6 +81,13 @@ model Resource {
 
 model Service {
   id           String    @id @default(uuid())
+  /// Matches the marketing site's page filename (minus .html), same
+  /// convention as the `?interest=<slug>` links on the contact form. Lets a
+  /// "Book now" button deep-link to this exact service without knowing its
+  /// UUID. NOT unique across the two hyperbaric rows (60/90 min) — both use
+  /// the same page, so both carry `hyperbaric-oxygen-therapy` and the client
+  /// disambiguates by duration.
+  slug         String
   category     String // "Chiropractic", "Functional Medicine", "Longevity"
   name         String
   durationMin  Int
@@ -88,6 +95,8 @@ model Service {
   requiredRole StaffRole
   resourceType String
   bookings     Booking[]
+
+  @@index([slug])
 
   @@index([category])
 }

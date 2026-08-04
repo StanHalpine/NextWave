@@ -29,6 +29,10 @@
   <!-- Step 1 — service -->
   <section class="step" id="step-service">
     <div class="step-head"><span class="step-num">1</span><h2>Choose a service</h2></div>
+    <!-- Shown instead of the full picker when arriving via a service page's
+         "Book now" link (?service=<slug>) — the patient already told us
+         which service, so we shouldn't make them pick it again. -->
+    <div id="service-locked" class="service-locked" hidden></div>
     <div id="service-groups" class="service-groups">
       <p class="muted">Loading services…</p>
     </div>

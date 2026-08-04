@@ -155,6 +155,28 @@ Expiry is decided by the `holdExpiresAt` timestamp, not by a job — an expired
 hold stops blocking the moment its timestamp passes. The 60-second sweeper in
 `index.ts` is housekeeping only, so abandoned holds do not accumulate.
 
+## Deep-linking from the marketing site
+
+A service page's "Book now" button hands off with the page's own slug:
+
+```html
+<a href="https://nextwave-scheduling.onrender.com/?service=manual-adjustment">Book now</a>
+```
+
+`?service=<slug>` matches `Service.slug`, which is the marketing page's
+filename minus `.html` — the same convention the contact form already uses for
+`?interest=`. The booking app then locks to that service and opens on "Choose a
+day" rather than asking a patient who already chose to choose again. An unknown
+slug falls back to the full picker rather than dead-ending.
+
+`slug` is deliberately **not unique**: `hyperbaric-oxygen-therapy` maps to both
+the 60- and 90-minute rows, which share one page. The client takes the shortest
+duration when a slug matches more than one.
+
+**Only `manual-adjustment` is wired so far.** The other 13 pages still show the
+disabled placeholder — see spec §9.3 before enabling them, because every wired
+button hard-codes the temporary `onrender.com` demo host.
+
 ## Patient booking flow
 
 `public/index.html` — service → day → slot → hold → details → request.

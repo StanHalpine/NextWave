@@ -414,10 +414,9 @@ a launch with real patients.
 
 1. ~~**`CLINIC_TIMEZONE`** is unverified.~~ **Resolved — `America/Chicago`
    (US Central), confirmed by the practice.** *(§3.6)*
-2. **`Service` has no `slug`.** The site's service pages already pass
-   `?interest=biomarker-testing` to the contact form. Without a slug there is no
-   clean join from those links to a service row — it would have to match on
-   name. Adding `slug String @unique` is the smallest fix.
+2. ~~**`Service` has no `slug`.**~~ **Resolved — see §9.** Added as
+   `slug String` (deliberately not `@unique` — the two hyperbaric rows share
+   one marketing page).
 3. **`Service` has no `price`.** Pricing lives only in the service pages'
    markup, so the API cannot quote a total or apply the member discount.
 4. ~~**`Booking` has no `notes`.**~~ **Resolved — see §8.** Implemented as two
@@ -560,3 +559,75 @@ open in §7:
 - §7.6 (no HIPAA review) is no longer theoretical.
 - Retention, patient access requests, and breach notification all now apply.
   None of them are implemented.
+
+---
+
+## 9. Marketing Site Integration
+
+The static marketing site and the booking app are separate deployments. This
+section covers how a "Book now" button on a service page hands off to the
+scheduling engine.
+
+### 9.1 `Service.slug`
+
+```prisma
+slug String   // NOT @unique — see below
+@@index([slug])
+```
+
+The slug is **the service page's filename minus `.html`** — `manual-adjustment`,
+`biomarker-testing`, `spinal-xrays`. This is the same convention the contact
+form already uses for `?interest=<slug>` (see the root `CLAUDE.md`), so the
+site now has one identifier scheme rather than two.
+
+> **Decision: `slug` is not unique.** `hyperbaric-oxygen-therapy` maps to *two*
+> Service rows — the 60- and 90-minute sessions are sold as separate services
+> at separate prices but share one page. A unique constraint would have forced
+> either two fake page slugs or a merged service row, both worse than allowing
+> the duplicate. The client resolves it by taking the shortest duration when a
+> slug matches more than one row; a `?duration=` parameter can disambiguate
+> when that page is wired.
+
+Backfill: the migration adds the column nullable, fills the 15 known seed rows
+by their fixed UUIDs, name-derives a slug for anything unexpected, then applies
+`NOT NULL`. A plain `ADD COLUMN ... NOT NULL` fails on a populated table.
+
+### 9.2 The handoff
+
+```html
+<a href="https://nextwave-scheduling.onrender.com/?service=manual-adjustment"
+   class="btn btn-primary">Book now</a>
+```
+
+`?service=<slug>` puts the booking app into a **locked** state: the service
+picker is replaced by a single confirmation bar naming the chosen service, and
+the flow opens directly on "Choose a day".
+
+> **Decision: skip step 1 rather than pre-select it.** A patient who clicked
+> "Book now" on the manual adjustment page has already told us what they want.
+> Showing them fifteen services with one highlighted asks the same question
+> twice. An escape hatch — "Not what you meant? Choose a different service" —
+> restores the full list, so the deep link is a shortcut rather than a trap.
+
+Unknown slug (a renamed page, a typo) falls back to the full picker with a
+toast, never a dead end.
+
+### 9.3 Rollout status
+
+**Only `manual-adjustment` is wired.** The other 13 service pages still carry
+the disabled `Book now` placeholder. Enabling them is a scripted edit across
+all 13 — the same pattern the root `CLAUDE.md` prescribes for any change that
+touches every page — but it should not happen until the target URL is settled.
+
+> **The URL is temporary.** Every wired button hard-codes
+> `nextwave-scheduling.onrender.com`, which is a free-tier demo host that sleeps
+> after 15 minutes and whose database expires 90 days from creation. Before
+> wiring the remaining 13, decide the permanent home (a `booking.` subdomain
+> pointed at the service is the obvious answer) so the mass edit happens once.
+
+> **Do not merge this to `main` casually.** `main` auto-deploys to the live
+> marketing site. Merging makes a real "Book now" button on nextwave-wellness.com
+> point at a demo carrying a *DEMO — sample data* banner and a Basic Auth
+> prompt. That is a worse experience than the current disabled button. See §7.5
+> and §7.6 — the booking flow is not ready for real patients until staff auth
+> and a HIPAA review are done.
