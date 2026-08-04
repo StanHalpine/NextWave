@@ -616,6 +616,11 @@
   }
 
   $('back-btn').addEventListener('click', function () { history.back(); });
+  $('change-time-btn').addEventListener('click', function () {
+    show('step-details', false);
+    show('step-time', true);
+    $('step-time').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
   $('again-btn').addEventListener('click', resetToStart);
   $('date-input').addEventListener('change', function (e) {
     if (e.target.value) pickDay(e.target.value);

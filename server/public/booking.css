@@ -78,7 +78,7 @@ body {
 .brand-sub { font-size: 12px; opacity: 0.72; letter-spacing: 0.04em; }
 
 .step { margin-bottom: 34px; transition: opacity 0.3s ease; }
-.step-head { display: flex; align-items: center; gap: 11px; margin-bottom: 14px; }
+.step-head { display: flex; align-items: center; gap: 11px; margin-bottom: 14px; flex-wrap: wrap; }
 .step-num {
   width: 25px; height: 25px; flex: none;
   border-radius: 50%;
@@ -87,7 +87,19 @@ body {
   font-size: 13px; font-weight: 600;
   display: flex; align-items: center; justify-content: center;
 }
-.step h2 { margin: 0; font-size: 18px; font-weight: 600; }
+.step h2 { margin: 0; font-size: 18px; font-weight: 600; flex: 1; }
+.change-time-btn {
+  background: transparent;
+  border: none;
+  color: var(--lake);
+  font-size: 12px;
+  cursor: pointer;
+  font-family: var(--font-body);
+  text-decoration: underline;
+  padding: 0;
+  margin-left: auto;
+}
+.change-time-btn:hover { opacity: 0.8; }
 
 .muted { color: var(--ink-soft); font-size: 13px; }
 
