@@ -19,7 +19,7 @@
  * last appointment of every day would be unbookable.
  */
 
-import type { Prisma, PrismaClient, StaffRole } from '@prisma/client';
+import type { Prisma, PrismaClient } from '@prisma/client';
 import { CLINIC_HOURS, config } from '../config.js';
 import {
   addMinutes,
@@ -130,17 +130,30 @@ export async function computeDayAvailability(
   }
 
   // ---- providers rostered on this weekday ------------------------------
+  // Who may perform this service is explicit per person (ServiceStaff), not
+  // implied by a role — a front desk member trained on shots can be listed for
+  // Vitamin Shots without being reclassified as a nurse.
   const staff = await db.staff.findMany({
     where: {
-      role: service.requiredRole as StaffRole,
       active: true, // departed providers keep their records but take no bookings
+      services: { some: { serviceId } },
       schedules: { some: { dayOfWeek: weekday } },
     },
     include: { schedules: { where: { dayOfWeek: weekday } } },
     orderBy: { id: 'asc' },
   });
   if (staff.length === 0) {
-    return { ...base, closedReason: 'No qualified provider is scheduled on this day.' };
+    // Distinguish "nobody is authorised" from "nobody authorised works today" —
+    // the first is a configuration gap, the second is just the roster.
+    const anyLinked = await db.serviceStaff.count({
+      where: { serviceId, staff: { active: true } },
+    });
+    return {
+      ...base,
+      closedReason: anyLinked > 0
+        ? 'No qualified provider is scheduled on this day.'
+        : `Nobody is currently set up to perform ${service.name}.`,
+    };
   }
 
   // Each provider's rostered windows, clamped to clinic hours.

@@ -42,7 +42,6 @@ availabilityRouter.get('/services', async (_req, res) => {
       name: true,
       category: true,
       durationMin: true,
-      requiredRole: true,
       priceCents: true,
       priceNote: true,
       newPatientSlug: true,

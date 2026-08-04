@@ -88,10 +88,11 @@ holdsRouter.post('/holds', async (req, res) => {
           ORDER BY r.id
           FOR UPDATE OF r`;
         await tx.$queryRaw`
-          SELECT id FROM "Staff"
-          WHERE role = ${service.requiredRole}::"StaffRole"
-          ORDER BY id
-          FOR UPDATE`;
+          SELECT st.id FROM "Staff" st
+          JOIN "ServiceStaff" ss ON ss."staffId" = st.id
+          WHERE ss."serviceId" = ${serviceId}
+          ORDER BY st.id
+          FOR UPDATE OF st`;
 
         // --- re-prove the slot now that nobody else can move ---------------
         const now = new Date();

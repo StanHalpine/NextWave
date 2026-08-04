@@ -34,19 +34,10 @@ adminRouter.get('/admin/staff', async (_req, res) => {
     orderBy: [{ active: 'desc' }, { role: 'asc' }, { name: 'asc' }],
     include: {
       schedules: { orderBy: [{ dayOfWeek: 'asc' }, { startTime: 'asc' }] },
-      _count: { select: { bookings: true, visitNotes: true } },
+      _count: { select: { bookings: true, visitNotes: true, services: true } },
     },
   });
-  // Roles some service actually requires. A role nothing requires (front desk)
-  // produces no appointment slots, so the UI must not warn that an empty
-  // roster is costing availability — for them it simply is not.
-  const delivering = await prisma.service.findMany({
-    select: { requiredRole: true },
-    distinct: ['requiredRole'],
-  });
-
   res.json({
-    deliveringRoles: delivering.map((d) => d.requiredRole),
     staff: staff.map((s) => ({
       id: s.id,
       name: s.name,
@@ -54,6 +45,10 @@ adminRouter.get('/admin/staff', async (_req, res) => {
       active: s.active,
       bookingCount: s._count.bookings,
       noteCount: s._count.visitNotes,
+      // Assignment is explicit and never inherited, so a new hire performs
+      // nothing until someone ticks them. That is safe but easy to forget —
+      // the UI leans on this to say so loudly.
+      serviceCount: s._count.services,
       schedules: s.schedules.map((x) => ({
         id: x.id, dayOfWeek: x.dayOfWeek, startTime: x.startTime, endTime: x.endTime,
       })),
@@ -178,7 +173,11 @@ adminRouter.get('/admin/resources', async (_req, res) => {
   // page can only say "no availability". Naming the service beats naming a
   // room type — it points straight at what a patient cannot book.
   const services = await prisma.service.findMany({
-    select: { name: true, rooms: { select: { resource: { select: { active: true } } } } },
+    select: {
+      name: true,
+      rooms: { select: { resource: { select: { active: true } } } },
+      staff: { select: { staff: { select: { active: true } } } },
+    },
     orderBy: { name: 'asc' },
   });
   const stranded = services
@@ -371,6 +370,7 @@ adminRouter.get('/admin/services', async (_req, res) => {
     include: {
       options: { orderBy: { sortOrder: 'asc' } },
       rooms: { select: { resourceId: true } },
+      staff: { select: { staffId: true } },
     },
   });
   // The picker needs every room, including inactive ones — a service may
@@ -379,13 +379,22 @@ adminRouter.get('/admin/services', async (_req, res) => {
     orderBy: [{ type: 'asc' }, { name: 'asc' }],
     select: { id: true, name: true, type: true, active: true },
   });
+  // Inactive staff are offered too — someone on leave should keep their
+  // assignments rather than silently lose them.
+  const allStaff = await prisma.staff.findMany({
+    orderBy: [{ role: 'asc' }, { name: 'asc' }],
+    select: { id: true, name: true, role: true, active: true },
+  });
   res.json({
     services: services.map((s) => ({
       ...s,
       rooms: undefined,
+      staff: undefined,
       roomIds: s.rooms.map((r) => r.resourceId),
+      staffIds: s.staff.map((x) => x.staffId),
     })),
     resources,
+    staff: allStaff,
   });
 });
 
@@ -398,6 +407,8 @@ const servicePatch = z.object({
   /// Not .uuid() — seeded ids are UUID-shaped but not valid hex
   /// ("re500u4c-…"), and existence is proven against the table below anyway.
   roomIds: z.array(z.string().min(1).max(64)).optional(),
+  /// Who may perform it. Replaces the whole set.
+  staffIds: z.array(z.string().min(1).max(64)).optional(),
 }).strict();
 
 adminRouter.patch('/admin/services/:id', async (req, res) => {
@@ -407,7 +418,7 @@ adminRouter.patch('/admin/services/:id', async (req, res) => {
   const existing = await prisma.service.findUnique({ where: { id: req.params.id } });
   if (!existing) return res.status(404).json({ error: 'Unknown service.' });
 
-  const { roomIds, ...fields } = parsed.data;
+  const { roomIds, staffIds, ...fields } = parsed.data;
 
   // A service with no rooms cannot be booked at all, and the booking page can
   // only say "no availability" without explaining why. Refuse rather than let
@@ -422,11 +433,29 @@ adminRouter.patch('/admin/services/:id', async (req, res) => {
     if (found !== roomIds.length) return res.status(400).json({ error: 'Unknown room.' });
   }
 
+  // Same reasoning as rooms: nobody assigned means nobody can book it, and the
+  // booking page can only say "no availability".
+  if (staffIds && staffIds.length === 0) {
+    return res.status(400).json({
+      error: `${existing.name} needs at least one person who can perform it.`,
+    });
+  }
+  if (staffIds) {
+    const found = await prisma.staff.count({ where: { id: { in: staffIds } } });
+    if (found !== staffIds.length) return res.status(400).json({ error: 'Unknown staff member.' });
+  }
+
   const svc = await prisma.$transaction(async (tx) => {
     if (roomIds) {
       await tx.serviceRoom.deleteMany({ where: { serviceId: existing.id } });
       await tx.serviceRoom.createMany({
         data: roomIds.map((resourceId) => ({ serviceId: existing.id, resourceId })),
+      });
+    }
+    if (staffIds) {
+      await tx.serviceStaff.deleteMany({ where: { serviceId: existing.id } });
+      await tx.serviceStaff.createMany({
+        data: staffIds.map((staffId) => ({ serviceId: existing.id, staffId })),
       });
     }
     return tx.service.update({ where: { id: existing.id }, data: fields });

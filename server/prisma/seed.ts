@@ -214,7 +214,7 @@ async function main() {
   console.log(`  resources       ${resources.length}`);
 
   for (const s of services) {
-    const { resourceType, ...row } = s;
+    const { resourceType, requiredRole, ...row } = s;
     await prisma.service.upsert({ where: { id: row.id }, create: row, update: {} });
   }
   console.log(`  services        ${services.length}`);
@@ -234,6 +234,22 @@ async function main() {
     }
   }
   console.log(`  serviceRooms    ${links}`);
+
+  // Who may perform each service. `requiredRole` above is now only the seed's
+  // shorthand for "everyone with this role" — the real relationship is
+  // per-person in ServiceStaff and is never inherited by new hires.
+  let quals = 0;
+  for (const s of services) {
+    for (const st of staff.filter((x) => x.role === s.requiredRole)) {
+      await prisma.serviceStaff.upsert({
+        where: { serviceId_staffId: { serviceId: s.id, staffId: st.id } },
+        create: { serviceId: s.id, staffId: st.id },
+        update: {},
+      });
+      quals++;
+    }
+  }
+  console.log(`  serviceStaff    ${quals}`);
 
   for (const o of serviceOptions) {
     await prisma.serviceOption.upsert({

@@ -311,3 +311,6 @@
 /* Shown for roles no service requires, so an empty roster is not mistaken for
    a configuration error. */
 .shift-note { font-size: 12px; color: var(--ink-soft); margin: 0 0 9px; font-style: italic; }
+/* Someone assigned to no service at all. Red because they produce no bookable
+   time — the same severity as a room type with nothing active. */
+.pill.none { background: var(--st-declined); color: #fff; }

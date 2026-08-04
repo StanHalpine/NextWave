@@ -63,6 +63,7 @@ model Staff {
   schedules  StaffSchedule[]
   bookings   Booking[]
   visitNotes VisitNote[]
+  services   ServiceStaff[]
 
   @@index([role])
 }
@@ -92,6 +93,23 @@ model Resource {
   @@index([type])
 }
 
+/// Who may perform a service.
+///
+/// Replaces `Service.requiredRole`, which tied a service to a whole role — so
+/// a front desk person qualified to give shots could not be authorised without
+/// making her a nurse. Membership is explicit and never inherited: a new hire
+/// performs nothing until someone ticks them, which is deliberate, because
+/// this table decides who may carry out a clinical procedure.
+model ServiceStaff {
+  serviceId String
+  staffId   String
+  service   Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  staff     Staff   @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  @@id([serviceId, staffId])
+  @@index([staffId])
+}
+
 /// Which rooms a service may be delivered in.
 ///
 /// Replaces the old `Service.resourceType` string, which allowed exactly one
@@ -112,19 +130,18 @@ model ServiceRoom {
 }
 
 model Service {
-  id           String    @id @default(uuid())
+  id          String @id @default(uuid())
   /// Matches the marketing site's page filename (minus .html), same
   /// convention as the `?interest=<slug>` links on the contact form. Lets a
   /// "Book now" button deep-link to this exact service without knowing its
   /// UUID. NOT unique across the two hyperbaric rows (60/90 min) — both use
   /// the same page, so both carry `hyperbaric-oxygen-therapy` and the client
   /// disambiguates by duration.
-  slug         String
-  category     String // "Chiropractic", "Functional Medicine", "Longevity"
-  name         String
-  durationMin  Int
-  bufferMin    Int
-  requiredRole StaffRole
+  slug        String
+  category    String // "Chiropractic", "Functional Medicine", "Longevity"
+  name        String
+  durationMin Int
+  bufferMin   Int
 
   /// Headline price in cents. Null where the service has no single price —
   /// either it varies by prescription (peptide therapy) or by chosen option
@@ -142,6 +159,7 @@ model Service {
   bookings Booking[]
   options  ServiceOption[]
   rooms    ServiceRoom[]
+  staff    ServiceStaff[]
 
   @@index([slug])
   @@index([category])

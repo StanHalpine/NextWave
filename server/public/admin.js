@@ -32,9 +32,8 @@
     ['FRONT_DESK', 'Front Desk'],
   ];
 
-  /** Roles some service requires — the server decides, so this stays true if
-      a service is ever created that needs a front desk person. */
-  var deliveringRoles = [];
+  /** Every staff member, for the "who can perform this" picker. */
+  var allStaff = [];
 
   var $ = function (id) { return document.getElementById(id); };
 
@@ -188,7 +187,6 @@
 
   function loadStaff() {
     return api('/api/admin/staff').then(function (r) {
-      deliveringRoles = r.deliveringRoles || [];
       var box = $('staff-list');
       box.innerHTML = '';
       if (!r.staff.length) {
@@ -227,6 +225,14 @@
     top.appendChild(nameInput);
     top.appendChild(roleSel);
     if (!s.active) top.appendChild(el('span', 'pill off', 'INACTIVE'));
+    // Assignment is never inherited, so a new hire performs nothing until
+    // someone ticks them. Left silent, that reads as a broken schedule.
+    if (s.active && s.serviceCount === 0) {
+      var p = el('span', 'pill none', 'NO SERVICES');
+      p.title = s.name + ' is not assigned to any service and cannot be booked. '
+        + 'Assign them under Services → Who can perform this.';
+      top.appendChild(p);
+    }
     top.appendChild(el('span', 'row-meta', s.bookingCount + ' booking' + (s.bookingCount === 1 ? '' : 's')));
 
     var actions = el('div', 'row-actions');
@@ -261,10 +267,10 @@
   function shiftEditor(s, card) {
     var wrap = el('div', 'shifts');
     var rows = el('div');
-    if (deliveringRoles.indexOf(s.role) === -1) {
+    if (s.serviceCount === 0) {
       wrap.appendChild(el('p', 'shift-note',
-        'Rostered hours only — no service requires this role, so these do not '
-        + 'create appointment slots.'));
+        'Rostered hours only — ' + esc(s.name) + ' is not assigned to any service, '
+        + 'so these hours create no appointment slots.'));
     }
 
     function queueShifts() {
@@ -309,7 +315,7 @@
     // most confusing way for the schedule to look broken. Front desk staff
     // deliver no services, so an empty roster costs nothing and saying
     // otherwise would be a false alarm.
-    var delivers = deliveringRoles.indexOf(s.role) !== -1;
+    var delivers = s.serviceCount > 0;
     var warn = el('p', 'shift-empty');
     function refreshWarning() {
       warn.hidden = rows.children.length > 0 || !delivers;
@@ -443,6 +449,7 @@
 
   function loadServices() {
     return api('/api/admin/services').then(function (r) {
+      allStaff = r.staff;
       var box = $('service-list');
       box.innerHTML = '';
       var cat = null;
@@ -454,15 +461,19 @@
   }
 
   /**
-   * Which rooms a service may use. A service is bookable in ANY ticked room,
-   * so ticking more rooms adds capacity — vitamin shots in the IV chairs as
-   * well as the shot room. Rooms are shared: several services can tick the
-   * same room and they contend for it normally.
+   * A grouped multi-select, used for both "which rooms" and "who may perform".
+   *
+   * `items` are {id, name, group, active}. Ticking more adds capacity: a
+   * service is bookable when ANY ticked room and ANY ticked person are free.
+   *
+   * @param selectedIds ids currently ticked
+   * @param emptyLabel  what to say when nothing is ticked
    */
-  function roomPicker(s, resources, onChange) {
+  function multiPicker(items, selectedIds, emptyLabel, onChange) {
     var wrap = el('div', 'room-picker');
     var chosen = {};
-    s.roomIds.forEach(function (id) { chosen[id] = true; });
+    selectedIds.forEach(function (id) { chosen[id] = true; });
+    var resources = items;
 
     var summary = el('button', 'room-summary');
     summary.type = 'button';
@@ -473,9 +484,8 @@
     function label() {
       var names = resources.filter(function (r) { return chosen[r.id]; })
         .map(function (r) { return r.name; });
-      if (!names.length) return 'No rooms — not bookable';
-      if (names.length === resources.length) return 'Any room (' + names.length + ')';
-      return names.length + ' room' + (names.length === 1 ? '' : 's') + ': ' + names.join(', ');
+      if (!names.length) return emptyLabel;
+      return names.length + ' selected: ' + names.join(', ');
     }
     function refresh() {
       summary.textContent = label();
@@ -487,7 +497,7 @@
     // Grouped by type, because that is how rooms are actually interchangeable —
     // ticking all four IV chairs is one visual sweep rather than four hunts.
     var byType = {};
-    resources.forEach(function (r) { (byType[r.type] = byType[r.type] || []).push(r); });
+    resources.forEach(function (r) { (byType[r.group] = byType[r.group] || []).push(r); });
 
     Object.keys(byType).forEach(function (type) {
       var group = el('div', 'room-group');
@@ -564,7 +574,7 @@
       return d;
     }
 
-    var picker;
+    var picker, staffPicker;
 
     function queueService() {
       markDirty('service:' + s.id, s.name, function () {
@@ -578,6 +588,7 @@
             // the option-priced services genuinely have none.
             priceCents: priceRaw === '' ? null : Math.round(parseFloat(priceRaw) * 100),
             roomIds: picker.selected(),
+            staffIds: staffPicker.selected(),
           }),
         });
       }, card);
@@ -591,9 +602,22 @@
 
     var rooms = el('div', 'svc-rooms');
     rooms.appendChild(el('label', 'svc-rooms-label', 'Rooms this can happen in'));
-    picker = roomPicker(s, resources, queueService);
+    picker = multiPicker(
+      resources.map(function (r) { return { id: r.id, name: r.name, group: r.type, active: r.active }; }),
+      s.roomIds, 'No rooms — not bookable', queueService);
     rooms.appendChild(picker);
     card.appendChild(rooms);
+
+    // Who may perform it. Explicit per person rather than by role, so someone
+    // trained on a single procedure can be authorised without reclassifying
+    // them — and so nobody is ever authorised by side effect.
+    var who = el('div', 'svc-rooms');
+    who.appendChild(el('label', 'svc-rooms-label', 'Who can perform this'));
+    staffPicker = multiPicker(
+      allStaff.map(function (p) { return { id: p.id, name: p.name, group: p.role, active: p.active }; }),
+      s.staffIds, 'Nobody assigned — not bookable', queueService);
+    who.appendChild(staffPicker);
+    card.appendChild(who);
 
     return card;
   }
