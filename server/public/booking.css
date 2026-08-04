@@ -189,32 +189,41 @@ body {
 
 /* ---- days + slots ------------------------------------------------------ */
 
-.day-strip { display: flex; gap: 7px; flex-wrap: wrap; margin-bottom: 12px; }
+.day-strip {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+  margin-bottom: 12px;
+}
 .day-btn {
   background: var(--paper);
   border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 8px 12px;
+  border-radius: 6px;
+  padding: 7px 4px;
   cursor: pointer;
   font-family: var(--font-body);
-  font-size: 13px;
+  font-size: 12px;
   color: var(--ink);
   text-align: center;
-  min-width: 62px;
+  aspect-ratio: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
 }
 .day-btn:hover { background: var(--sand); }
 .day-btn.sel { background: var(--lake); color: var(--paper); border-color: var(--lake); }
 .day-btn.shut {
-  opacity: 0.4;
+  opacity: 0.35;
   cursor: not-allowed;
   text-decoration: line-through;
   text-decoration-thickness: 1px;
 }
-/* Briefly, while the server says which days are actually bookable. Muted
-   rather than blank so the strip does not visibly reflow. */
-.day-btn.pending { opacity: 0.55; }
-.day-btn .dow { display: block; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.75; }
-.day-btn .dnum { font-weight: 600; }
+.day-btn.pending { opacity: 0.5; }
+.day-btn .dow { font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase; opacity: 0.7; font-weight: 600; }
+.day-btn .dnum { font-weight: 600; position: relative; }
+.day-btn .mth { font-size: 7px; position: absolute; top: 0; right: -2px; color: var(--lake); }
 
 .date-pick { font-size: 12px; color: var(--ink-soft); display: inline-flex; align-items: center; gap: 8px; }
 .date-pick input {

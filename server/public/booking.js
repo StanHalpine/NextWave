@@ -306,25 +306,25 @@
       + String(d.getDate()).padStart(2, '0');
   }
 
-  var DAY_COUNT = 14;
+  var DAY_COUNT = 42;  // 6 weeks in calendar grid.
 
   /**
-   * The day strip, greyed out to match reality.
-   *
-   * Which days are bookable depends on the SERVICE — a chiropractor working
-   * Monday to Thursday means no chiropractic on Friday, even though the clinic
-   * is open and other services are available. This used to hard-code Sunday as
-   * the only closed day, so the calendar offered Fridays it would then refuse.
-   *
-   * Rendered enabled-but-pending first so the strip appears immediately, then
-   * corrected when the server answers. Days are never enabled by that pass,
-   * only disabled, so a slow reply cannot briefly offer a closed day.
+   * Calendar view — one week per row, Sun-Sat columns. Shows which days
+   * are bookable per service. Rendered pending first, then corrected.
    */
   function buildDays() {
     var strip = $('day-strip');
     strip.innerHTML = '';
     var today = new Date();
 
+    // Pad empty cells for days before today in the first week (Sun = 0).
+    for (var pad = 0; pad < today.getDay(); pad++) {
+      var empty = document.createElement('div');
+      empty.style.opacity = '0';
+      strip.appendChild(empty);
+    }
+
+    // 42 days (6 weeks) starting from today.
     for (var i = 0; i < DAY_COUNT; i++) {
       var d = new Date(today.getFullYear(), today.getMonth(), today.getDate() + i);
       var iso = localDateISO(d);
@@ -332,8 +332,11 @@
       b.type = 'button';
       b.className = 'day-btn pending';
       b.dataset.date = iso;
-      b.innerHTML = '<span class="dow">' + ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()] + '</span>'
-        + '<span class="dnum">' + d.getDate() + '</span>';
+      // Day-of-week initial (S M T W T F S) and date. Add month letter on month boundaries.
+      var dow = ['S','M','T','W','T','F','S'][d.getDay()];
+      var dnum = d.getDate();
+      var monthFlag = (i === 0 || dnum === 1) && i > 0 ? String.fromCharCode(65 + d.getMonth()) : '';
+      b.innerHTML = '<span class="dow">' + dow + '</span><span class="dnum">' + dnum + (monthFlag ? '<span class="mth">' + monthFlag + '</span>' : '') + '</span>';
       b.addEventListener('click', pickDay.bind(null, iso));
       strip.appendChild(b);
     }
@@ -358,13 +361,11 @@
         var openCount = r.days.filter(function (x) { return x.open; }).length;
         if (openCount === 0) {
           $('slot-note').textContent =
-            'No appointments available in the next two weeks for this service.';
+            'No appointments available in the next six weeks for this service.';
           show('step-time', true);
         }
       })
       .catch(function () {
-        // Leave every day clickable rather than wrongly closing them; picking
-        // a closed day still shows the reason on the next step.
         [].forEach.call(strip.querySelectorAll('.day-btn'), function (btn) {
           btn.classList.remove('pending');
         });
