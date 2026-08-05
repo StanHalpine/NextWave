@@ -463,15 +463,10 @@ a.nav-cta-mobile { display: none; }
   filter: drop-shadow(0 1px 20px rgba(0,0,0,0.2));
 }
 @media (max-width: 600px) {
-  /* Mobile gets its own tighter crop of the front desk, centered — no offset.
-     Overrides the inline background on the section, so both layers have to be
-     restated and !important is required. Path is relative to this stylesheet
-     (img/…), not to the page (assets/img/…). */
-  .hero-splash {
-    background-image: url('img/Home_FrontDesk_Mobile.png'),
-      linear-gradient(180deg, rgba(43,76,94,0.8) 0%, rgba(35,60,68,0.9) 45%, rgba(15,22,24,1) 100%) !important;
-    background-position: center center, center center !important;
-  }
+  /* Nudge the photo right so the wall logo clears the left edge. Beats the
+     inline background-position on the section; the gradient layer is vertical,
+     so re-centering it costs nothing. */
+  .hero-splash { background-position: calc(50% + 30px) center, center center !important; }
   .hero-splash-inner { padding-top: 20px; padding-bottom: 20px; }
   .hero-splash .logo-mark { max-height: 88px; margin-bottom: 24px; }
   .hero-splash .hero-sub { margin-top: 320px; }
