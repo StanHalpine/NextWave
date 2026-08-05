@@ -463,7 +463,7 @@ a.nav-cta-mobile { display: none; }
   filter: drop-shadow(0 1px 20px rgba(0,0,0,0.2));
 }
 @media (max-width: 600px) {
-  .hero-splash-inner { padding-top: 20px; }
+  .hero-splash-inner { padding-top: 20px; padding-bottom: 20px; }
   .hero-splash .logo-mark { max-height: 88px; margin-bottom: 24px; }
   .hero-splash .hero-sub { margin-top: 200px; }
   .hero-splash .hero-actions { margin-top: 20px; }
