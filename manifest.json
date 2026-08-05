@@ -11,6 +11,11 @@
       "src": "assets/img/AppIcon_180.png",
       "sizes": "180x180",
       "type": "image/png"
+    },
+    {
+      "src": "assets/img/AppIcon_1024.png",
+      "sizes": "1024x1024",
+      "type": "image/png"
     }
   ]
 }

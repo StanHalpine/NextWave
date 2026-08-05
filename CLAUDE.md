@@ -212,12 +212,13 @@ code is broken.
 - **Placeholders still to fill**: testimonial quotes and photo/video blocks in
   every Learn More section (9 pages); the 6 vitamin shot card photos;
   `Photography placeholder` panels on about/contact/services.
-- **"Book now" buttons are disabled** (`.btn-disabled`, `aria-disabled`)
-  pending a booking system. "Request a consultation" is the live path.
-  Exception: functional-medicine-consult and spinal-postural-exam have
-  no Book now at all — the two read as redundant on a page that *is* the
-  consult/assessment. When booking ships, those pages should get a real Book
-  now for picking a time.
+- **"Book now" is live on 12 service pages**, linking to the booking app
+  (`?service=<slug>`, plus `&option=<label>` on the vitamin-shot and
+  biomarker-panel cards). Most pages keep "Request a consultation" alongside
+  it. **spinal-postural-exam is the exception — Book now replaced the consult
+  button entirely**, since that page is the new-patient entry point and
+  booking a time is the whole ask. functional-medicine-consult still has
+  neither and is the remaining page to decide on.
 - **IV menu** is marked "Coming Soon" — single $185 price until the full menu
   is defined.
 - **Unused images** safe to delete: `ChiroHero.png` (duplicate of
