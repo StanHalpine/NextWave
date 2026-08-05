@@ -465,6 +465,7 @@ a.nav-cta-mobile { display: none; }
 @media (max-width: 600px) {
   .hero-splash-inner { padding-top: 20px; }
   .hero-splash .logo-mark { max-height: 88px; margin-bottom: 24px; }
+  .hero-splash .hero-sub { margin-top: 120px; }
 }
 .hero-splash .eyebrow { color: var(--brass); justify-content: center; }
 .hero-splash .eyebrow::before { background: var(--brass); }
