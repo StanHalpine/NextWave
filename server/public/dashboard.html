@@ -41,12 +41,16 @@
 
     <div class="spacer"></div>
 
+    <!-- Block color = which service. Border style = status — the swatches
+         below preview each border treatment, not a fixed color, since a
+         confirmed booking is whatever color its service is. -->
     <div class="legend">
-      <span><i style="background:#7c8f7a"></i>Confirmed</span>
-      <span><i style="background:#b9a77c"></i>Pending</span>
-      <span><i style="background:#9aa5a8"></i>Hold</span>
-      <span><i style="background:#b4746a"></i>Declined</span>
-      <span><i style="background:#9c9a95"></i>Cancelled</span>
+      <span class="legend-note">Color = service · Border = status</span>
+      <span><i class="lg lg-confirmed"></i>Confirmed</span>
+      <span><i class="lg lg-pending"></i>Pending</span>
+      <span><i class="lg lg-hold"></i>Hold</span>
+      <span><i class="lg lg-declined"></i>Declined</span>
+      <span><i class="lg lg-cancelled"></i>Cancelled</span>
     </div>
 
     <button class="btn btn-ghost" id="refresh">Refresh</button>

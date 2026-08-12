@@ -59,6 +59,15 @@
     t._timer = setTimeout(function () { t.className = 'toast'; }, 3200);
   }
 
+  /** "#2a3b6b" -> "rgba(42,59,107,0.18)" — used to tint the buffer tail. */
+  function hexToRgba(hex, alpha) {
+    var h = hex.replace('#', '');
+    var r = parseInt(h.substring(0, 2), 16);
+    var g = parseInt(h.substring(2, 4), 16);
+    var b = parseInt(h.substring(4, 6), 16);
+    return 'rgba(' + r + ',' + g + ',' + b + ',' + alpha + ')';
+  }
+
   function hhmmToMin(s) {
     var p = s.split(':');
     return parseInt(p[0], 10) * 60 + parseInt(p[1], 10);
@@ -257,6 +266,7 @@
       if (b.bufferMin > 0) {
         var buf = document.createElement('div');
         buf.className = 'buf';
+        buf.style.backgroundColor = hexToRgba(b.color, 0.18);
         buf.style.top = (top + h + 2) + 'px';
         buf.style.height = Math.max(3, b.bufferMin * PX_PER_MIN - 2) + 'px';
         buf.style.left = 'calc(' + leftPct + '% + 3px)';
@@ -266,6 +276,7 @@
 
       var el = document.createElement('div');
       el.className = 'ev ev-' + b.status;
+      el.style.backgroundColor = b.color;
       el.style.top = top + 'px';
       el.style.height = h + 'px';
       el.style.left = 'calc(' + leftPct + '% + 3px)';
@@ -311,6 +322,7 @@
     state.pending.forEach(function (b) {
       var card = document.createElement('div');
       card.className = 'pending-card';
+      card.style.borderLeftColor = b.color;
       card.innerHTML =
         '<div class="when">' + esc(b.start.slice(0, 10)) + ' · ' + esc(b.localStart) + '</div>'
         + '<div class="svc">' + esc(b.service) + (b.subOption ? ' — ' + esc(b.subOption) : '') + '</div>'

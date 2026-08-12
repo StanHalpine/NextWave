@@ -155,6 +155,9 @@ input[type="password"] {
 
 .queue .hint { margin: 0 0 14px; font-size: 12px; color: var(--ink-soft); opacity: 0.8; }
 
+/* border-left-color is set inline per card to the booking's service color,
+   same language as the grid — brass here is only the fallback before data
+   loads. */
 .pending-card {
   background: var(--paper);
   border: 1px solid var(--line);
@@ -241,6 +244,13 @@ input[type="password"] {
 
 /* ---- booking blocks --------------------------------------------------- */
 
+/* Fill color is set inline per block (background-color = the booking's
+   service color) — status is carried entirely by border style/color plus,
+   for hold and pending, a pattern overlay. The base border is the quiet
+   default: a confirmed booking, the calm status, gets no extra marking
+   beyond this. Every swatch in the service palette sits at or below the old
+   --brass lightness specifically so white text stays legible against all of
+   them — see src/lib/serviceColors.ts. */
 .ev {
   position: absolute;
   left: 3px;
@@ -251,7 +261,7 @@ input[type="password"] {
   font-size: 11px;
   line-height: 1.25;
   cursor: pointer;
-  border-left: 3px solid rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(0, 0, 0, 0.22);
   color: #fff;
 }
 .ev .t { font-family: var(--font-mono); font-size: 10px; opacity: 0.9; }
@@ -268,13 +278,53 @@ input[type="password"] {
   text-overflow: ellipsis;
 }
 
-.ev-CONFIRMED { background: var(--st-confirmed); }
-.ev-PENDING_REVIEW { background: var(--st-pending); }
-.ev-HOLD { background: var(--st-hold); border-left-style: dashed; opacity: 0.85; }
-.ev-DECLINED { background: var(--st-declined); opacity: 0.55; }
-.ev-CANCELLED { background: var(--st-cancelled); opacity: 0.5; text-decoration: line-through; }
+/* Confirmed carries no extra marking — the base .ev border is its whole
+   treatment. It is the state nothing needs to be done about, so it should
+   be the quietest block on the grid, not the loudest. */
+.ev-CONFIRMED { }
+
+/* Pending is the one status the front desk must act on, so it gets two
+   independent signals — a dashed brass outline AND a corner flag — since
+   this is the status most likely to be scanned for across a busy grid
+   rather than read block by block. The sidebar queue is still the primary
+   place to work pending requests; this is the "did I miss one" backstop. */
+.ev-PENDING_REVIEW {
+  border: 2px dashed var(--st-pending);
+}
+.ev-PENDING_REVIEW::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  border-style: solid;
+  border-width: 9px 9px 0 0;
+  border-color: var(--st-pending) transparent transparent transparent;
+}
+
+/* Hold reuses the diagonal-hash language already used for buffer tails and
+   closed slots elsewhere on this grid — "provisional, not yet real" — in a
+   light tint so it reads against any of the 18 service colors underneath,
+   not just the hold grey it used to be. */
+.ev-HOLD {
+  border: 2px dashed var(--st-hold);
+  opacity: 0.85;
+  background-image: repeating-linear-gradient(
+    45deg, rgba(255, 255, 255, 0.26) 0 5px, transparent 5px 10px
+  );
+}
+
+/* Declined vs cancelled are deliberately different border styles (solid vs
+   dotted) rather than just both being "faded" — a declined request was
+   never accepted, so nothing is struck through; a cancelled one WAS
+   confirmed and then called off, which is what the strikethrough marks. */
+.ev-DECLINED { border: 2px solid var(--st-declined); opacity: 0.55; }
+.ev-CANCELLED { border: 2px dotted var(--st-cancelled); opacity: 0.5; text-decoration: line-through; }
 
 /* Buffer tail — the turnaround the room is still blocked for. */
+/* background-color is set inline per booking, same service tint as the
+   block above it — the turnaround reads as "this service, cooling down"
+   rather than a generic grey tail. The hash pattern (still fixed, not
+   service-colored) is what actually marks it as a buffer, not an event. */
 .buf {
   position: absolute;
   left: 3px;
@@ -292,7 +342,23 @@ input[type="password"] {
 
 .legend { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; font-size: 11px; }
 .legend span { display: flex; align-items: center; gap: 5px; }
-.legend i { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+.legend-note { opacity: 0.7; font-style: italic; }
+.legend i.lg {
+  width: 11px;
+  height: 11px;
+  border-radius: 3px;
+  display: inline-block;
+  background: transparent;
+  box-sizing: border-box;
+}
+/* Confirmed has no border marking on the real grid — shown here as a plain
+   filled square instead of an empty outline, which would just look blank
+   and read as "nothing" rather than "quiet, needs no border." */
+.lg-confirmed { background: rgba(247, 244, 238, 0.55); }
+.lg-pending { border: 2px dashed var(--st-pending); }
+.lg-hold { border: 2px dashed var(--st-hold); }
+.lg-declined { border: 2px solid var(--st-declined); }
+.lg-cancelled { border: 2px dotted var(--st-cancelled); }
 
 .empty { padding: 20px; color: var(--ink-soft); font-size: 13px; }
 

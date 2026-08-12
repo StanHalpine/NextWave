@@ -4,6 +4,7 @@ import { config, CLINIC_HOURS } from '../config.js';
 import { prisma } from '../lib/prisma.js';
 import { requireFrontDesk } from '../middleware/frontDesk.js';
 import { isoWeekday, localDayBounds, toLocalHHMM } from '../lib/time.js';
+import { colorHexFor } from '../lib/serviceColors.js';
 
 export const frontDeskRouter = Router();
 
@@ -47,7 +48,7 @@ frontDeskRouter.get('/front-desk/schedule', requireFrontDesk, async (req, res) =
         NOT: { status: 'HOLD', holdExpiresAt: { lte: new Date() } },
       },
       include: {
-        service: { select: { name: true, category: true, bufferMin: true } },
+        service: { select: { name: true, category: true, bufferMin: true, color: true } },
         _count: { select: { visitNotes: true } },
         resource: { select: { name: true } },
         staff: { select: { id: true, name: true } },
@@ -90,6 +91,7 @@ frontDeskRouter.get('/front-desk/schedule', requireFrontDesk, async (req, res) =
       bufferMin: b.service.bufferMin,
       service: b.service.name,
       category: b.service.category,
+      color: colorHexFor(b.service.color),
       subOption: b.subOption,
       patientNote: b.patientNote,
       noteCount: b._count.visitNotes,
@@ -125,7 +127,7 @@ frontDeskRouter.get('/front-desk/pending', requireFrontDesk, async (_req, res) =
   const pending = await prisma.booking.findMany({
     where: { status: 'PENDING_REVIEW' },
     include: {
-      service: { select: { name: true, category: true } },
+      service: { select: { name: true, category: true, color: true } },
       resource: { select: { name: true } },
       staff: { select: { name: true } },
       user: { select: { name: true, email: true, phone: true } },
@@ -142,6 +144,7 @@ frontDeskRouter.get('/front-desk/pending', requireFrontDesk, async (_req, res) =
       localStart: toLocalHHMM(b.startTime),
       service: b.service.name,
       category: b.service.category,
+      color: colorHexFor(b.service.color),
       subOption: b.subOption,
       resource: b.resource.name,
       staffId: b.staffId,
