@@ -17,6 +17,7 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { requireFrontDesk } from '../middleware/frontDesk.js';
 import { config } from '../config.js';
+import { SERVICE_COLOR_PALETTE, SERVICE_COLOR_KEYS } from '../lib/serviceColors.js';
 
 export const adminRouter = Router();
 adminRouter.use('/admin', requireFrontDesk);
@@ -395,6 +396,9 @@ adminRouter.get('/admin/services', async (_req, res) => {
     })),
     resources,
     staff: allStaff,
+    // Grouped by discipline so the UI can restrict each service's picker to
+    // its own family without re-deriving the grouping client-side.
+    colorPalette: SERVICE_COLOR_PALETTE,
   });
 });
 
@@ -409,6 +413,10 @@ const servicePatch = z.object({
   roomIds: z.array(z.string().min(1).max(64)).optional(),
   /// Who may perform it. Replaces the whole set.
   staffIds: z.array(z.string().min(1).max(64)).optional(),
+  /// Swatch key from SERVICE_COLOR_PALETTE. Family-checked against the
+  /// service's own category below — the enum only proves it is A valid
+  /// swatch, not one from the right family.
+  color: z.enum(SERVICE_COLOR_KEYS).optional(),
 }).strict();
 
 adminRouter.patch('/admin/services/:id', async (req, res) => {
@@ -418,7 +426,17 @@ adminRouter.patch('/admin/services/:id', async (req, res) => {
   const existing = await prisma.service.findUnique({ where: { id: req.params.id } });
   if (!existing) return res.status(404).json({ error: 'Unknown service.' });
 
-  const { roomIds, staffIds, ...fields } = parsed.data;
+  const { roomIds, staffIds, color, ...fields } = parsed.data;
+
+  if (color) {
+    const swatch = SERVICE_COLOR_PALETTE.find((c) => c.key === color);
+    if (swatch && swatch.family !== existing.category) {
+      return res.status(400).json({
+        error: `${swatch.label} is a ${swatch.family} color — ${existing.name} is `
+          + `${existing.category} and can only use colors from that family.`,
+      });
+    }
+  }
 
   // A service with no rooms cannot be booked at all, and the booking page can
   // only say "no availability" without explaining why. Refuse rather than let
@@ -458,7 +476,10 @@ adminRouter.patch('/admin/services/:id', async (req, res) => {
         data: staffIds.map((staffId) => ({ serviceId: existing.id, staffId })),
       });
     }
-    return tx.service.update({ where: { id: existing.id }, data: fields });
+    return tx.service.update({
+      where: { id: existing.id },
+      data: color ? { ...fields, color } : fields,
+    });
   });
 
   // Changing a duration does not retime bookings already made at the old

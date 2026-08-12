@@ -143,6 +143,12 @@ model Service {
   durationMin Int
   bufferMin   Int
 
+  /// Swatch key into SERVICE_COLOR_PALETTE (src/lib/serviceColors.ts), not a
+  /// hex value — the palette is a fixed library grouped by discipline, and a
+  /// service may only be assigned a swatch from its own category's family.
+  /// Lets the front desk dashboard color-code booking blocks by service.
+  color String
+
   /// Headline price in cents. Null where the service has no single price —
   /// either it varies by prescription (peptide therapy) or by chosen option
   /// (vitamin shots, biomarker panels — see ServiceOption).

@@ -34,6 +34,9 @@
 
   /** Every staff member, for the "who can perform this" picker. */
   var allStaff = [];
+  /** The fixed color library, grouped by discipline — see serviceColors.ts. */
+  var colorPalette = [];
+  var colorByKey = {};
 
   var $ = function (id) { return document.getElementById(id); };
 
@@ -450,6 +453,9 @@
   function loadServices() {
     return api('/api/admin/services').then(function (r) {
       allStaff = r.staff;
+      colorPalette = r.colorPalette;
+      colorByKey = {};
+      colorPalette.forEach(function (c) { colorByKey[c.key] = c; });
       var box = $('service-list');
       box.innerHTML = '';
       var cat = null;
@@ -548,12 +554,54 @@
     return wrap;
   }
 
+  /**
+   * Single-select swatch grid, restricted to one discipline's family — a
+   * Chiropractic service can only be painted a Chiropractic brown. Mirrors
+   * the Wrike-style status-color picker: small squares, one ringed as
+   * selected, click to reassign.
+   */
+  function colorSwatchPicker(family, selectedKey, onChange) {
+    var wrap = el('div', 'color-swatch-picker');
+    var current = selectedKey;
+    var swatches = colorPalette.filter(function (c) { return c.family === family; });
+
+    swatches.forEach(function (c) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'color-swatch' + (c.key === current ? ' selected' : '');
+      btn.style.background = c.hex;
+      btn.title = c.label;
+      btn.setAttribute('aria-label', c.label);
+      btn.addEventListener('click', function () {
+        if (c.key === current) return;
+        current = c.key;
+        [].forEach.call(wrap.querySelectorAll('.color-swatch'), function (b) { b.classList.remove('selected'); });
+        btn.classList.add('selected');
+        // Edits here are queued for the save bar, not sent immediately (see
+        // markDirty) — the header dot reflects the pending pick right away
+        // regardless, same as any other field looking "dirty" before saving.
+        onChange();
+      });
+      wrap.appendChild(btn);
+    });
+
+    wrap.selected = function () { return current; };
+    return wrap;
+  }
+
   function serviceCard(s, resources) {
     var card = el('div', 'row-card');
     var grid = el('div', 'svc-grid');
 
     var left = el('div');
-    left.appendChild(el('div', 'row-name', esc(s.name)));
+    var nameRow = el('div', 'row-name');
+    var dot = document.createElement('span');
+    dot.className = 'color-dot';
+    dot.style.background = (colorByKey[s.color] || {}).hex || '#9c9a95';
+    dot.title = (colorByKey[s.color] || {}).label || '';
+    nameRow.appendChild(dot);
+    nameRow.appendChild(document.createTextNode(esc(s.name)));
+    left.appendChild(nameRow);
     left.appendChild(el('div', 'row-meta', esc(s.requiredRole)));
     if (s.options.length) {
       left.appendChild(el('div', 'row-meta',
@@ -574,9 +622,18 @@
       return d;
     }
 
-    var picker, staffPicker;
+    var picker, staffPicker, colorPicker;
 
     function queueService() {
+      // The header dot mirrors whatever color is currently picked, saved or
+      // not — same idea as the card's own "dirty" border: it shows what will
+      // be saved, not what is saved yet. Runs on every field edit, not just
+      // color changes, but re-reading colorPicker.selected() is free.
+      if (colorPicker) {
+        var swatch = colorByKey[colorPicker.selected()] || {};
+        dot.style.background = swatch.hex || '#9c9a95';
+        dot.title = swatch.label || '';
+      }
       markDirty('service:' + s.id, s.name, function () {
         var priceRaw = inputs.price.value.trim();
         return api('/api/admin/services/' + s.id, {
@@ -589,6 +646,7 @@
             priceCents: priceRaw === '' ? null : Math.round(parseFloat(priceRaw) * 100),
             roomIds: picker.selected(),
             staffIds: staffPicker.selected(),
+            color: colorPicker.selected(),
           }),
         });
       }, card);
@@ -618,6 +676,12 @@
       s.staffIds, 'Nobody assigned — not bookable', queueService);
     who.appendChild(staffPicker);
     card.appendChild(who);
+
+    var colorBox = el('div', 'svc-rooms');
+    colorBox.appendChild(el('label', 'svc-rooms-label', 'Color'));
+    colorPicker = colorSwatchPicker(s.category, s.color, queueService);
+    colorBox.appendChild(colorPicker);
+    card.appendChild(colorBox);
 
     return card;
   }
