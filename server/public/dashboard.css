@@ -81,6 +81,23 @@ body {
   opacity: 0.72;
 }
 
+.view-toggle {
+  display: flex;
+  border: 1px solid rgba(247, 244, 238, 0.4);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.view-btn {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--paper);
+  opacity: 0.75;
+}
+.view-btn:hover { background: rgba(247, 244, 238, 0.12); opacity: 1; }
+.view-btn.active { background: var(--paper); color: var(--lake-deep); opacity: 1; }
+.view-btn + .view-btn { border-left: 1px solid rgba(247, 244, 238, 0.4); }
+
 .spacer { flex: 1; }
 
 .date-nav { display: flex; align-items: center; gap: 8px; }
@@ -187,6 +204,11 @@ input[type="password"] {
 
 .col-head .name { font-size: 12px; font-weight: 600; line-height: 1.2; }
 .col-head .type { font-size: 10px; font-family: var(--font-mono); color: var(--ink-soft); opacity: 0.7; }
+
+/* The staff view's catch-all for a booking with no staffId — a data gap the
+   front desk should investigate, not a normal empty column. */
+.col-warn .col-head { background: rgba(180, 116, 106, 0.1); }
+.col-warn .col-head .name { color: var(--st-declined); }
 
 .lane { position: relative; }
 

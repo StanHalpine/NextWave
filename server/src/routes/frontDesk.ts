@@ -24,10 +24,22 @@ frontDeskRouter.get('/front-desk/schedule', requireFrontDesk, async (req, res) =
   }
   const { date } = parsed.data;
   const { dayStart, dayEnd } = localDayBounds(date);
-  const hours = CLINIC_HOURS[isoWeekday(date)] ?? null;
+  const weekday = isoWeekday(date);
+  const hours = CLINIC_HOURS[weekday] ?? null;
 
-  const [resources, bookings] = await Promise.all([
+  const [resources, staffOnShift, bookings] = await Promise.all([
     prisma.resource.findMany({ orderBy: [{ type: 'asc' }, { name: 'asc' }] }),
+    // Staff view needs a column per person rostered today, same as the room
+    // view shows every active room regardless of whether it has a booking —
+    // an empty column is how the front desk sees who is free right now.
+    prisma.staff.findMany({
+      where: { active: true, schedules: { some: { dayOfWeek: weekday } } },
+      orderBy: [{ role: 'asc' }, { name: 'asc' }],
+      select: {
+        id: true, name: true, role: true,
+        schedules: { where: { dayOfWeek: weekday }, select: { startTime: true, endTime: true } },
+      },
+    }),
     prisma.booking.findMany({
       where: {
         startTime: { lt: dayEnd, gte: dayStart },
@@ -38,7 +50,7 @@ frontDeskRouter.get('/front-desk/schedule', requireFrontDesk, async (req, res) =
         service: { select: { name: true, category: true, bufferMin: true } },
         _count: { select: { visitNotes: true } },
         resource: { select: { name: true } },
-        staff: { select: { name: true } },
+        staff: { select: { id: true, name: true } },
         user: { select: { name: true, email: true, phone: true } },
       },
       orderBy: { startTime: 'asc' },
@@ -58,6 +70,15 @@ frontDeskRouter.get('/front-desk/schedule', requireFrontDesk, async (req, res) =
       type: r.type,
       maxCapacity: r.maxCapacity,
     })),
+    // Merges multiple shifts on the same day into one display window — a
+    // split shift still gets one column, not two.
+    staff: staffOnShift.map((s) => ({
+      id: s.id,
+      name: s.name,
+      role: s.role,
+      shiftStart: s.schedules.map((x) => x.startTime).sort()[0],
+      shiftEnd: s.schedules.map((x) => x.endTime).sort().slice(-1)[0],
+    })),
     bookings: bookings.map((b) => ({
       id: b.id,
       status: b.status,
@@ -72,7 +93,9 @@ frontDeskRouter.get('/front-desk/schedule', requireFrontDesk, async (req, res) =
       subOption: b.subOption,
       patientNote: b.patientNote,
       noteCount: b._count.visitNotes,
+      staffId: b.staffId,
       staff: b.staff?.name ?? null,
+      resource: b.resource.name,
       patient: b.user.name,
       email: b.user.email,
       phone: b.user.phone,
@@ -121,6 +144,7 @@ frontDeskRouter.get('/front-desk/pending', requireFrontDesk, async (_req, res) =
       category: b.service.category,
       subOption: b.subOption,
       resource: b.resource.name,
+      staffId: b.staffId,
       staff: b.staff?.name ?? null,
       patient: b.user.name,
       email: b.user.email,

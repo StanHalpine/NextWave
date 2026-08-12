@@ -15,11 +15,12 @@
   'use strict';
 
   var TOKEN_KEY = 'nw.frontDeskToken';
+  var VIEW_KEY = 'nw.frontDeskView';
   var ROW_H = 22;   // must match --row-h
   var STEP = 15;    // minutes per row
   var PX_PER_MIN = ROW_H / STEP;
 
-  var state = { date: null, data: null, pending: [] };
+  var state = { date: null, data: null, pending: [], view: localStorage.getItem(VIEW_KEY) || 'rooms' };
 
   var $ = function (id) { return document.getElementById(id); };
 
@@ -89,6 +90,42 @@
   }
 
   // ---- grid --------------------------------------------------------------
+
+  /**
+   * Column definitions for each view. Both buckets a booking the same way —
+   * one column per {id}, plus a catch-all for bookings that do not fit any
+   * column — so a data gap is a visible column rather than a dropped event.
+   */
+  function roomColumns(d) {
+    return d.resources.map(function (r) {
+      return {
+        id: r.id, name: r.name,
+        sub: r.type + (r.maxCapacity > 1 ? ' · cap ' + r.maxCapacity : ''),
+      };
+    });
+  }
+
+  function staffColumns(d) {
+    var cols = d.staff.map(function (s) {
+      return {
+        id: s.id, name: s.name,
+        sub: s.role.replace(/_/g, ' ') + (s.shiftStart ? ' · ' + s.shiftStart + '–' + s.shiftEnd : ''),
+      };
+    });
+    // A booking with no staffId (legacy data, or a manual entry) must still
+    // show up somewhere — an empty room column silently swallowing it is
+    // exactly the "looks like it worked" failure this dashboard exists to
+    // avoid. Only appended when it would actually hold something.
+    if (d.bookings.some(function (b) { return !b.staffId; })) {
+      cols.push({ id: '__unassigned', name: 'Unassigned', sub: 'No staff on the booking', warn: true });
+    }
+    return cols;
+  }
+
+  var VIEWS = {
+    rooms: { columns: roomColumns, bucketOf: function (b) { return b.resourceId; } },
+    staff: { columns: staffColumns, bucketOf: function (b) { return b.staffId || '__unassigned'; } },
+  };
 
   function renderGrid() {
     var d = state.data;
@@ -161,94 +198,105 @@
         + ' outside clinic hours — shown in the shaded rows.', true);
     }
 
-    // Bucket bookings by room.
-    var byRoom = {};
+    var view = VIEWS[state.view];
+    var columns = view.columns(d);
+
+    var byBucket = {};
     d.bookings.forEach(function (b) {
-      (byRoom[b.resourceId] = byRoom[b.resourceId] || []).push(b);
+      var key = view.bucketOf(b);
+      (byBucket[key] = byBucket[key] || []).push(b);
     });
 
-    d.resources.forEach(function (room) {
-      var col = document.createElement('div');
-      col.className = 'col';
-      col.innerHTML = '<div class="col-head"><span class="name">' + esc(room.name) + '</span>'
-        + '<span class="type">' + esc(room.type)
-        + (room.maxCapacity > 1 ? ' · cap ' + room.maxCapacity : '') + '</span></div>';
+    columns.forEach(function (colMeta) {
+      grid.appendChild(buildColumn(colMeta, byBucket[colMeta.id] || [], winStart, openMin, closeMin, rows));
+    });
+  }
 
-      var lane = document.createElement('div');
-      lane.className = 'lane';
-      lane.style.height = rows * ROW_H + 'px';
+  /**
+   * One column — room or staff, the two are laid out identically. A person
+   * cannot be double-booked (the availability engine locks on that), so the
+   * side-by-side lane logic only ever fires for multi-capacity rooms in
+   * practice, but keeping it generic means a data inconsistency still renders
+   * as overlapping blocks instead of one silently hiding the other.
+   */
+  function buildColumn(colMeta, events, winStart, openMin, closeMin, rows) {
+    var col = document.createElement('div');
+    col.className = 'col' + (colMeta.warn ? ' col-warn' : '');
+    col.innerHTML = '<div class="col-head"><span class="name">' + esc(colMeta.name) + '</span>'
+      + '<span class="type">' + esc(colMeta.sub) + '</span></div>';
 
-      for (var r = 0; r < rows; r++) {
-        var rowMin = winStart + r * STEP;
-        var s = document.createElement('div');
-        s.className = 'slot' + (rowMin % 60 === 0 ? ' hour' : '')
-          + (rowMin < openMin || rowMin >= closeMin ? ' closed' : '');
-        lane.appendChild(s);
+    var lane = document.createElement('div');
+    lane.className = 'lane';
+    lane.style.height = rows * ROW_H + 'px';
+
+    for (var r = 0; r < rows; r++) {
+      var rowMin = winStart + r * STEP;
+      var s = document.createElement('div');
+      s.className = 'slot' + (rowMin % 60 === 0 ? ' hour' : '')
+        + (rowMin < openMin || rowMin >= closeMin ? ' closed' : '');
+      lane.appendChild(s);
+    }
+
+    // Side-by-side lanes when concurrent events share a column.
+    // (_s / _e were resolved by the caller, since the window depends on them.)
+    var lanes = [];
+    events.forEach(function (b) {
+      var idx = 0;
+      while (lanes[idx] != null && lanes[idx] > b._s) idx++;
+      lanes[idx] = b._e + b.bufferMin;
+      b._lane = idx;
+    });
+    var laneCount = Math.max(1, lanes.length);
+
+    events.forEach(function (b) {
+      var top = (b._s - winStart) * PX_PER_MIN;
+      var h = Math.max(ROW_H - 2, (b._e - b._s) * PX_PER_MIN - 2);
+      var widthPct = 100 / laneCount;
+      var leftPct = b._lane * widthPct;
+
+      if (b.bufferMin > 0) {
+        var buf = document.createElement('div');
+        buf.className = 'buf';
+        buf.style.top = (top + h + 2) + 'px';
+        buf.style.height = Math.max(3, b.bufferMin * PX_PER_MIN - 2) + 'px';
+        buf.style.left = 'calc(' + leftPct + '% + 3px)';
+        buf.style.width = 'calc(' + widthPct + '% - 6px)';
+        lane.appendChild(buf);
       }
 
-      var events = byRoom[room.id] || [];
-
-      // Side-by-side lanes when a multi-capacity room runs concurrent patients.
-      // (_s / _e were resolved above, since the window depends on them.)
-      var lanes = [];
-      events.forEach(function (b) {
-        var idx = 0;
-        while (lanes[idx] != null && lanes[idx] > b._s) idx++;
-        lanes[idx] = b._e + b.bufferMin;
-        b._lane = idx;
-      });
-      var laneCount = Math.max(1, lanes.length);
-
-      events.forEach(function (b) {
-        var top = (b._s - winStart) * PX_PER_MIN;
-        var h = Math.max(ROW_H - 2, (b._e - b._s) * PX_PER_MIN - 2);
-        var widthPct = 100 / laneCount;
-        var leftPct = b._lane * widthPct;
-
-        if (b.bufferMin > 0) {
-          var buf = document.createElement('div');
-          buf.className = 'buf';
-          buf.style.top = (top + h + 2) + 'px';
-          buf.style.height = Math.max(3, b.bufferMin * PX_PER_MIN - 2) + 'px';
-          buf.style.left = 'calc(' + leftPct + '% + 3px)';
-          buf.style.width = 'calc(' + widthPct + '% - 6px)';
-          lane.appendChild(buf);
-        }
-
-        var el = document.createElement('div');
-        el.className = 'ev ev-' + b.status;
-        el.style.top = top + 'px';
-        el.style.height = h + 'px';
-        el.style.left = 'calc(' + leftPct + '% + 3px)';
-        el.style.width = 'calc(' + widthPct + '% - 6px)';
-        // Short bookings (a 15-minute slot is ~20px) fit one line only. The
-        // service name earns that line — the start time is already implied by
-        // where the block sits against the gutter.
-        if (h < 30) {
-          el.classList.add('ev-compact');
-          el.innerHTML = '<div class="s">' + esc(b.service) + '</div>';
-        } else if (h < 52) {
-          el.innerHTML = '<div class="s">' + esc(b.service) + '</div>'
-            + '<div class="t">' + esc(b.localStart) + '–' + esc(b.localEnd) + '</div>';
-        } else {
-          el.innerHTML = '<div class="t">' + esc(b.localStart) + '–' + esc(b.localEnd) + '</div>'
-            + '<div class="s">' + esc(b.service) + '</div>'
-            + '<div class="p">' + esc(b.patient) + '</div>';
-        }
-        if (b.noteCount > 0) el.classList.add('has-notes');
-        if (b.patientNote) el.classList.add('has-patient-note');
-        el.title = b.service + (b.subOption ? ' (' + b.subOption + ')' : '')
-          + (b.patientNote ? '\nPatient note: ' + b.patientNote : '')
-          + (b.noteCount ? '\n' + b.noteCount + ' clinical note(s)' : '')
-          + '\n' + b.patient + '\n' + b.localStart + '–' + b.localEnd
-          + '\n' + b.status;
-        el.addEventListener('click', function () { openDetail(b); });
-        lane.appendChild(el);
-      });
-
-      col.appendChild(lane);
-      grid.appendChild(col);
+      var el = document.createElement('div');
+      el.className = 'ev ev-' + b.status;
+      el.style.top = top + 'px';
+      el.style.height = h + 'px';
+      el.style.left = 'calc(' + leftPct + '% + 3px)';
+      el.style.width = 'calc(' + widthPct + '% - 6px)';
+      // Short bookings (a 15-minute slot is ~20px) fit one line only. The
+      // service name earns that line — the start time is already implied by
+      // where the block sits against the gutter.
+      if (h < 30) {
+        el.classList.add('ev-compact');
+        el.innerHTML = '<div class="s">' + esc(b.service) + '</div>';
+      } else if (h < 52) {
+        el.innerHTML = '<div class="s">' + esc(b.service) + '</div>'
+          + '<div class="t">' + esc(b.localStart) + '–' + esc(b.localEnd) + '</div>';
+      } else {
+        el.innerHTML = '<div class="t">' + esc(b.localStart) + '–' + esc(b.localEnd) + '</div>'
+          + '<div class="s">' + esc(b.service) + '</div>'
+          + '<div class="p">' + esc(b.patient) + '</div>';
+      }
+      if (b.noteCount > 0) el.classList.add('has-notes');
+      if (b.patientNote) el.classList.add('has-patient-note');
+      el.title = b.service + (b.subOption ? ' (' + b.subOption + ')' : '')
+        + (b.patientNote ? '\nPatient note: ' + b.patientNote : '')
+        + (b.noteCount ? '\n' + b.noteCount + ' clinical note(s)' : '')
+        + '\n' + b.patient + '\n' + b.localStart + '–' + b.localEnd
+        + '\n' + b.status;
+      el.addEventListener('click', function () { openDetail(b); });
+      lane.appendChild(el);
     });
+
+    col.appendChild(lane);
+    return col;
   }
 
   // ---- pending queue -----------------------------------------------------
@@ -574,11 +622,24 @@
     load();
   }
 
+  function setView(view) {
+    state.view = view;
+    localStorage.setItem(VIEW_KEY, view);
+    [].forEach.call(document.querySelectorAll('.view-btn'), function (b) {
+      b.classList.toggle('active', b.dataset.view === view);
+    });
+    $('grid-title').textContent = view === 'staff' ? 'Staff Schedule' : 'Master Resource Grid';
+    // Same data either way — the endpoint already returns both room and
+    // staff columns in one round trip, so switching views never refetches.
+    if (state.data) renderGrid();
+  }
+
   // ---- boot --------------------------------------------------------------
 
   function start() {
     $('gate').hidden = true;
     $('app').hidden = false;
+    setView(state.view);
     var today = new Date().toISOString().slice(0, 10);
     setDate(today);
   }
@@ -591,6 +652,10 @@
   });
   $('gate-token').addEventListener('keydown', function (e) {
     if (e.key === 'Enter') $('gate-go').click();
+  });
+
+  [].forEach.call(document.querySelectorAll('.view-btn'), function (b) {
+    b.addEventListener('click', function () { setView(b.dataset.view); });
   });
 
   $('prev').addEventListener('click', function () { setDate(shiftDate(state.date, -1)); });

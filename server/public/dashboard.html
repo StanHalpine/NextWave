@@ -24,8 +24,13 @@
 <div id="app" hidden>
   <div class="demo-banner-fd"><strong>DEMO</strong> — sample data only. <a href="index.html">Patient booking view →</a></div>
   <header class="topbar">
-    <h1>Master Resource Grid</h1>
+    <h1 id="grid-title">Master Resource Grid</h1>
     <span class="tz" id="tz"></span>
+
+    <div class="view-toggle" role="group" aria-label="Group bookings by">
+      <button class="btn view-btn active" data-view="rooms">Rooms</button>
+      <button class="btn view-btn" data-view="staff">Employees</button>
+    </div>
 
     <div class="date-nav">
       <button class="btn btn-ghost" id="prev">‹</button>
