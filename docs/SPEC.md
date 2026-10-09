@@ -1,6 +1,6 @@
 # NextWave Wellness — Clinic System Specification
 
-Version 1.2 · 2026-10-09 · Status: **Phase 1 approved. Phase 2 approved to build.** Phases 3–5 not started.
+Version 1.3 · 2026-10-09 · Status: **Phases 1 and 2 approved. Phase 3 (Patient Profile + Credits) in build.** Phases 4–5 not started.
 
 > **Revision 1.1 — decisions recorded after approval** (the body below is otherwise
 > unchanged from the approved v1; sections touched are marked *[rev 1.1]*):
@@ -28,6 +28,19 @@ Version 1.2 · 2026-10-09 · Status: **Phase 1 approved. Phase 2 approved to bui
 > | Text messages | Confirmation and a 24-hour reminder, via the `Messaging` interface, **stub only**. **Templates may contain only the patient's first name, the appointment date, and the time — no service names, no provider names.** Twilio A2P registration and the Security Edition BAA are the owner's, in progress |
 > | Database hosting | `render.yaml` provisions **no** database. The app reads `DATABASE_URL` and nothing else. Staging = an external Postgres; production = AWS RDS later |
 > | Basic-auth gate | Already retired by default in Phase 1 (`BASIC_AUTH_GATE`, default off) |
+
+> **Revision 1.3 — decisions recorded at Phase 2 approval:**
+>
+> | Item | Decision |
+> |---|---|
+> | Departure: texts sent by a **polling job**, not a hook on booking | **Accepted.** The booking and approval routes are not edited, so there is no "confirmed" event to subscribe to; a job finds confirmed appointments nobody has been texted about. Idempotent via `MessageLog`. A confirmation therefore goes out within one job interval (5 minutes) |
+> | Departure: **`GET /api/schedule/slots`** (not in the Phase 2 scope list) | **Accepted.** The engine's own answer for a service and day, optionally *as if one appointment were not there* (for a move), so the browser never converts between time zones |
+> | Online consent | **A consent checkbox is added to the public booking widget**, unchecked by default, with the exact label *"Text me appointment confirmations and reminders. Msg & data rates may apply. Reply STOP to opt out."* The consent time and the exact label shown are stored. Consent a staff member records on the patient profile keeps working. Inbound **STOP** sets consent off and is confirmed once; **HELP** is answered with the clinic phone |
+> | Documentation type (A-5) | **SOAP:** Hormone Optimization, Peptide Therapy, Personal Wellness Planning, Supplementation (in addition to the six named earlier). **Session log:** Spinal X-Rays |
+> | Scheduled jobs | A **Render Cron Job every 5 minutes** runs `npm run jobs:run`. `prisma migrate deploy` (and the seed) move from the build step to Render's `preDeployCommand`, so build servers never need database access |
+> | Text wording | Fixed by the owner (two exact strings, below the `{first}` `{day}` `{time}` placeholders). Both live in one file, `src/integrations/templates.ts`, with a generated copy in `docs/SMS_TEMPLATES.md` for the A2P campaign form |
+> | Before Phase 3 | Tests for the **2026-11-01 DST change** in `America/Chicago` covering the slots endpoint, the 24-hour reminder window, and appointment moves |
+> | **Phase 3 scope (owner)** | Tiers stored as data. Credit ledger append-only, one lot per monthly grant, FIFO, idempotent monthly grant job (in `jobs:run`). Perks as monthly/quarterly entitlement counters per tier, built with placeholders until the owner supplies the exact mapping. Credit Tracker tab. Check-out redeems credits for credit-eligible services and shows balance before and after; non-members pay cash (price recorded, **no payment processing**). Price and credit cost per service on the admin Services page. `membership.html` updated. **Every check-out writes a `revenue_event` row** (service, price, payment type member/cash, encounter id). This replaces the spec's `Charge` table; void and `PlanDiscount` are not in this phase |
 
 Companion to `docs/CURRENT_STATE.md` (what exists today). This document turns
 the approved flowchart into pages, schema, API, and a five-phase plan.
