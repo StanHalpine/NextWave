@@ -34,8 +34,8 @@ const rnd = () => `${Date.now().toString(36)}${(++n).toString(36)}`;
  * A service of our own with exactly the rooms and people we say, so a test's outcome
  * does not depend on what the shared seed happens to roster. Open Mon–Sat all day.
  */
-export async function makeClinic(opts: { rooms?: number; staff?: number; capacity?: number; durationMin?: number; bufferMin?: number } = {}) {
-  const { rooms = 1, staff = 1, capacity = 1, durationMin = 30, bufferMin = 0 } = opts;
+export async function makeClinic(opts: { rooms?: number; staff?: number; capacity?: number; durationMin?: number; bufferMin?: number; weekdays?: number[] } = {}) {
+  const { rooms = 1, staff = 1, capacity = 1, durationMin = 30, bufferMin = 0, weekdays = [1, 2, 3, 4, 5, 6] } = opts;
   const tag = rnd();
   const service = await prisma.service.create({
     data: { slug: `t-${tag}`, category: 'Chiropractic', name: `Test Service ${tag}`, durationMin, bufferMin, color: 'chiro_saddle' },
@@ -51,7 +51,7 @@ export async function makeClinic(opts: { rooms?: number; staff?: number; capacit
     const s = await prisma.staff.create({
       data: {
         name: `Test Provider ${tag}-${i}`, role: 'CHIROPRACTOR',
-        schedules: { create: [1, 2, 3, 4, 5, 6].map((dayOfWeek) => ({ dayOfWeek, startTime: '07:00', endTime: '19:00' })) },
+        schedules: { create: weekdays.map((dayOfWeek) => ({ dayOfWeek, startTime: '07:00', endTime: '19:00' })) },
       },
     });
     await prisma.serviceStaff.create({ data: { serviceId: service.id, staffId: s.id } });
