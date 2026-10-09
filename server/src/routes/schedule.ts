@@ -116,9 +116,14 @@ scheduleRouter.get('/schedule/slots', requireFrontDesk, async (req, res) => {
     const day = await slotsForDay(q.data.serviceId, q.data.date, now(), q.data.forAppointmentId);
     if (!day) return res.status(404).json({ error: 'Unknown service.', code: 'unknown_service' });
     audit.read('appointment', null, { scope: 'slots' }, 'slots');
+    const staffIds = [...new Set(day.slots.flatMap((s) => s.staffIds))];
+    const staff = staffIds.length
+      ? await prisma.staff.findMany({ where: { id: { in: staffIds } }, orderBy: { name: 'asc' }, select: { id: true, name: true } })
+      : [];
     res.json({
       date: day.date, durationMin: day.durationMin, closedReason: day.closedReason ?? null,
       slots: day.slots.map((s) => ({ start: s.start, localTime: s.localTime, staffIds: s.staffIds, resourceIds: s.resourceIds })),
+      staff, // names for the provider picker
     });
   } catch (err) {
     if (!sendSchedulingError(res, err)) throw err;

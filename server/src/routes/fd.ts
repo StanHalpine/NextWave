@@ -131,7 +131,7 @@ fdRouter.post('/fd/walk-ins', requireFrontDesk, async (req, res) => {
       // Nothing was written (the transaction rolled back). Offer the next openings instead of a dead end.
       const next = await nextAvailable(b.serviceId, t);
       return res.status(409).json({
-        error: err.message,
+        error: err.code === 'slot_unavailable' ? 'No room or provider is free for this service right now.' : err.message,
         code: err.code,
         slotStart: walkInSlotStart(t).toISOString(),
         nextAvailable: next,

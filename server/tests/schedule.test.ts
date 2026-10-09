@@ -313,6 +313,8 @@ describe('schedule: open slots (the picker)', () => {
     expect(starts).not.toContain(slotAt('18:45').toISOString());
     const first = res.body.slots[0];
     expect(first.staffIds.sort()).toEqual(clinic.staff.map((s) => s.id).sort());
+    expect(res.body.staff.map((s: any) => s.id).sort()).toEqual(clinic.staff.map((s) => s.id).sort());
+    expect(res.body.staff[0]).toEqual({ id: expect.any(String), name: expect.stringContaining('Test Provider') });
     expect(blob(res.body)).not.toMatch(/Patient/);
 
     const sunday = await fd.agent.get(`/api/schedule/slots?serviceId=${clinic.service.id}&date=2026-10-18`);

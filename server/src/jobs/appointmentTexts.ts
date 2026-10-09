@@ -106,6 +106,7 @@ function isUniqueViolation(err: unknown): boolean {
 export async function runAppointmentTexts(deps: TextRunDeps): Promise<TextRunResult> {
   const at = deps.now ?? clockNow();
   const result: TextRunResult = { sent: 0, retryScheduled: 0, failed: 0, skipped: 0, deferred: 0, notEligible: 0 };
+  const notEligible = new Set<string>(); // distinct bookings: one seen in both the confirmation and reminder pass counts once
 
   if (!withinSendingHours(at)) {
     // Count what is waiting so the log shows the job is alive overnight.
@@ -141,7 +142,7 @@ export async function runAppointmentTexts(deps: TextRunDeps): Promise<TextRunRes
   for (const b of upcoming) {
     const has = (kind: Kind) => b.messages.some((m) => m.kind === kind && m.forStart.getTime() === b.startTime.getTime());
     if (has('CONFIRMATION')) continue;
-    if (!textable(b.patient)) { result.notEligible++; continue; }
+    if (!textable(b.patient)) { notEligible.add(b.id); continue; }
     await deliver({ bookingId: b.id, patientId: b.patient.id, kind: 'CONFIRMATION', forStart: b.startTime }, b.patient, deps, at, result);
   }
 
@@ -158,7 +159,7 @@ export async function runAppointmentTexts(deps: TextRunDeps): Promise<TextRunRes
     for (const b of soon) {
       const mine = fresh.filter((m) => m.bookingId === b.id && m.forStart.getTime() === b.startTime.getTime());
       if (mine.some((m) => m.kind === 'REMINDER_24H')) continue;
-      if (!textable(b.patient)) { result.notEligible++; continue; }
+      if (!textable(b.patient)) { notEligible.add(b.id); continue; }
 
       const windowOpened = b.startTime.getTime() - 24 * 3_600_000;
       const target: Target = { bookingId: b.id, patientId: b.patient.id, kind: 'REMINDER_24H', forStart: b.startTime };
@@ -173,6 +174,7 @@ export async function runAppointmentTexts(deps: TextRunDeps): Promise<TextRunRes
     }
   }
 
+  result.notEligible = notEligible.size;
   return result;
 }
 
