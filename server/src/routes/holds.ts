@@ -29,6 +29,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { config } from '../config.js';
 import { prisma } from '../lib/prisma.js';
+import { logger } from '../lib/logger.js';
 import { computeDayAvailability } from '../lib/availability.js';
 import { addMinutes, toLocalDateISO } from '../lib/time.js';
 
@@ -161,7 +162,7 @@ holdsRouter.post('/holds', async (req, res) => {
       staff: b.staff?.name ?? null,
     });
   } catch (err) {
-    console.error('[holds] create failed', err);
+    logger.error('holds_create_failed', err);
     return res.status(500).json({ error: 'Could not hold that slot. Please try again.' });
   }
 });

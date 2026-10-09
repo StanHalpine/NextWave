@@ -13,6 +13,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
+import { logger } from '../lib/logger.js';
 import { computeDayAvailability } from '../lib/availability.js';
 import { toLocalDateISO } from '../lib/time.js';
 import { requireFrontDesk } from '../middleware/frontDesk.js';
@@ -156,7 +157,7 @@ bookingsRouter.post('/bookings', async (req, res) => {
       message: 'Request received. The front desk will confirm by phone or email.',
     });
   } catch (err) {
-    console.error('[bookings] confirm failed', err);
+    logger.error('bookings_confirm_failed', err);
     return res.status(500).json({ error: 'Could not submit that request. Please try again.' });
   }
 });
@@ -268,7 +269,7 @@ bookingsRouter.patch('/bookings/:id', requireFrontDesk, async (req, res) => {
     if ('error' in result) return res.status(result.status).json({ error: result.error });
     return res.json({ bookingId: result.booking.id, status: result.booking.status });
   } catch (err) {
-    console.error('[bookings] status update failed', err);
+    logger.error('bookings_status_update_failed', err);
     return res.status(500).json({ error: 'Could not update that booking.' });
   }
 });
