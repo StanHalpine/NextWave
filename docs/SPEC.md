@@ -1,6 +1,6 @@
 # NextWave Wellness — Clinic System Specification
 
-Version 1.3 · 2026-10-09 · Status: **Phases 1 and 2 approved. Phase 3 (Patient Profile + Credits) in build.** Phases 4–5 not started.
+Version 1.4 · 2026-10-09 · Status: **Phases 1 and 2 approved. Phase 3 (Patient Profile + Credits) built — awaiting review; see `docs/PHASE3_NOTES.md`.** Phases 4–5 not started.
 
 > **Revision 1.1 — decisions recorded after approval** (the body below is otherwise
 > unchanged from the approved v1; sections touched are marked *[rev 1.1]*):
@@ -41,6 +41,20 @@ Version 1.3 · 2026-10-09 · Status: **Phases 1 and 2 approved. Phase 3 (Patient
 > | Text wording | Fixed by the owner (two exact strings, below the `{first}` `{day}` `{time}` placeholders). Both live in one file, `src/integrations/templates.ts`, with a generated copy in `docs/SMS_TEMPLATES.md` for the A2P campaign form |
 > | Before Phase 3 | Tests for the **2026-11-01 DST change** in `America/Chicago` covering the slots endpoint, the 24-hour reminder window, and appointment moves |
 > | **Phase 3 scope (owner)** | Tiers stored as data. Credit ledger append-only, one lot per monthly grant, FIFO, idempotent monthly grant job (in `jobs:run`). Perks as monthly/quarterly entitlement counters per tier, built with placeholders until the owner supplies the exact mapping. Credit Tracker tab. Check-out redeems credits for credit-eligible services and shows balance before and after; non-members pay cash (price recorded, **no payment processing**). Price and credit cost per service on the admin Services page. `membership.html` updated. **Every check-out writes a `revenue_event` row** (service, price, payment type member/cash, encounter id). This replaces the spec's `Charge` table; void and `PlanDiscount` are not in this phase |
+
+> **Revision 1.4 — Phase 3 as built** (where it differs from §4.3 / §5.3 below, which are kept as the original design):
+>
+> | Item | As built |
+> |---|---|
+> | `Charge` | **Replaced by `RevenueEvent`** (the owner's term): one append-only row per check-out — service, price, member/cash, encounter. `UNIQUE(encounterId)`. A database CHECK refuses a self-contradictory row. **Void is not built**; a mistaken check-out is corrected by an admin credit adjustment (a revenue correction is a Phase 5 question) |
+> | `MembershipPlan` | As specified, **seeded by the migration** (not the seed script, so an existing database gets it too): Prevent / Restore / Optimize, 4 / 6 / 8 credits, 90-day rollover, **$99 / $199 / $299** dues. `extraCreditPriceCents` is **not** built |
+> | `PlanDiscount` | **Not built** (not in the owner's Phase 3 scope: the member-savings percentages are marketing copy only; nothing applies them at check-out) |
+> | `CreditLedger` / `CreditAllocation` | As specified, with `CreditAllocation.grantId → lotId`. `LedgerReason` is `MONTHLY_GRANT · ADJUSTMENT · REDEMPTION · EXPIRATION` (`PURCHASE` and `REVERSAL` are not needed yet). Ledger rows carry the **application** clock. Database triggers: append-only (UPDATE / DELETE / TRUNCATE rejected), a lot/removal shape check, and a **deferred constraint trigger that refuses a commit that would overdraw a lot** |
+> | Perks (A-12) | **Tracked.** `PlanPerk` (per tier: key, label, MONTHLY / QUARTERLY / ANNUAL, quantity, active) + `PlanPerkService` (services that redeem it) + append-only `PerkUsage`. Counted in **calendar** months / quarters / years, clinic time. Pre-filled from the owner's tier copy but **inactive** until the owner confirms the mapping |
+> | Check-out | `POST /api/fd/appointments/:id/check-out` now requires `{ payment: CREDITS \| PERK \| CASH }`, runs in one transaction (lock order Booking → Patient → Membership), and is idempotent. `GET …/checkout-preview` feeds the screen |
+> | Jobs | `membership grants` and `credit expiry` run inside `npm run jobs:run` (not separate `credits:*` commands) |
+> | Admin | Tiers and perks are edited on **Admin → Memberships**; price and credit cost per service on the legacy **Catalogue** Services card (`Service.creditCost`, audited before → after) |
+> | Not in this phase | Payment processing of any kind (cash is *recorded*); membership dues (collected outside the system, not recorded as revenue); member-savings discounts; void |
 
 Companion to `docs/CURRENT_STATE.md` (what exists today). This document turns
 the approved flowchart into pages, schema, API, and a five-phase plan.
@@ -331,6 +345,8 @@ model Encounter {
 ```
 
 ### 4.3 Phase 3 — Patient Profile + Credits
+
+> *Original design. **As built: see Revision 1.4 at the top of this document** (`Charge` → `RevenueEvent`, no `PlanDiscount`, perks tracked).*
 
 ```prisma
 enum ContactMethod {
@@ -660,6 +676,8 @@ patient / appointment / SOAP / credit data writes an `AuditLog` row (§6).
 | `POST /api/fd/encounters/:id/check-out` | fd, admin | Phase 2: state only. Phase 3 adds charge + credits |
 
 ### 5.3 Patient Profile + Credits (Phase 3)
+
+> *Original design. As built the credit endpoints are `GET /api/fd/patients/:id/credits`, `POST …/credits/adjust` (admin), `POST|PATCH …/membership`, `POST …/perks/:perkId/use`, `GET /api/membership-plans`, the admin `…/membership-plans` routes, and check-out as above. There is no `POST /api/fd/charges/:id/void`.*
 | Method · Path | Roles | Purpose |
 |---|---|---|
 | `POST /api/fd/patients/search` | fd, admin | **POST, body search** — no PHI in URLs |
@@ -761,7 +779,7 @@ review before the next phase.
 **Exit:** an appointment can be created, checked in, and checked out end-to-end by front desk; walk-in racing test (extend `race-test.sh`) still yields no double-booking.
 **Needs from you:** Twilio account + A2P 10DLC registration (carrier lead time — start early) if SMS is in scope (A-8).
 
-### Phase 3 — Credits + Membership  *(L)* — *[rev 1.2: the Patient entity, directory and profile are built in Phase 2; this phase fills in the Credit Tracker tab. May be swapped with Phase 4.]*
+### Phase 3 — Credits + Membership  *(L)* — **built; see `docs/PHASE3_NOTES.md`** — *[rev 1.2: the Patient entity, directory and profile are built in Phase 2; this phase fills in the Credit Tracker tab. May be swapped with Phase 4.]*
 **Migrations:** ~~`Patient`~~ *(Phase 2)*, `MembershipPlan`, `PlanDiscount`, `Membership`, `CreditLedger` (+ append-only trigger, partial unique index), `CreditAllocation`, `Charge`; ~~`Booking.patientId`~~ *(Phase 2)*; `Service.creditCost`.
 **Build:** the Credit Tracker tab on the profile; membership enroll/pause/cancel; credit engine — monthly grant (idempotent, unique per membership+period), 90-day expiry job, FIFO redemption at check-out; check-out step records the `Charge` and redeems credits; manual adjustment (admin); worker + scheduler entry point (`npm run jobs`) for the platform cron; **`membership.html` updated to the 4/6/8 structure and new copy**; seed plans and credit costs. *(The reminder SMS job moved to Phase 2.)*
 **Exit:** running the monthly job twice grants once; a redemption consumes the oldest lot; balance always equals `SUM(delta)`; ledger rows cannot be updated or deleted at the DB.

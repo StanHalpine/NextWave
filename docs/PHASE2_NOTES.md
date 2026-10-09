@@ -3,6 +3,12 @@
 What was built, what I assumed, what I changed from the plan, and what you need
 to verify by hand. Written 2026-10-09 on branch `scheduling-engine`.
 
+> **Since approval:** several things in this file were changed at approval — the text wording (now your exact
+> strings, kept in `integrations/templates.ts` and `docs/SMS_TEMPLATES.md`), the consent model (a checkbox on the
+> booking page; STOP/HELP handled), the five service types in §5 (four became SOAP), the Render cron job and
+> pre-deploy migration, and check-out (it now settles the visit). They are recorded in `docs/PHASE3_NOTES.md` §1
+> and `docs/SPEC.md` revisions 1.3 and 1.4; this file is left as it was when written.
+
 **Nothing has been pushed or deployed.** All of this is committed locally
 (`f163caa..HEAD`: 12 commits, the first being the spec / `render.yaml` change). Every commit typechecks on its own.
 

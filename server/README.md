@@ -53,7 +53,7 @@ and every audit row now mean a specific person.
 
 | Role | Sees |
 |---|---|
-| `FRONT_DESK` | Front Desk (today's dashboard, check-in/out, walk-ins), Patients, Schedule, the legacy grid and pending queue. Sees *that* clinical notes exist, never their text |
+| `FRONT_DESK` | Front Desk (today's dashboard, check-in, check-out with credits, walk-ins), Patients and their Credit tracker, Schedule, the legacy grid and pending queue. Sees *that* clinical notes exist, never their text |
 | `PROVIDER_CHIRO` / `_NP` / `_NURSE` | clinical notes. Must be linked to a matching bookable provider record |
 | `ADMIN` | everything above except writing notes, plus accounts, audit log, configuration |
 
@@ -123,31 +123,70 @@ openings.
 
 ### Appointment texts
 
-A confirmation when an appointment is confirmed and a reminder 24 hours before, sent through
+A confirmation when an appointment is confirmed and a reminder the day before, sent through
 the `Messaging` interface (a local stub until a real provider exists — the stub writes to
 `.devdata/sms-outbox.jsonl`, never to the log).
 
-- **Content:** first name, date and time only — no service, provider or room. Enforced in code
-  (`src/integrations/templates.ts`): templates are functions of exactly those three fields and
-  `renderTemplate()` rejects any other variable.
-- **Who:** only a *linked* patient whose consent a staff member recorded on their profile.
-  The anonymous online widget cannot capture consent, so an online booking is texted only
-  after the front desk links it to a consenting patient. Never walk-ins.
+- **Wording lives in one file**, `src/integrations/templates.ts` — the two texts, the STOP / START /
+  HELP / C replies, the opt-in label and the keywords. `npm run sms:templates` writes
+  `docs/SMS_TEMPLATES.md` from it (with each message's length and segment cost) to hand to the
+  carrier registration form; a test fails if that copy is stale.
+- **Content:** first name, day and time only — no service, provider or room. Enforced in code: the
+  module refuses to load if a template uses any other placeholder, and `renderTemplate()` rejects an
+  extra or missing variable.
+- **Who (either is enough):** a *linked* patient whose consent staff recorded on their profile, **or**
+  the person who made an online booking and ticked the widget's checkbox (unchecked by default;
+  the time and the exact words shown are stored on the booking). A number that texted **STOP** is on
+  a do-not-text list that is checked before every send, unless consent *newer* than the STOP exists.
+  Never walk-ins.
 - **When:** never outside 08:00–21:00 clinic time; a text that comes due overnight waits for
-  the morning. A patient who was only told less than a day before the visit gets no second text.
+  the morning. The reminder says "see you tomorrow", so it is sent only when the appointment IS
+  tomorrow by the clinic's calendar, and never to a patient who was only told less than a day before.
+- **Inbound** (`POST /api/sms/inbound`, signed by the provider; set `TWILIO_AUTH_TOKEN`): STOP puts the
+  number on the list, turns off consent on every patient record with it, and is confirmed once; START
+  lifts it; HELP replies with `CLINIC_PHONE`; **C** marks the next appointment confirmed by the
+  patient. Anything else is neither stored nor answered, and neither the number nor the words reach a log.
 - **Exactly once:** `MessageLog` is unique on (appointment, kind, appointment time) and inserting
   the row is the claim, so overlapping runs, re-runs and restarts do not double-send. A move
   changes the appointment time, so the new time is confirmed and reminded afresh.
-- **Failures:** transient errors retry (5, 15, 60 minutes, four attempts). A provider "STOP"
-  turns the patient's consent off. Only a failure *category* is stored — never a provider
+- **Failures:** transient errors retry (5, 15, 60 minutes, four attempts). A provider "opted out"
+  puts the number on the do-not-text list. Only a failure *category* is stored — never a provider
   message, which can echo the phone number.
+
+### Credits, memberships and check-out (Phase 3)
+
+| Where | What |
+|---|---|
+| Patient profile → **Credit tracker** | Membership (enrol, change plan, pause, resume, cancel), balance with an expiring-soon warning, perk counters, every lot with its last day, the full history with a running total; admins can adjust credits with a reason from a fixed list |
+| Front Desk → **Check out…** | The visit's price, the member's balance **before and after**, and how it was paid: Wellness Credits, an included perk, or cash (recorded only — **nothing is charged or processed here**) |
+| Admin → **Memberships** | The tiers as data (dues, credits a month, rollover) and each tier's perks (how many, which services, on/off) |
+| Admin → Catalogue → Services | Price **and credit cost** per service (blank credit cost = cash only) |
+
+**The ledger.** `CreditLedger` is append-only (database triggers reject UPDATE, DELETE and TRUNCATE).
+A positive row is a **lot** — one per monthly grant, with a last-usable day (grant date + the tier's
+rollover days); a negative row (redemption, expiry, manual removal) is spread over lots, **oldest
+first**, by `CreditAllocation` rows, so what is left in a lot is computed, never edited. Credits are
+unusable the moment their day passes; the expiry job writes that down so the history says so. A
+deferred database constraint refuses a commit that would draw a lot below zero, even if application
+code forgot to lock. Anything that takes credits holds the patient's row lock (lock order across
+check-out: Booking → Patient → Membership).
+
+**The monthly grant** is unique per (membership, month) in the database, so the job — run twice, or
+by ten runners at once — grants a month once. It follows the clinic's calendar, anchors on the start
+date (31 Jan → 28 Feb → 31 Mar), makes up missed months one lot each, and skips paused and cancelled
+memberships. A plan change applies from the next grant; nothing is prorated or clawed back.
+
+**Check-out** runs in one transaction: lock the booking, lock the patient, take the credits (or use
+the perk, or record the cash price), write exactly **one `RevenueEvent`** (service, price, member /
+cash, encounter — the data Accounting reads from day one), and check the patient out. It is
+idempotent: a repeat or a double-click returns what was recorded and changes nothing.
 
 ### Scheduled jobs
 
-Texts are sent by a job, not by the booking request, so something must run it. Pick one:
+Texts, the monthly credit grant and credit expiry are jobs, not part of any request, so something must run them. Pick one:
 
 ```bash
-npm run jobs:run      # run every job once and exit. The blueprint's `nextwave-jobs` Cron Job runs
+npm run jobs:run      # run every job once and exit (texts, monthly credit grant, credit expiry). The blueprint's `nextwave-jobs` Cron Job runs
                       # this every 5 minutes. Needs the same environment as the web app.
 ```
 
@@ -285,6 +324,17 @@ allowed. Every non-GET staff request also needs the `x-csrf-token` header.
 | GET | `/api/schedule/slots?serviceId&date[&forAppointmentId]` | front desk, admin | Bookable starts (as if one appointment were not there, for a move) |
 | GET | `/api/schedule/appointments/:id` | front desk, admin | One appointment, with text delivery status |
 | POST | `/api/schedule/appointments` · `/:id/move` · `/:id/cancel` | front desk, admin | Create / move / cancel |
+| GET | `/api/fd/appointments/:id/checkout-preview` | front desk, admin | Price, balance and every way the visit can be paid |
+| POST | `/api/fd/appointments/:id/check-out` | front desk, admin | **Settle the visit** — body `{ payment: CREDITS \| PERK \| CASH }`; one revenue event; idempotent |
+| GET | `/api/fd/patients/:id/credits[?before]` | front desk, admin | Membership, balance, lots, perks, paged history |
+| POST | `/api/fd/patients/:id/credits/adjust` | **admin** | Add or remove credits; reason code from a fixed list |
+| POST · PATCH | `/api/fd/patients/:id/membership` | front desk, admin | Enrol / change plan, pause, resume, cancel |
+| POST | `/api/fd/patients/:id/perks/:perkId/use` | front desk, admin | Use a perk not tied to a service (guest passes) |
+| GET | `/api/membership-plans` | staff | The tiers, for the enrol dialog |
+| GET · PATCH | `/api/admin/membership-plans` · `/:id` · `/:id/perks/:perkId` | admin | Tiers and perks as data; audited before → after |
+| GET | `/api/sms/consent-label` | — | The exact words for the booking widget's text-consent checkbox |
+| POST | `/api/bookings/:id/sms-consent` | — (booking id; ≤ 30 min old; rate limited) | Record the tick and the words shown |
+| POST | `/api/sms/inbound` | provider signature | STOP / START / HELP / C |
 
 Removed: `POST /api/admin/purge` (bulk-delete of patient data over HTTP) and
 `GET /api/patients?email=` (an email address in a URL).
@@ -402,7 +452,7 @@ mapping. Spec §8.5.
 **Not built** (nobody specified them): patient-facing booking UI, recurring
 appointment expansion (`isRecurring` is stored but never acted on), a real SMS provider
 (texts go to a local stub until Twilio is wired in), cancellation or reschedule texts, email
-confirmations, membership-credit integration, cancellation windows, provider
+confirmations, payment processing, member-savings discounts, void of a check-out, cancellation windows, provider
 time-off/blackout dates. (Automated tests now exist — `npm test` — covering auth, access control, audit and start-up guards; the booking engine itself is still verified by `scripts/race-test.sh` rather than unit tests.)
 
 ## Scripts
@@ -417,7 +467,8 @@ time-off/blackout dates. (Automated tests now exist — `npm test` — covering 
 | `npm run lint:logs` | Fail if anything but `lib/logger.ts` writes to the console |
 | `npm test` | Vitest — runs against a throwaway Postgres *schema* (see below) |
 | `npm run web:build` / `web:dev` / `web:install` | The React staff app |
-| `npm run jobs:run` | Run every scheduled job once (appointment texts) and exit — see *Scheduled jobs* |
+| `npm run jobs:run` | Run every scheduled job once (appointment texts, monthly credit grant, credit expiry) and exit — see *Scheduled jobs* |
+| `npm run sms:templates` | Rewrite `docs/SMS_TEMPLATES.md` (every text, its length and segment cost) from `templates.ts` |
 | `npm run dev:reset` | **Dev only**: delete bookings, patients and notes. Refuses when `NODE_ENV=production` or `BOOKING_MODE` is beta/live, and needs `CONFIRM_DEV_RESET=yes` |
 | `./scripts/race-test.sh [date] [n]` | Concurrency proof — exactly one winner for one room |
 | `./scripts/demo-day.sh [date]` | Fill a day with mixed-status bookings — **dev only**; needs `DEMO_STAFF_EMAIL` / `DEMO_STAFF_PASSWORD` of a front desk login to approve |
