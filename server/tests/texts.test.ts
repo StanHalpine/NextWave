@@ -5,7 +5,11 @@ import { runAppointmentTexts, MAX_ATTEMPTS, withinSendingHours } from '../src/jo
 import { runAllJobsOnce } from '../src/jobs/scheduler.js';
 import { loadIntegrations } from '../src/integrations/index.js';
 import { MessagingError, type Messaging } from '../src/integrations/types.js';
-import { TEMPLATES, ALLOWED_VARIABLES, renderTemplate, sanitizeFirstName, TemplateError } from '../src/integrations/templates.js';
+import { TEMPLATES, REPLIES, ALLOWED_VARIABLES, renderTemplate, sanitizeFirstName, TemplateError, placeholdersOf } from '../src/integrations/templates.js';
+import { renderTemplatesDoc } from '../src/integrations/templateDoc.js';
+import { smsInfo } from '../src/integrations/smsEncoding.js';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { StubMessaging } from '../src/integrations/stubs.js';
 import { toE164 } from '../src/lib/phone.js';
 import { makeAccount, signInFully, auditRows, blob } from './helpers.js';
@@ -57,30 +61,38 @@ async function appt(patientId: string | null, over: { start?: Date; status?: 'CO
 const consenting = (over: object = {}) => makePatient({ smsOptIn: true, firstName: 'Ingrid', ...over });
 
 describe('message templates', () => {
-  it('carry first name, date and time — and nothing else about the care', () => {
-    const v = { firstName: 'Ingrid', date: 'Wednesday, Oct 14', time: '10:00 AM' };
-    for (const id of Object.keys(TEMPLATES)) {
-      const body = renderTemplate(id, v);
-      expect(body).toContain('Ingrid');
-      expect(body).toContain('Wednesday, Oct 14');
-      expect(body).toContain('10:00 AM');
-      expect(body).toContain('Reply STOP');
-      // Nothing that names a service, provider or room can be in there: strip the three
-      // fields and the fixed wording, and nothing must be left over.
-      const residue = body.replace('Ingrid', '').replace('Wednesday, Oct 14', '').replace('10:00 AM', '');
-      expect(residue).not.toMatch(/chiropract|adjust|IV|infusion|hyperbaric|therapy|Dr\.|nurse|room|exam|x-ray|hormone|peptide|lab|biomarker/i);
-    }
-    expect([...ALLOWED_VARIABLES]).toEqual(['firstName', 'date', 'time']);
+  const V = { first: 'Ingrid', day: 'Wednesday, Oct 14', time: '10:00 AM' };
+
+  it('are EXACTLY the wording the owner approved', () => {
+    expect(renderTemplate('appt_confirmation_v2', V)).toBe(
+      "NextWave Wellness: Hi Ingrid, you're confirmed for Wednesday, Oct 14 at 10:00 AM. Reply C to confirm or call us to change. Reply STOP to opt out.");
+    expect(renderTemplate('appt_reminder_24h_v2', { first: 'Ingrid', time: '10:00 AM' })).toBe(
+      'NextWave Wellness: Reminder — Ingrid, see you tomorrow at 10:00 AM. Reply STOP to opt out.');
+    // The raw strings, with their placeholders, as handed to the A2P form.
+    expect(TEMPLATES.appt_confirmation_v2.text).toBe("NextWave Wellness: Hi {first}, you're confirmed for {day} at {time}. Reply C to confirm or call us to change. Reply STOP to opt out.");
+    expect(TEMPLATES.appt_reminder_24h_v2.text).toBe('NextWave Wellness: Reminder — {first}, see you tomorrow at {time}. Reply STOP to opt out.');
   });
 
-  it('REJECT a fourth variable, a missing one, an unknown template, and values that could smuggle content', () => {
-    const ok = { firstName: 'Ingrid', date: 'Wednesday, Oct 14', time: '10:00 AM' };
-    expect(() => renderTemplate('appt_confirmation_v1', { ...ok, service: 'Spinal Exam' })).toThrow(TemplateError);
-    expect(() => renderTemplate('appt_confirmation_v1', { ...ok, provider: 'Dr. Lee' })).toThrow(TemplateError);
-    expect(() => renderTemplate('appt_confirmation_v1', { firstName: 'Ingrid', date: 'x' })).toThrow(TemplateError);
-    expect(() => renderTemplate('appt_cancel_v1', ok)).toThrow(TemplateError);
-    expect(() => renderTemplate('appt_confirmation_v1', { ...ok, firstName: 'Ingrid\nvisit https://x.test' })).toThrow(TemplateError);
-    expect(() => renderTemplate('appt_confirmation_v1', { ...ok, firstName: '' })).toThrow(TemplateError);
+  it('carry first name, day and time — and nothing else about the care', () => {
+    expect([...ALLOWED_VARIABLES]).toEqual(['first', 'day', 'time']);
+    expect(placeholdersOf('appt_confirmation_v2')).toEqual(['day', 'first', 'time']);
+    expect(placeholdersOf('appt_reminder_24h_v2')).toEqual(['first', 'time']);
+    for (const id of Object.keys(TEMPLATES) as Array<keyof typeof TEMPLATES>) {
+      for (const v of placeholdersOf(id)) expect((ALLOWED_VARIABLES as readonly string[]).includes(v), `${id} uses {${v}}`).toBe(true);
+      // Strip the fields and the fixed wording's own words: no service, provider or room can remain.
+      const body = renderTemplate(id, Object.fromEntries(placeholdersOf(id).map((k) => [k, V[k as keyof typeof V]])));
+      expect(body.replace('Ingrid', '')).not.toMatch(/chiropract|adjust|infusion|hyperbaric|therapy|Dr\.|nurse|\broom\b|x-ray|hormone|peptide|biomarker/i);
+    }
+  });
+
+  it('REJECT a variable the template does not use, a missing one, an unknown template, and values that could smuggle content', () => {
+    expect(() => renderTemplate('appt_confirmation_v2', { ...V, service: 'Spinal Exam' })).toThrow(TemplateError);
+    expect(() => renderTemplate('appt_confirmation_v2', { ...V, provider: 'Dr. Lee' })).toThrow(TemplateError);
+    expect(() => renderTemplate('appt_confirmation_v2', { first: 'Ingrid', day: 'x' })).toThrow(TemplateError);
+    expect(() => renderTemplate('appt_reminder_24h_v2', V)).toThrow(TemplateError);          // the reminder takes no {day}
+    expect(() => renderTemplate('appt_cancel_v1', V)).toThrow(TemplateError);
+    expect(() => renderTemplate('appt_confirmation_v2', { ...V, first: 'Ingrid\nvisit https://x.test' })).toThrow(TemplateError);
+    expect(() => renderTemplate('appt_confirmation_v2', { ...V, first: '' })).toThrow(TemplateError);
   });
 
   it('sanitise a first name so it cannot carry a link or a number', () => {
@@ -95,7 +107,32 @@ describe('message templates', () => {
 
   it('are enforced by the stub provider too, so a bad call fails in development rather than in production', async () => {
     const stub = new StubMessaging();
-    await expect(stub.sendSms({ to: '+16125550100', templateId: 'appt_confirmation_v1', variables: { firstName: 'A', date: 'd', time: 't', service: 'IV' } })).rejects.toThrow(TemplateError);
+    await expect(stub.sendSms({ to: '+16125550100', templateId: 'appt_confirmation_v2', variables: { ...V, service: 'IV' } })).rejects.toThrow(TemplateError);
+  });
+
+  it('replies are held to the same rule; the only extra they may carry is the clinic phone', () => {
+    expect(renderTemplate('reply_help_v1', { phone: '(612) 555-0100' })).toBe('NextWave Wellness: For help, call (612) 555-0100. Msg & data rates may apply. Reply STOP to opt out.');
+    expect(renderTemplate('reply_confirmed_v1', V)).toContain('Wednesday, Oct 14 at 10:00 AM');
+    for (const id of Object.keys(REPLIES)) for (const v of placeholdersOf(id)) expect(['first', 'day', 'time', 'phone']).toContain(v);
+  });
+
+  it('report their size honestly: the reminder\'s em dash makes it Unicode', () => {
+    const conf = smsInfo(renderTemplate('appt_confirmation_v2', V));
+    expect(conf).toMatchObject({ encoding: 'GSM-7', segments: 1 });
+    const rem = smsInfo(renderTemplate('appt_reminder_24h_v2', { first: 'Ingrid', time: '10:00 AM' }));
+    expect(rem.encoding).toBe('UCS-2');
+    expect(rem.nonGsm).toEqual(['—']);
+    expect(smsInfo('a'.repeat(160))).toMatchObject({ encoding: 'GSM-7', segments: 1 });
+    expect(smsInfo('a'.repeat(161))).toMatchObject({ segments: 2, length: 161 });
+    expect(smsInfo('[' + 'a'.repeat(159))).toMatchObject({ segments: 2 });               // "[" costs two
+    expect(smsInfo('é'.repeat(3) + '—'.repeat(67)).segments).toBe(1);                       // 70 UCS-2 units fit in one segment
+    expect(smsInfo('é'.repeat(3) + '—'.repeat(68)).segments).toBe(2);                       // 71 do not
+  });
+
+  it('are in the committed campaign document, which is not stale (run `npm run sms:templates`)', () => {
+    const committed = readFileSync(path.resolve(process.cwd(), '..', 'docs', 'SMS_TEMPLATES.md'), 'utf8');
+    expect(committed).toBe(renderTemplatesDoc());
+    for (const t of [...Object.values(TEMPLATES), ...Object.values(REPLIES)]) expect(committed).toContain(t.text);
   });
 });
 
@@ -120,12 +157,12 @@ describe('confirmation texts', () => {
     expect(first.sent).toBeGreaterThanOrEqual(1);
     const mine = callsFor(calls, p);
     expect(mine).toHaveLength(1);
-    expect(mine[0]).toEqual({ to: to(p), templateId: 'appt_confirmation_v1', variables: { firstName: 'Ingrid', date: 'Wednesday, Oct 14', time: '10:00 AM' } });
-    expect(Object.keys(mine[0]!.variables).sort()).toEqual(['date', 'firstName', 'time']);
+    expect(mine[0]).toEqual({ to: to(p), templateId: 'appt_confirmation_v2', variables: { first: 'Ingrid', day: 'Wednesday, Oct 14', time: '10:00 AM' } });
+    expect(Object.keys(mine[0]!.variables).sort()).toEqual(['day', 'first', 'time']);
 
     const log = await prisma.messageLog.findMany({ where: { bookingId: b.id } });
     expect(log).toHaveLength(1);
-    expect(log[0]).toMatchObject({ kind: 'CONFIRMATION', status: 'SENT', templateId: 'appt_confirmation_v1', attempts: 1, patientId: p.id });
+    expect(log[0]).toMatchObject({ kind: 'CONFIRMATION', status: 'SENT', templateId: 'appt_confirmation_v2', attempts: 1, patientId: p.id });
     expect(log[0]!.providerMessageId).toMatch(/^fake-/);
     expect(log[0]!.forStart.toISOString()).toBe(APPT.toISOString());
 
@@ -142,7 +179,7 @@ describe('confirmation texts', () => {
     await appt(p.id);
     const { m, calls } = fakeMessaging();
     await runAppointmentTexts({ messaging: m, now: FAR });
-    expect(callsFor(calls, p)[0]!.variables.firstName).toBe('Inge');
+    expect(callsFor(calls, p)[0]!.variables.first).toBe('Inge');
   });
 
   it('two runners at once still send once', async () => {
@@ -219,12 +256,12 @@ describe('24-hour reminders', () => {
     const { m, calls } = fakeMessaging();
     await runAppointmentTexts({ messaging: m, now: FAR });                                       // confirmation only
     await runAppointmentTexts({ messaging: m, now: new Date(APPT.getTime() - 25 * 3_600_000) });  // 25h out: still too early
-    expect(callsFor(calls, p).map((c) => c.templateId)).toEqual(['appt_confirmation_v1']);
+    expect(callsFor(calls, p).map((c) => c.templateId)).toEqual(['appt_confirmation_v2']);
 
     await runAppointmentTexts({ messaging: m, now: T1 });
     await runAppointmentTexts({ messaging: m, now: T1 });
-    expect(callsFor(calls, p).map((c) => c.templateId)).toEqual(['appt_confirmation_v1', 'appt_reminder_24h_v1']);
-    expect(callsFor(calls, p)[1]!.variables).toEqual({ firstName: 'Ingrid', date: 'Wednesday, Oct 14', time: '10:00 AM' });
+    expect(callsFor(calls, p).map((c) => c.templateId)).toEqual(['appt_confirmation_v2', 'appt_reminder_24h_v2']);
+    expect(callsFor(calls, p)[1]!.variables).toEqual({ first: 'Ingrid', time: '10:00 AM' });   // the reminder says "tomorrow": no day
     const kinds = (await prisma.messageLog.findMany({ where: { bookingId: b.id } })).map((r) => `${r.kind}:${r.status}`).sort();
     expect(kinds).toEqual(['CONFIRMATION:SENT', 'REMINDER_24H:SENT']);
   });
@@ -236,7 +273,7 @@ describe('24-hour reminders', () => {
     const b = await appt(p.id);
     const toldAt = slotAt('12:00', '2026-10-13');
     await prisma.messageLog.create({
-      data: { bookingId: b.id, patientId: p.id, kind: 'CONFIRMATION', forStart: APPT, templateId: 'appt_confirmation_v1', status: 'SENT', queuedAt: toldAt, sentAt: toldAt },
+      data: { bookingId: b.id, patientId: p.id, kind: 'CONFIRMATION', forStart: APPT, templateId: 'appt_confirmation_v2', status: 'SENT', queuedAt: toldAt, sentAt: toldAt },
     });
     const { m, calls } = fakeMessaging();
     await runAppointmentTexts({ messaging: m, now: slotAt('15:00', '2026-10-13') });
@@ -249,21 +286,25 @@ describe('24-hour reminders', () => {
     const b = await appt(p.id);
     const toldAt = slotAt('09:59', '2026-10-13');   // one minute before the window opened
     await prisma.messageLog.create({
-      data: { bookingId: b.id, patientId: p.id, kind: 'CONFIRMATION', forStart: APPT, templateId: 'appt_confirmation_v1', status: 'SENT', queuedAt: toldAt, sentAt: toldAt },
+      data: { bookingId: b.id, patientId: p.id, kind: 'CONFIRMATION', forStart: APPT, templateId: 'appt_confirmation_v2', status: 'SENT', queuedAt: toldAt, sentAt: toldAt },
     });
     const { m, calls } = fakeMessaging();
     await runAppointmentTexts({ messaging: m, now: slotAt('15:00', '2026-10-13') });
-    expect(callsFor(calls, p).map((c) => c.templateId)).toEqual(['appt_reminder_24h_v1']);
+    expect(callsFor(calls, p).map((c) => c.templateId)).toEqual(['appt_reminder_24h_v2']);
   });
 
-  it('is skipped (with a recorded reason) when the appointment is under an hour away', async () => {
+  it('is NEVER sent for an appointment that is today — "see you tomorrow" would be false', async () => {
+    // Wed 08:00, appointment Wed 10:00: inside 24 hours, but not tomorrow (the job was down overnight,
+    // or consent arrived late). The confirmation still says the day and time; the reminder is skipped.
     const p = await consenting();
     const b = await appt(p.id);
     const { m, calls } = fakeMessaging();
-    await runAppointmentTexts({ messaging: m, now: new Date(APPT.getTime() - 30 * 60_000) });
-    expect(callsFor(calls, p).map((c) => c.templateId)).toEqual(['appt_confirmation_v1']);
+    await runAppointmentTexts({ messaging: m, now: slotAt('08:00', WED) });
+    expect(callsFor(calls, p).map((c) => c.templateId)).toEqual(['appt_confirmation_v2']);
     const reminder = await prisma.messageLog.findFirstOrThrow({ where: { bookingId: b.id, kind: 'REMINDER_24H' } });
-    expect(reminder).toMatchObject({ status: 'SKIPPED', failureCode: 'too_late' });
+    expect(reminder).toMatchObject({ status: 'SKIPPED', failureCode: 'same_day' });
+    await runAppointmentTexts({ messaging: m, now: slotAt('09:00', WED) });
+    expect(callsFor(calls, p)).toHaveLength(1);
   });
 
   it('is not sent for an appointment that was cancelled in the meantime', async () => {
@@ -273,7 +314,7 @@ describe('24-hour reminders', () => {
     await runAppointmentTexts({ messaging: m, now: FAR });
     await prisma.booking.update({ where: { id: b.id }, data: { status: 'CANCELLED' } });
     await runAppointmentTexts({ messaging: m, now: T1 });
-    expect(callsFor(calls, p).map((c) => c.templateId)).toEqual(['appt_confirmation_v1']);
+    expect(callsFor(calls, p).map((c) => c.templateId)).toEqual(['appt_confirmation_v2']);
   });
 });
 
@@ -296,13 +337,13 @@ describe('a moved appointment', () => {
     expect(moved.status).toBe(200);
 
     await runAppointmentTexts({ messaging: m, now: T1 });       // confirmation for 11:00; reminder not yet due (> 24h away)
-    expect(callsFor(calls, p).map((c) => c.templateId)).toEqual(['appt_confirmation_v1', 'appt_reminder_24h_v1', 'appt_confirmation_v1']);
+    expect(callsFor(calls, p).map((c) => c.templateId)).toEqual(['appt_confirmation_v2', 'appt_reminder_24h_v2', 'appt_confirmation_v2']);
     expect(callsFor(calls, p)[2]!.variables.time).toBe('11:00 AM');
 
     await runAppointmentTexts({ messaging: m, now: slotAt('11:30', '2026-10-13') });   // now inside 24h of 11:00
     const sent = callsFor(calls, p);
     expect(sent).toHaveLength(4);
-    expect(sent[3]).toMatchObject({ templateId: 'appt_reminder_24h_v1', variables: { time: '11:00 AM' } });
+    expect(sent[3]).toMatchObject({ templateId: 'appt_reminder_24h_v2', variables: { time: '11:00 AM' } });
     expect(await prisma.messageLog.count({ where: { bookingId: id } })).toBe(4);   // 2 times × 2 kinds, none overwritten
     setClockForTests(null);
   });
@@ -393,7 +434,7 @@ describe('failures and retries', () => {
     const p = await consenting();
     const b = await appt(p.id);
     await prisma.messageLog.create({
-      data: { bookingId: b.id, patientId: p.id, kind: 'CONFIRMATION', forStart: APPT, templateId: 'appt_confirmation_v1', attempts: 1, nextAttemptAt: new Date(FAR.getTime() - 60_000) },
+      data: { bookingId: b.id, patientId: p.id, kind: 'CONFIRMATION', forStart: APPT, templateId: 'appt_confirmation_v2', attempts: 1, nextAttemptAt: new Date(FAR.getTime() - 60_000) },
     });
     const { m, calls } = fakeMessaging();
     await runAppointmentTexts({ messaging: m, now: FAR });
@@ -407,7 +448,7 @@ describe('failures and retries', () => {
     const cancelled = await appt(cancelledP.id, { status: 'CANCELLED' });
     const moved = await appt(movedP.id, { start: slotAt('12:00', WED) });
     for (const [b, p, forStart] of [[cancelled, cancelledP, APPT], [moved, movedP, APPT]] as const) {
-      await prisma.messageLog.create({ data: { bookingId: b.id, patientId: p.id, kind: 'CONFIRMATION', forStart, templateId: 'appt_confirmation_v1', attempts: 1, nextAttemptAt: new Date(FAR.getTime() - 1000) } });
+      await prisma.messageLog.create({ data: { bookingId: b.id, patientId: p.id, kind: 'CONFIRMATION', forStart, templateId: 'appt_confirmation_v2', attempts: 1, nextAttemptAt: new Date(FAR.getTime() - 1000) } });
     }
     const { m, calls } = fakeMessaging();
     await runAppointmentTexts({ messaging: m, now: FAR });

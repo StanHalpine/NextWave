@@ -49,19 +49,21 @@ import { staffTransaction } from '../lib/staffTx.js';
 import { clinicHour, formatApptDate, formatApptTime } from '../lib/format.js';
 import { toE164 } from '../lib/phone.js';
 import { sanitizeFirstName, type TemplateId } from '../integrations/templates.js';
+import { toLocalDateISO } from '../lib/time.js';
+import { DateTime } from 'luxon';
+import { config } from '../config.js';
 import { MessagingError, type Messaging } from '../integrations/types.js';
 
 export const QUIET_START_HOUR = 8;   // first hour a text may go out
 export const QUIET_END_HOUR = 21;    // texts stop at 21:00
-export const MIN_REMINDER_LEAD_MS = 60 * 60_000;
 export const MAX_ATTEMPTS = 4;
 const LEASE_MS = 10 * 60_000;
 const BACKOFF_MS = [5, 15, 60].map((m) => m * 60_000); // after attempt 1, 2, 3
 const BATCH = 200;
 
 const TEMPLATE: Record<'CONFIRMATION' | 'REMINDER_24H', TemplateId> = {
-  CONFIRMATION: 'appt_confirmation_v1',
-  REMINDER_24H: 'appt_reminder_24h_v1',
+  CONFIRMATION: 'appt_confirmation_v2',
+  REMINDER_24H: 'appt_reminder_24h_v2',
 };
 
 export interface TextRunResult {
@@ -150,6 +152,7 @@ export async function runAppointmentTexts(deps: TextRunDeps): Promise<TextRunRes
   //    this very pass counts: re-read so a booking made at 3 p.m. for tomorrow 10 a.m.
   //    is not texted twice within the hour.)
   const horizon = new Date(at.getTime() + 24 * 3_600_000);
+  const tomorrow = DateTime.fromJSDate(at, { zone: config.clinicTimezone }).plus({ days: 1 }).toFormat('yyyy-MM-dd');
   const soon = upcoming.filter((b) => b.startTime <= horizon);
   if (soon.length > 0) {
     const fresh = await prisma.messageLog.findMany({
@@ -164,8 +167,11 @@ export async function runAppointmentTexts(deps: TextRunDeps): Promise<TextRunRes
       const windowOpened = b.startTime.getTime() - 24 * 3_600_000;
       const target: Target = { bookingId: b.id, patientId: b.patient.id, kind: 'REMINDER_24H', forStart: b.startTime };
       const confirmation = mine.find((m) => m.kind === 'CONFIRMATION');
-      if (b.startTime.getTime() - at.getTime() < MIN_REMINDER_LEAD_MS) {
-        await recordSkip(target, 'too_late', result);
+      if (toLocalDateISO(b.startTime) !== tomorrow) {
+        // The wording says "see you tomorrow". Within 24 hours of an appointment that is TODAY
+        // (the job was down overnight, or consent arrived late) that would be false — skip it.
+        // Compared by clinic-local calendar date, so a 23- or 25-hour DST day cannot confuse it.
+        await recordSkip(target, 'same_day', result);
       } else if (confirmation && confirmation.queuedAt.getTime() >= windowOpened) {
         await recordSkip(target, 'booked_inside_window', result); // they were told less than a day ago
       } else {
@@ -228,11 +234,11 @@ async function retry(row: { id: string; bookingId: string; kind: Kind; forStart:
 
 async function send(id: string, t: Target, patient: PatientLite, attempt: number, deps: TextRunDeps, at: Date, out: TextRunResult) {
   const to = toE164(patient.phone)!; // textable() guaranteed it
-  const variables = {
-    firstName: sanitizeFirstName(patient.preferredName || patient.firstName),
-    date: formatApptDate(t.forStart),
-    time: formatApptTime(t.forStart),
-  };
+  // Exactly the placeholders each text uses: renderTemplate() refuses any other.
+  const first = sanitizeFirstName(patient.preferredName || patient.firstName);
+  const variables: Record<string, string> = t.kind === 'CONFIRMATION'
+    ? { first, day: formatApptDate(t.forStart), time: formatApptTime(t.forStart) }
+    : { first, time: formatApptTime(t.forStart) };
   try {
     const { providerMessageId } = await deps.messaging.sendSms({ to, templateId: TEMPLATE[t.kind], variables });
     await finish(id, { status: 'SENT', providerMessageId, sentAt: at, nextAttemptAt: null, failureCode: null }, out, 'sent');
