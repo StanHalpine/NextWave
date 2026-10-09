@@ -22,31 +22,37 @@ services:
   - type: web
     name: nextwave-scheduling
     runtime: node
-    plan: free # sleeps after ~15 min idle; first request back takes ~30s
+    # A PAID plan, for two reasons. (1) `preDeployCommand` below is not available on the free
+    # plan. (2) The web service now also answers the text-message provider's STOP / HELP webhook
+    # (POST /api/sms/inbound); a free service that has gone to sleep takes ~30 s to wake, longer
+    # than the provider waits. 0.5c-512mb is Render's entry paid size.
+    plan: 0.5c-512mb
     rootDir: server
     # --include=dev is required. NODE_ENV=production (set below, correctly, for
     # the runtime) makes npm skip devDependencies — which is where typescript,
     # @types/node, the Prisma CLI and tsx all live. Without this the build dies
-    # on "TS2688: Cannot find type definition file for 'node'", and `npm run
-    # seed` would later fail too because tsx would be absent.
+    # on "TS2688: Cannot find type definition file for 'node'", and the seed would
+    # later fail too because tsx would be absent.
     #
-    # `npm run seed` runs on EVERY deploy, deliberately: migrations create empty
-    # tables, so without it the booking page has no services to offer. It only
-    # ever populates an EMPTY database (it skips when any Service exists), so
-    # admin edits and deletions survive every deploy, and it runs in ONE
-    # transaction, so a failure leaves the database empty and re-runnable rather
-    # than half-populated. It never touches Booking, User, VisitNote, Account or
-    # the audit log.
+    # The BUILD touches no database. `prisma generate` and the TypeScript build read only the
+    # schema, so Render's build servers (which have no fixed IP addresses) never need to reach
+    # DATABASE_URL, whatever allow-list the database has.
     #
-    # NOTE — the build runs `prisma migrate deploy` and the seed, so the BUILD
-    # environment must be able to reach DATABASE_URL. Render's build servers do not
-    # have fixed IP addresses: if your Postgres only accepts allow-listed IPs, the
-    # build will fail to connect. Either allow the connection, or move migrations to
-    # a step that runs somewhere that CAN reach it (a CI job, or Render's
-    # preDeployCommand) and drop `prisma migrate deploy` / `npm run seed` from here.
+    # Migrations and the seed run in `preDeployCommand`: after the build, before the new version
+    # takes traffic, and a failure stops the deploy. `npm run seed` runs on EVERY deploy,
+    # deliberately: migrations create empty tables, so without it the booking page has no
+    # services to offer. It only ever populates an EMPTY database (it skips when any Service
+    # exists), so admin edits and deletions survive every deploy, and it runs in ONE transaction,
+    # so a failure leaves the database empty and re-runnable rather than half-populated. It never
+    # touches Booking, User, VisitNote, Account or the audit log.
+    #
+    # NOTE — the pre-deploy step runs on Render's infrastructure, so DATABASE_URL must be
+    # reachable from there. If your Postgres allow-lists IP addresses, run migrations from CI
+    # instead and drop this line.
     # The staff app (React + Vite, in web/) is built into public/app, which
     # Express serves at /app. It has its own package.json, hence its own install.
-    buildCommand: npm ci --include=dev && npx prisma generate && npx prisma migrate deploy && npm --prefix web ci --include=dev && npm --prefix web run build && npm run build && npm run seed
+    buildCommand: npm ci --include=dev && npx prisma generate && npm --prefix web ci --include=dev && npm --prefix web run build && npm run build
+    preDeployCommand: npx prisma migrate deploy && npm run seed
     startCommand: npm start
     healthCheckPath: /health
     envVars:
@@ -92,9 +98,21 @@ services:
       - key: DEMO_PASSWORD
         sync: false
 
-      # Public https origin, for one-time setup links.
+      # Public https origin, for one-time setup links and for verifying the text-message
+      # provider's webhook signature (it signs the exact public URL).
       - key: APP_BASE_URL
         sync: false
+
+      # The clinic's phone number, shown in the reply to a patient who texts HELP
+      # (e.g. "(612) 555-0100"). Required in production as soon as TWILIO_AUTH_TOKEN is set.
+      - key: CLINIC_PHONE
+        sync: false
+
+      # Add when the Twilio account exists. It both enables real messaging and is the key the
+      # inbound webhook's signature is checked against; with NODE_ENV=production and no token
+      # the webhook refuses every request. Set the SAME value on the cron job below.
+      #   - key: TWILIO_AUTH_TOKEN
+      #     sync: false
 
       # Encrypts authenticator secrets. Generate locally with `npm run gen-secrets`
       # and paste it in. Never commit it; losing it invalidates every enrolment.
@@ -104,3 +122,35 @@ services:
       # The FRONT_DESK_TOKEN that used to live here is gone: staff sign in
       # individually. Create the first admin from the Render shell with
       #   ADMIN_EMAIL=you@example.com npm run seed:admin
+
+  # Scheduled jobs: appointment confirmation and reminder texts, and (Phase 3) the monthly credit
+  # grant and credit expiry. One short process every five minutes; every job is idempotent, so an
+  # overlapping or repeated run does no harm. Cron jobs have no free plan.
+  #
+  # sync:false values cannot live in an environment group, so the secrets are declared on each
+  # service and must be entered for BOTH — the same values as the web service above.
+  - type: cron
+    name: nextwave-jobs
+    runtime: node
+    plan: 0.5c-512mb
+    rootDir: server
+    schedule: "*/5 * * * *"
+    buildCommand: npm ci --include=dev && npx prisma generate
+    startCommand: npm run jobs:run
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: CLINIC_TIMEZONE
+        value: America/Chicago
+      # The same Postgres as the web service. Must end ?sslmode=require.
+      - key: DATABASE_URL
+        sync: false
+      # config.ts enforces its production guards in this process too.
+      - key: APP_BASE_URL
+        sync: false
+      - key: MFA_ENCRYPTION_KEY
+        sync: false
+      - key: CLINIC_PHONE
+        sync: false
+      #   - key: TWILIO_AUTH_TOKEN   # with the web service's, once Twilio exists
+      #     sync: false

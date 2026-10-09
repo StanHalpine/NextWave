@@ -147,8 +147,8 @@ the `Messaging` interface (a local stub until a real provider exists — the stu
 Texts are sent by a job, not by the booking request, so something must run it. Pick one:
 
 ```bash
-npm run jobs:run      # run every job once and exit — point cron / a Render Cron Job at this,
-                      # every 5 minutes. Needs the same environment as the web app.
+npm run jobs:run      # run every job once and exit. The blueprint's `nextwave-jobs` Cron Job runs
+                      # this every 5 minutes. Needs the same environment as the web app.
 ```
 
 or set `JOBS_IN_PROCESS=true` (interval `JOBS_INTERVAL_MIN`, default 5) to run them on a timer
@@ -170,24 +170,29 @@ it provisions no database. It builds the server and the staff app.
    - `APP_BASE_URL` — the public `https://` origin (used for setup links).
    - `MFA_ENCRYPTION_KEY` — from `npm run gen-secrets`. **Keep a copy**: losing
      it invalidates every enrolled authenticator.
-3. Deploy. The build runs `prisma migrate deploy`, builds the staff app, and runs
-   `npm run seed`, which populates an EMPTY database in one transaction and
-   skips otherwise — so admin edits survive every deploy and a failed seed
-   leaves the database empty rather than half-populated.
-   **The build environment must be able to reach `DATABASE_URL`.** Render's build
-   servers have no fixed IPs; if your Postgres allow-lists addresses, run
-   migrations from CI / a pre-deploy step instead (see the note in `render.yaml`).
+3. Deploy. The **build** touches no database (it generates the Prisma client and compiles the
+   server and staff app), so Render's build servers never need to reach `DATABASE_URL`. Migrations
+   and the seed run in **`preDeployCommand`** — after the build, before the new version takes
+   traffic; a failure stops the deploy. `npm run seed` populates an EMPTY database in one
+   transaction and skips otherwise, so admin edits survive every deploy and a failed seed leaves
+   the database empty rather than half-populated. The pre-deploy step *does* run on Render's
+   infrastructure, so if your Postgres allow-lists IP addresses, run migrations from CI instead.
 4. Open the service **Shell** and run `ADMIN_EMAIL=you@example.com npm run seed:admin`
    to get the first administrator's setup link.
-5. **Texts and reminders need a scheduler** — see *Scheduled jobs* below.
+5. The blueprint also creates **`nextwave-jobs`**, a Render Cron Job that runs `npm run jobs:run`
+   every five minutes (see *Scheduled jobs*). Secrets can't live in an environment group, so enter
+   `DATABASE_URL`, `APP_BASE_URL`, `MFA_ENCRYPTION_KEY` and `CLINIC_PHONE` on **both** services.
+
+Both services use a **paid** plan (`0.5c-512mb`): `preDeployCommand` isn't available on the free
+plan, cron jobs have no free plan, and the web service must be awake to answer the text-message
+provider's STOP / HELP webhook (`POST /api/sms/inbound`).
 
 `BASIC_AUTH_GATE=off` by default. Set it to `on` (with `DEMO_USER` /
 `DEMO_PASSWORD`) to put the old Basic Auth curtain back in front of the staff
 pages during cutover; individual logins apply either way.
 
-The Render *web service* on the free plan sleeps after ~15 minutes idle. That
-matters for scheduled jobs: a sleeping service sends no reminders. Use a real
-scheduler (below) rather than relying on the web process being awake.
+A Render *free* web service sleeps after ~15 minutes idle, which is why this blueprint uses a paid
+one — and why scheduled jobs run from a Cron Job (below) rather than from the web process.
 
 ## How availability is decided
 
