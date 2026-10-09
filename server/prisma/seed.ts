@@ -87,10 +87,13 @@ const resources = [
 // documentationType: DocumentationType.SOAP marks services charted as a full SOAP note. Every
 // service WITHOUT it is a session log (the column default) — including any added
 // later, so a new service is never silently treated as a full clinical encounter.
-// Owner's mapping, mirrored in the Phase 2 migration for existing databases.
+// Owner's mapping, mirrored in the Phase 2 migrations for existing databases.
+//
+// creditCost is what a member pays in Wellness Credits at check-out (the owner's table); a
+// service WITHOUT one is cash-only. Mirrored in the Phase 3 migration for existing databases.
 const services = [
   // Chiropractic
-  { id: S(1), slug: 'manual-adjustment', category: 'Chiropractic', name: 'Manual Adjustment', durationMin: 30, bufferMin: 5, requiredRole: StaffRole.CHIROPRACTOR, resourceType: 'ADJUSTING_ROOM' , priceCents: 5500, newPatientSlug: 'spinal-postural-exam' , color: 'chiro_saddle' , documentationType: DocumentationType.SOAP },
+  { id: S(1), slug: 'manual-adjustment', category: 'Chiropractic', name: 'Manual Adjustment', durationMin: 30, bufferMin: 5, requiredRole: StaffRole.CHIROPRACTOR, resourceType: 'ADJUSTING_ROOM' , priceCents: 5500, newPatientSlug: 'spinal-postural-exam' , color: 'chiro_saddle' , documentationType: DocumentationType.SOAP , creditCost: 2 },
   { id: S(2), slug: 'spinal-postural-exam', category: 'Chiropractic', name: 'Spinal & Postural Exam', durationMin: 45, bufferMin: 10, requiredRole: StaffRole.CHIROPRACTOR, resourceType: 'ADJUSTING_ROOM' , priceCents: null , color: 'chiro_golden' , documentationType: DocumentationType.SOAP },
   { id: S(3), slug: 'spinal-xrays', category: 'Chiropractic', name: 'Spinal X-Rays', durationMin: 30, bufferMin: 10, requiredRole: StaffRole.CHIROPRACTOR, resourceType: 'XRAY_SUITE' , priceCents: 25000, priceNote: 'Exam & full spine X-rays' , color: 'chiro_peru' },
 
@@ -103,11 +106,11 @@ const services = [
   { id: S(9), slug: 'personal-wellness-planning', category: 'Functional Medicine', name: 'Personal Wellness Planning', durationMin: 45, bufferMin: 10, requiredRole: StaffRole.NURSE_PRACTITIONER, resourceType: 'CONSULT_ROOM' , priceCents: null , color: 'fm_shamrock' , documentationType: DocumentationType.SOAP },
 
   // Longevity
-  { id: S(10), slug: 'iv-therapy', category: 'Longevity', name: 'IV Therapy', durationMin: 60, bufferMin: 15, requiredRole: StaffRole.REGISTERED_NURSE, resourceType: 'IV_CHAIR' , priceCents: 18500, priceNote: 'Members save 25%. Two per month included with Optimize.' , color: 'long_sky' , documentationType: DocumentationType.SOAP },
-  { id: S(11), slug: 'vitamin-shots', category: 'Longevity', name: 'Vitamin Shots', durationMin: 15, bufferMin: 5, requiredRole: StaffRole.REGISTERED_NURSE, resourceType: 'SHOT_ROOM' , priceCents: null, priceNote: 'Price varies by shot' , color: 'long_periwinkle' , documentationType: DocumentationType.SOAP },
-  { id: S(12), slug: 'hyperbaric-oxygen-therapy', category: 'Longevity', name: 'Hyperbaric Oxygen Therapy (60 min)', durationMin: 60, bufferMin: 15, requiredRole: StaffRole.REGISTERED_NURSE, resourceType: 'CHAMBER' , priceCents: 11000 , color: 'long_cobalt' },
-  { id: S(13), slug: 'hyperbaric-oxygen-therapy', category: 'Longevity', name: 'Hyperbaric Oxygen Therapy (90 min)', durationMin: 90, bufferMin: 15, requiredRole: StaffRole.REGISTERED_NURSE, resourceType: 'CHAMBER' , priceCents: 16500 , color: 'long_cobalt' },
-  { id: S(14), slug: 'red-light-therapy', category: 'Longevity', name: 'Red Light Therapy', durationMin: 10, bufferMin: 5, requiredRole: StaffRole.REGISTERED_NURSE, resourceType: 'RED_LIGHT_BED' , priceCents: 5500, priceNote: 'Full-dose 10 minute session — 3 credits' , color: 'long_midnight' },
+  { id: S(10), slug: 'iv-therapy', category: 'Longevity', name: 'IV Therapy', durationMin: 60, bufferMin: 15, requiredRole: StaffRole.REGISTERED_NURSE, resourceType: 'IV_CHAIR' , priceCents: 18500, priceNote: 'Members save 25%. Two per month included with Optimize.' , color: 'long_sky' , documentationType: DocumentationType.SOAP , creditCost: 6 },
+  { id: S(11), slug: 'vitamin-shots', category: 'Longevity', name: 'Vitamin Shots', durationMin: 15, bufferMin: 5, requiredRole: StaffRole.REGISTERED_NURSE, resourceType: 'SHOT_ROOM' , priceCents: null, priceNote: 'Price varies by shot' , color: 'long_periwinkle' , documentationType: DocumentationType.SOAP , creditCost: 2 },
+  { id: S(12), slug: 'hyperbaric-oxygen-therapy', category: 'Longevity', name: 'Hyperbaric Oxygen Therapy (60 min)', durationMin: 60, bufferMin: 15, requiredRole: StaffRole.REGISTERED_NURSE, resourceType: 'CHAMBER' , priceCents: 11000 , color: 'long_cobalt' , creditCost: 4 },
+  { id: S(13), slug: 'hyperbaric-oxygen-therapy', category: 'Longevity', name: 'Hyperbaric Oxygen Therapy (90 min)', durationMin: 90, bufferMin: 15, requiredRole: StaffRole.REGISTERED_NURSE, resourceType: 'CHAMBER' , priceCents: 16500 , color: 'long_cobalt' , creditCost: 6 },
+  { id: S(14), slug: 'red-light-therapy', category: 'Longevity', name: 'Red Light Therapy', durationMin: 10, bufferMin: 5, requiredRole: StaffRole.REGISTERED_NURSE, resourceType: 'RED_LIGHT_BED' , priceCents: 5500, priceNote: 'Full-dose 10 minute session — 3 credits' , color: 'long_midnight' , creditCost: 2 },
   { id: S(15), slug: 'peptide-therapy', category: 'Longevity', name: 'Peptide Therapy', durationMin: 30, bufferMin: 10, requiredRole: StaffRole.NURSE_PRACTITIONER, resourceType: 'CONSULT_ROOM' , priceCents: null, priceNote: 'Pricing varies by prescription — reviewed with you during your consultation.' , color: 'long_ice' , documentationType: DocumentationType.SOAP },
 ];
 
@@ -296,6 +299,30 @@ async function main() {
       });
     }
     console.log(`  serviceOptions  ${serviceOptions.length}`);
+
+    // Membership perks (the plans and perks themselves are created by the Phase 3 migration, as
+    // data): which services redeem each. On an existing database the migration made these links;
+    // on a fresh one the services did not exist yet, so they are made here. Same mapping.
+    const bySlug = new Map(services.map((x) => [x.slug, x.id]));
+    const perks = await tx.planPerk.findMany({ include: { plan: { select: { code: true } } } });
+    let perkLinks = 0;
+    for (const perk of perks) {
+      const slugs =
+        perk.key === 'monthly_shot_or_iv' ? [perk.plan.code === 'OPTIMIZE' ? 'iv-therapy' : 'vitamin-shots']
+        : perk.key === 'quarterly_body_composition' ? ['body-composition']
+        : [];
+      for (const slug of slugs) {
+        const serviceId = bySlug.get(slug);
+        if (!serviceId) continue;
+        await tx.planPerkService.upsert({
+          where: { perkId_serviceId: { perkId: perk.id, serviceId } },
+          create: { perkId: perk.id, serviceId },
+          update: {},
+        });
+        perkLinks++;
+      }
+    }
+    console.log(`  planPerkServices ${perkLinks}`);
   }, { timeout: 120_000, maxWait: 30_000 });
 }
 

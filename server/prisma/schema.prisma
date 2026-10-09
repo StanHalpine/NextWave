@@ -150,6 +150,10 @@ model Service {
   /// treated as a full clinical encounter — it is opted INTO SOAP.
   documentationType DocumentationType @default(SESSION_LOG)
 
+  /// Wellness Credits this service costs a member at check-out. NULL = not credit-eligible
+  /// (a member pays cash). Editable by an admin next to the price.
+  creditCost Int?
+
   /// Swatch key into SERVICE_COLOR_PALETTE (src/lib/serviceColors.ts), not a
   /// hex value — the palette is a fixed library grouped by discipline, and a
   /// service may only be assigned a swatch from its own category's family.
@@ -169,10 +173,11 @@ model Service {
   /// it is redirected rather than left for the front desk to correct.
   newPatientSlug String?
 
-  bookings Booking[]
-  options  ServiceOption[]
-  rooms    ServiceRoom[]
-  staff    ServiceStaff[]
+  bookings         Booking[]
+  options          ServiceOption[]
+  rooms            ServiceRoom[]
+  staff            ServiceStaff[]
+  planPerkServices PlanPerkService[]
 
   @@index([slug])
   @@index([category])
@@ -488,7 +493,8 @@ model Encounter {
   /// Soft delete — clinical records are never hard-deleted.
   deletedAt       DateTime?
 
-  booking Booking @relation(fields: [bookingId], references: [id])
+  booking      Booking       @relation(fields: [bookingId], references: [id])
+  revenueEvent RevenueEvent?
 
   @@index([status, checkedInAt])
 }
@@ -575,8 +581,10 @@ model Patient {
   /// Soft delete — a patient record is never hard-deleted.
   deletedAt     DateTime?
 
-  bookings Booking[]
-  messages MessageLog[]
+  bookings     Booking[]
+  messages     MessageLog[]
+  memberships  Membership[]
+  creditLedger CreditLedger[]
 
   @@index([lastName, firstName])
   @@index([phoneDigits])
@@ -637,4 +645,212 @@ model SmsSuppression {
   suppressedAt DateTime
   /// 'STOP' (the patient texted it) | 'PROVIDER' (the messaging provider reported an opt-out)
   source       String
+}
+
+// =============================================================================
+// Phase 3 — memberships, the credit ledger, perks, and revenue events
+// =============================================================================
+
+enum MembershipStatus {
+  ACTIVE
+  PAUSED
+  CANCELLED
+}
+
+enum LedgerReason {
+  MONTHLY_GRANT
+  ADJUSTMENT
+  REDEMPTION
+  EXPIRATION
+}
+
+enum PerkPeriod {
+  MONTHLY
+  QUARTERLY
+  ANNUAL
+}
+
+enum PaymentType {
+  MEMBER
+  CASH
+}
+
+enum MemberBenefit {
+  CREDITS
+  PERK
+}
+
+/// A membership tier, as DATA: change a price, a monthly credit count or the rollover from the
+/// admin screen without a deploy. (Prevent / Restore / Optimize = 4 / 6 / 8 credits, 90 days.)
+model MembershipPlan {
+  id              String  @id @default(uuid())
+  /// PREVENT | RESTORE | OPTIMIZE — what the contact form and the site refer to.
+  code            String  @unique
+  name            String
+  /// Monthly dues. Collected OUTSIDE this system — nothing here takes payment.
+  priceCents      Int
+  creditsPerMonth Int
+  /// A monthly grant is usable for this many days from the grant date.
+  rolloverDays    Int     @default(90)
+  active          Boolean @default(true)
+  sortOrder       Int     @default(0)
+
+  perks       PlanPerk[]
+  memberships Membership[]
+}
+
+/// An entitlement a tier includes that is COUNTED, not paid for in credits: a monthly vitamin
+/// shot or IV, a quarterly body-composition check, guest passes. Pre-filled from the owner's tier
+/// copy but INACTIVE until the owner confirms the exact mapping.
+model PlanPerk {
+  id        String     @id @default(uuid())
+  planId    String
+  /// monthly_shot_or_iv | quarterly_body_composition | guest_pass | …
+  key       String
+  label     String
+  period    PerkPeriod
+  /// How many per period (calendar month / quarter / year, in clinic time).
+  quantity  Int
+  active    Boolean    @default(false)
+  sortOrder Int        @default(0)
+
+  plan     MembershipPlan    @relation(fields: [planId], references: [id])
+  services PlanPerkService[]
+  usages   PerkUsage[]
+
+  @@unique([planId, key])
+}
+
+/// Which services redeem a perk at check-out. A perk with none (guest passes) is used by hand.
+model PlanPerkService {
+  perkId    String
+  serviceId String
+  perk      PlanPerk @relation(fields: [perkId], references: [id], onDelete: Cascade)
+  service   Service  @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@id([perkId, serviceId])
+}
+
+model Membership {
+  id          String           @id @default(uuid())
+  patientId   String
+  planId      String
+  status      MembershipStatus @default(ACTIVE)
+  /// Clinic-local dates. Grants fall on this day each month (clamped to a short month's last day).
+  startedOn   DateTime         @db.Date
+  nextGrantOn DateTime         @db.Date
+  pausedAt    DateTime?
+  cancelledAt DateTime?
+  createdById String
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  patient  Patient        @relation(fields: [patientId], references: [id])
+  plan     MembershipPlan @relation(fields: [planId], references: [id])
+  perkUses PerkUsage[]
+  // + in the migration SQL: a partial unique index — one ACTIVE or PAUSED membership per patient.
+
+  @@index([patientId])
+  @@index([status, nextGrantOn])
+}
+
+/// APPEND-ONLY (database triggers reject UPDATE, DELETE and TRUNCATE). Balance = SUM(delta).
+/// A positive row is a LOT (a monthly grant, or a manual add) with its own last-usable day;
+/// a negative row (redemption, expiry, manual removal) is spread across lots by CreditAllocation.
+/// Corrections are new rows, never edits.
+model CreditLedger {
+  id             BigInt       @id @default(autoincrement())
+  patientId      String
+  membershipId   String?
+  reason         LedgerReason
+  delta          Int
+  /// Positive rows only: the last day (clinic-local, inclusive) the credits can be used.
+  lotExpiresOn   DateTime?    @db.Date
+  /// MONTHLY_GRANT only: the month's grant date. With membershipId and reason it is UNIQUE, so a
+  /// job that runs twice, or two at once, cannot grant a month twice.
+  periodStart    DateTime?    @db.Date
+  encounterId    String?
+  revenueEventId String?
+  /// The staff login; NULL = a scheduled job.
+  actorAccountId String?
+  /// A short controlled code, never free text (an adjustment's reason).
+  reasonCode     String?
+  createdAt      DateTime     @default(now())
+
+  patient     Patient            @relation(fields: [patientId], references: [id])
+  allocations CreditAllocation[] @relation("AllocationLedger")
+  drawnFrom   CreditAllocation[] @relation("AllocationLot")
+
+  @@unique([membershipId, periodStart, reason])
+  @@index([patientId, createdAt])
+}
+
+/// APPEND-ONLY. Which lot a negative ledger row drew from (oldest lot first — FIFO), so what is
+/// left in each lot is always lot.delta − SUM(allocations), computed without mutating any row.
+/// A deferred constraint trigger refuses a commit that would draw a lot below zero.
+model CreditAllocation {
+  id       BigInt @id @default(autoincrement())
+  /// The negative row (the redemption / expiry / removal).
+  ledgerId BigInt
+  /// The positive row (the lot) it drew from.
+  lotId    BigInt
+  amount   Int
+
+  ledger CreditLedger @relation("AllocationLedger", fields: [ledgerId], references: [id])
+  lot    CreditLedger @relation("AllocationLot", fields: [lotId], references: [id])
+
+  @@index([lotId])
+  @@index([ledgerId])
+}
+
+/// APPEND-ONLY. One use of a perk. Remaining this period = PlanPerk.quantity − SUM(quantity)
+/// for the current periodKey ("2026-11", "2026-Q4", "2026").
+model PerkUsage {
+  id             BigInt   @id @default(autoincrement())
+  membershipId   String
+  perkId         String
+  patientId      String
+  periodKey      String
+  quantity       Int      @default(1)
+  revenueEventId String?
+  actorAccountId String?
+  createdAt      DateTime @default(now())
+
+  membership Membership @relation(fields: [membershipId], references: [id])
+  perk       PlanPerk   @relation(fields: [perkId], references: [id])
+
+  @@index([membershipId, perkId, periodKey])
+}
+
+/// APPEND-ONLY. One row per check-out: what the visit was, what it was worth, and how it was
+/// paid — the data Accounting and Reports (Phases 4–5) read, from day one. No payment is
+/// processed here: `cashDueCents` is what the desk recorded collecting.
+model RevenueEvent {
+  id              String         @id @default(uuid())
+  encounterId     String         @unique
+  bookingId       String
+  patientId       String?
+  serviceId       String
+  /// Snapshots, so a later rename or re-price does not rewrite history.
+  serviceName     String
+  serviceCategory String
+  subOption       String?
+  /// What the visit is worth at list price. NULL only when it has none and was paid with credits.
+  priceCents      Int?
+  /// MEMBER = covered by the membership (credits or a perk); CASH = paid at the desk.
+  paymentType     PaymentType
+  memberBenefit   MemberBenefit?
+  creditsRedeemed Int            @default(0)
+  cashDueCents    Int            @default(0)
+  /// The member's tier at the time (code), for member events.
+  planCode        String?
+  occurredAt      DateTime
+  recordedById    String
+  createdAt       DateTime       @default(now())
+
+  encounter Encounter @relation(fields: [encounterId], references: [id])
+
+  @@index([occurredAt])
+  @@index([serviceId, occurredAt])
+  @@index([patientId])
 }

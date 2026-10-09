@@ -42,19 +42,37 @@ async function main(): Promise<number> {
     bookings: await basePrisma.booking.count(),
     bookingContacts: await basePrisma.user.count(),
     patients: await basePrisma.patient.count(),
+    memberships: await basePrisma.membership.count(),
+    creditLedgerRows: await basePrisma.creditLedger.count(),
+    revenueEvents: await basePrisma.revenueEvent.count(),
   };
 
   // Order matters: MessageLog, Encounter and VisitNote RESTRICT deletion of their
   // Booking, and amendments reference the note they supersede — break that chain first.
-  await basePrisma.$transaction([
-    basePrisma.messageLog.deleteMany({}),
-    basePrisma.encounter.deleteMany({}),
-    basePrisma.visitNote.updateMany({ data: { amendsId: null } }),
-    basePrisma.visitNote.deleteMany({}),
-    basePrisma.booking.deleteMany({}),
-    basePrisma.patient.deleteMany({}),
-    basePrisma.user.deleteMany({}),
-  ]);
+  //
+  // The credit tables are APPEND-ONLY (database triggers reject DELETE), which is the point of them
+  // — so a development reset has to switch those triggers off for the length of this one
+  // transaction (it needs to own the tables, which a dev database does) and back on after. If
+  // anything fails the whole transaction rolls back, triggers included.
+  const APPEND_ONLY = ['CreditAllocation', 'CreditLedger', 'PerkUsage', 'RevenueEvent'];
+  await basePrisma.$transaction(async (tx) => {
+    for (const t of APPEND_ONLY) await tx.$executeRawUnsafe(`ALTER TABLE "${t}" DISABLE TRIGGER USER`);
+    await tx.$executeRawUnsafe('DELETE FROM "CreditAllocation"');
+    await tx.$executeRawUnsafe('DELETE FROM "CreditLedger"');
+    await tx.$executeRawUnsafe('DELETE FROM "PerkUsage"');
+    await tx.$executeRawUnsafe('DELETE FROM "RevenueEvent"');
+    for (const t of APPEND_ONLY) await tx.$executeRawUnsafe(`ALTER TABLE "${t}" ENABLE TRIGGER USER`);
+
+    await tx.membership.deleteMany({});
+    await tx.smsSuppression.deleteMany({});
+    await tx.messageLog.deleteMany({});
+    await tx.encounter.deleteMany({});
+    await tx.visitNote.updateMany({ data: { amendsId: null } });
+    await tx.visitNote.deleteMany({});
+    await tx.booking.deleteMany({});
+    await tx.patient.deleteMany({});
+    await tx.user.deleteMany({});
+  });
 
   // The trail must show that this happened.
   await basePrisma.auditLog.create({
