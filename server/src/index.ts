@@ -21,6 +21,8 @@ import { patientsRouter } from './routes/patients.js';
 import { scheduleRouter } from './routes/schedule.js';
 import { fdRouter } from './routes/fd.js';
 import { smsPublicRouter } from './routes/smsPublic.js';
+import { creditsRouter } from './routes/credits.js';
+import { membershipAdminRouter } from './routes/membershipAdmin.js';
 import { smsInboundRouter } from './routes/smsInbound.js';
 import { startInProcessScheduler } from './jobs/scheduler.js';
 import { demoGate } from './middleware/demoGate.js';
@@ -121,6 +123,8 @@ export function buildApp() {
   app.use('/api', patientsRouter);
   app.use('/api', scheduleRouter);
   app.use('/api', fdRouter);
+  app.use('/api', creditsRouter);
+  app.use('/api', membershipAdminRouter);
 
   // The staff app (React + Vite), built to public/app. index.html must never be
   // cached so a deploy takes effect at once; its hashed assets can be.

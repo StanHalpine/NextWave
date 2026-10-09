@@ -347,6 +347,8 @@ const servicePatch = z.object({
   /// session log. Applies to notes started after the change (Phase 4 reads it
   /// when a visit begins).
   documentationType: z.enum(['SOAP', 'SESSION_LOG']).optional(),
+  /// Wellness Credits a member pays for this service at check-out; null = not credit-eligible (cash only).
+  creditCost: z.number().int().min(1, 'A credit cost is at least 1 — leave it blank for a cash-only service.').max(100).nullable().optional(),
 }).strict();
 
 adminRouter.patch('/admin/services/:id', async (req, res) => {
@@ -424,6 +426,16 @@ adminRouter.patch('/admin/services/:id', async (req, res) => {
         + 'Only new bookings use the new duration.';
     }
   }
+  // Price and credit cost drive what a patient is charged, so a change is recorded with its
+  // before and after (configuration, not patient data).
+  const priced = (['priceCents', 'creditCost'] as const).filter((f) => fields[f] !== undefined && fields[f] !== existing[f]);
+  if (priced.length) {
+    audit.record({
+      action: 'UPDATE', resourceType: 'service', resourceId: existing.id,
+      meta: { fields: priced, changes: Object.fromEntries(priced.map((f) => [f, { from: existing[f], to: fields[f] }])) },
+    });
+  }
+
   // Which kind of clinical note a service requires is a documentation POLICY, not a
   // cosmetic setting, so a change is recorded — who, which service, from → to.
   if (fields.documentationType && fields.documentationType !== existing.documentationType) {
