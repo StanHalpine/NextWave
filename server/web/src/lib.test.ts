@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addDays, ageOn, fmtDay, fmtInstantTime, fmtPhone, fmtRange, fmtTime12, isoWeekday, layoutLanes, nowHHMM, serviceLabel, toMinutes, weekStart } from './lib';
+import { credits, fmtMoney, parseDollars, addDays, ageOn, fmtDay, fmtInstantTime, fmtPhone, fmtRange, fmtTime12, isoWeekday, layoutLanes, nowHHMM, serviceLabel, toMinutes, weekStart } from './lib';
 
 describe('times', () => {
   it('formats 24h clinic times as 12h', () => {
@@ -86,5 +86,32 @@ describe('serviceLabel', () => {
     expect(serviceLabel({ name: 'IV Therapy', durationMin: 60 })).toBe('IV Therapy (60 min)');
     expect(serviceLabel({ name: 'Hyperbaric Oxygen Therapy (60 min)', durationMin: 60 })).toBe('Hyperbaric Oxygen Therapy (60 min)');
     expect(serviceLabel({ name: 'Hyperbaric Oxygen Therapy (90 min)', durationMin: 90 })).toBe('Hyperbaric Oxygen Therapy (90 min)');
+  });
+});
+
+describe('money', () => {
+  it('formats cents as dollars', () => {
+    expect(fmtMoney(5500)).toBe('$55.00');
+    expect(fmtMoney(5500, { whole: true })).toBe('$55');
+    expect(fmtMoney(5505, { whole: true })).toBe('$55.05');
+    expect(fmtMoney(9)).toBe('$0.09');
+    expect(fmtMoney(0)).toBe('$0.00');
+    expect(fmtMoney(123456789)).toBe('$1,234,567.89');
+    expect(fmtMoney(-250)).toBe('-$2.50');
+    expect(fmtMoney(null)).toBe('—');
+  });
+
+  it('reads an amount typed at the desk, and refuses anything else', () => {
+    expect(parseDollars('55')).toBe(5500);
+    expect(parseDollars('55.5')).toBe(5550);
+    expect(parseDollars(' $1,234.05 ')).toBe(123405);
+    expect(parseDollars('0.07')).toBe(7);
+    for (const bad of ['', '0', '0.00', '-5', '5.555', 'abc', '5 dollars', '1e3', '.5']) expect(parseDollars(bad), bad).toBeNull();
+  });
+
+  it('pluralises credits', () => {
+    expect(credits(1)).toBe('1 credit');
+    expect(credits(0)).toBe('0 credits');
+    expect(credits(6)).toBe('6 credits');
   });
 });

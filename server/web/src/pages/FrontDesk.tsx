@@ -6,9 +6,10 @@ import { addDays, fmtDayLong, fmtInstantTime, fmtTime12, nowHHMM, serviceLabel, 
 import type { Appt, Dashboard, ServiceLite } from '../types';
 import { PatientPicker } from '../patients/PatientPicker';
 import { AppointmentDialog, LinkPatientDialog } from '../schedule/dialogs';
+import { CheckoutDialog } from '../schedule/CheckoutDialog';
 import FrontDeskNav from './FrontDeskNav';
 
-type Verb = 'check-in' | 'undo-check-in' | 'check-out' | 'no-show';
+type Verb = 'check-in' | 'undo-check-in' | 'no-show';
 
 export default function FrontDesk() {
   const [date, setDate] = useState<string | undefined>(undefined);   // undefined = today
@@ -19,6 +20,7 @@ export default function FrontDesk() {
   const [walkIn, setWalkIn] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
   const [link, setLink] = useState<Appt | null>(null);
+  const [checkout, setCheckout] = useState<Appt | null>(null);
   const [updatedAt, setUpdatedAt] = useState<string>('');
 
   const load = useCallback(async () => {
@@ -96,7 +98,7 @@ export default function FrontDesk() {
           {data?.checkedIn.map((a) => (
             <Card key={a.id} a={a} onOpen={() => setOpen(a.id)} error={rowError?.id === a.id ? rowError.text : null}
               extra={a.encounter?.checkedInAt && <span className="wait">in at {fmtInstantTime(a.encounter.checkedInAt, data.timezone)}{waiting(a.encounter.checkedInAt, data.now)}</span>}>
-              <button className="btn small primary" disabled={busyId === a.id} onClick={() => void act(a, 'check-out')}>Check out</button>
+              <button className="btn small primary" disabled={busyId === a.id} onClick={() => setCheckout(a)}>Check out…</button>
               <button className="btn small" disabled={busyId === a.id} onClick={() => void act(a, 'undo-check-in')}>Undo check-in</button>
             </Card>
           ))}
@@ -116,6 +118,7 @@ export default function FrontDesk() {
 
       {walkIn && today && <WalkInDialog tz={data!.timezone} onClose={() => setWalkIn(false)} onPlaced={() => { setWalkIn(false); void load(); }} />}
       {open && <AppointmentDialog id={open} today={today ?? ''} onClose={() => setOpen(null)} onChanged={() => void load()} />}
+      {checkout && <CheckoutDialog appt={checkout} onClose={() => setCheckout(null)} onDone={() => void load()} />}
       {link && <LinkPatientDialog appt={link} onClose={() => setLink(null)} onLinked={() => { setLink(null); void load(); }} />}
     </>
   );

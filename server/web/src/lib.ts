@@ -108,3 +108,26 @@ export function layoutLanes(events: Array<{ startMin: number; endMin: number }>)
 /** "IV Therapy (60 min)" — but never "Hyperbaric Oxygen Therapy (60 min) (60 min)": some service names already say it. */
 export const serviceLabel = (s: { name: string; durationMin: number }): string =>
   /\(\d+\s*min\)/i.test(s.name) ? s.name : `${s.name} (${s.durationMin} min)`;
+
+/** "$55.00" — money is always cents on the wire and in the database. */
+export function fmtMoney(cents: number | null | undefined, opts: { whole?: boolean } = {}): string {
+  if (cents == null) return '—';
+  const sign = cents < 0 ? '-' : '';
+  const abs = Math.abs(cents);
+  const dollars = Math.floor(abs / 100);
+  const rest = String(abs % 100).padStart(2, '0');
+  const grouped = String(dollars).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return opts.whole && rest === '00' ? `${sign}$${grouped}` : `${sign}$${grouped}.${rest}`;
+}
+
+/** "55", "55.5", "$1,234.50" → cents; null for anything that is not a plain amount above zero. */
+export function parseDollars(raw: string): number | null {
+  const t = raw.trim().replace(/^\$/, '').replace(/,/g, '');
+  if (!/^\d+(\.\d{1,2})?$/.test(t)) return null;
+  const [d, c = ''] = t.split('.');
+  const cents = Number(d) * 100 + Number(c.padEnd(2, '0'));
+  return cents > 0 ? cents : null;
+}
+
+/** "1 credit" / "2 credits". */
+export const credits = (n: number): string => `${n} credit${n === 1 ? '' : 's'}`;

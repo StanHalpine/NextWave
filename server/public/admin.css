@@ -160,7 +160,7 @@
 }
 .warn-box.bad { background: #f7e9e6; border-left-color: var(--st-declined); }
 
-.svc-grid { display: grid; gap: 9px; grid-template-columns: 1fr auto auto auto; align-items: center; }
+.svc-grid { display: grid; gap: 9px; grid-template-columns: 1fr auto auto auto auto; align-items: center; }
 @media (max-width: 700px) { .svc-grid { grid-template-columns: 1fr; } }
 .svc-grid input {
   font-family: var(--font-mono);

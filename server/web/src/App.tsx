@@ -11,6 +11,7 @@ import ModulePlaceholder from './pages/ModulePlaceholder';
 import AdminHome from './pages/AdminHome';
 import AdminAccounts from './pages/AdminAccounts';
 import AuditLog from './pages/AuditLog';
+import AdminMemberships from './pages/AdminMemberships';
 import FrontDesk from './pages/FrontDesk';
 import Patients from './pages/Patients';
 import PatientProfile from './pages/PatientProfile';
@@ -54,6 +55,7 @@ export default function App() {
 
           <Route path="/admin" element={<Protected roles={['ADMIN']}><AdminHome /></Protected>} />
           <Route path="/admin/accounts" element={<Protected roles={['ADMIN']}><AdminAccounts /></Protected>} />
+          <Route path="/admin/membership" element={<Protected roles={['ADMIN']}><AdminMemberships /></Protected>} />
           <Route path="/admin/audit" element={<Protected roles={['ADMIN']}><AuditLog /></Protected>} />
 
           <Route path="*" element={<Navigate to="/" replace />} />

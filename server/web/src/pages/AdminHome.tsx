@@ -16,7 +16,8 @@ export default function AdminHome() {
       <div className="grid">
         <Link className="tile" to="/admin/accounts"><h2>Accounts</h2><p>Create logins, assign roles, reset passwords and authenticators.</p></Link>
         <Link className="tile" to="/admin/audit"><h2>Audit log</h2><p>Who accessed or changed what, and when. Append-only.</p></Link>
-        <a className="tile" href="/admin.html"><h2>Catalogue &amp; staff</h2><p>Services, prices, rooms, bookable staff and their shifts.</p></a>
+        <Link className="tile" to="/admin/membership"><h2>Memberships</h2><p>Tiers, monthly credits, rollover, and the perks each tier includes.</p></Link>
+        <a className="tile" href="/admin.html"><h2>Catalogue &amp; staff</h2><p>Services, prices and credit costs, rooms, bookable staff and their shifts.</p></a>
       </div>
 
       <h2 className="section">Integrations</h2>

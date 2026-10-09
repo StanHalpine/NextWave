@@ -591,7 +591,8 @@
     dot.style.background = (colorByKey[s.color] || {}).hex || '#9c9a95';
     dot.title = (colorByKey[s.color] || {}).label || '';
     nameRow.appendChild(dot);
-    nameRow.appendChild(document.createTextNode(esc(s.name)));
+    // createTextNode already treats its argument as text; escaping it too printed "&amp;" for "Spinal & Postural Exam".
+    nameRow.appendChild(document.createTextNode(s.name));
     left.appendChild(nameRow);
     left.appendChild(el('div', 'row-meta', esc(s.requiredRole)));
     if (s.options.length) {
@@ -635,6 +636,8 @@
             // Empty means "no single price", not zero — peptide therapy and
             // the option-priced services genuinely have none.
             priceCents: priceRaw === '' ? null : Math.round(parseFloat(priceRaw) * 100),
+            // Wellness Credits a member pays at check-out. Empty = cash only (not credit-eligible).
+            creditCost: inputs.credits.value.trim() === '' ? null : parseInt(inputs.credits.value, 10),
             roomIds: picker.selected(),
             staffIds: staffPicker.selected(),
             color: colorPicker.selected(),
@@ -647,6 +650,7 @@
     grid.appendChild(field('Minutes', 'dur', s.durationMin, { type: 'number', min: '5' }));
     grid.appendChild(field('Buffer', 'buf', s.bufferMin, { type: 'number', min: '0' }));
     grid.appendChild(field('Price $', 'price', money(s.priceCents), { type: 'number', min: '0' }));
+    grid.appendChild(field('Credits', 'credits', s.creditCost, { type: 'number', min: '1', step: '1', placeholder: 'cash only', title: 'Wellness Credits a member pays at check-out. Leave blank for a cash-only service.' }));
 
     card.appendChild(grid);
 

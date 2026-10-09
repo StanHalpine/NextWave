@@ -8,6 +8,7 @@ import type { Patient, Visit } from '../types';
 import { todayIn, useClinicTz } from '../clinic';
 import { PatientFields, changedFields, draftFrom } from '../patients/PatientForm';
 import { NewAppointmentDialog } from '../schedule/dialogs';
+import CreditTracker from '../patients/CreditTracker';
 import FrontDeskNav from './FrontDeskNav';
 
 type Tab = 'details' | 'visits' | 'credits';
@@ -54,7 +55,7 @@ export default function PatientProfile() {
 
       {tab === 'details' && <Details patient={patient} onSaved={setPatient} isAdmin={hasRole('ADMIN')} onDeleted={() => nav('/front-desk/patients')} tz={tz} />}
       {tab === 'visits' && <Visits patientId={patient.id} tz={tz} />}
-      {tab === 'credits' && <CreditPlaceholder />}
+      {tab === 'credits' && <CreditTracker patientId={patient.id} />}
 
       {booking && (
         <NewAppointmentDialog
@@ -201,15 +202,3 @@ function Visits({ patientId, tz }: { patientId: string; tz: string }) {
     </table>
   );
 }
-
-function CreditPlaceholder() {
-  return (
-    <div className="card wide-card">
-      <span className="tag">Phase 3</span>
-      <h2>Credit tracker</h2>
-      <p>Membership tier, Wellness Credit balance, monthly perks used, and credits expiring soon will appear here.</p>
-      <p className="muted">Not built yet — it arrives with credits and memberships in Phase 3. Nothing on this tab is a real balance.</p>
-    </div>
-  );
-}
-

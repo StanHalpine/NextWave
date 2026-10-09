@@ -72,3 +72,51 @@ export const CANCEL_REASON_LABEL: Record<string, string> = {
   rescheduled_elsewhere: 'Rebooked another way',
   other: 'Other reason',
 };
+
+// ---- Phase 3: credits, memberships, check-out ----------------------------------------------------
+
+export interface PlanLite { code: string; name: string; priceCents: number; creditsPerMonth: number; rolloverDays: number }
+export interface MembershipView {
+  id: string; status: 'ACTIVE' | 'PAUSED' | 'CANCELLED'; startedOn: string; nextGrantOn: string; plan: PlanLite;
+}
+export interface LotView {
+  id: string; grantedOn: string; period: string | null; expiresOn: string; source: 'MONTHLY_GRANT' | 'ADJUSTMENT';
+  granted: number; redeemed: number; removed: number; expired: number; remaining: number; status: 'ACTIVE' | 'LAPSED' | 'USED' | 'EXPIRED';
+}
+export interface PerkView {
+  perkId: string; label: string; period: 'MONTHLY' | 'QUARTERLY' | 'ANNUAL'; quantity: number; used: number; remaining: number;
+  periodKey: string; services: string[]; usedAtCheckout: boolean;
+}
+export interface LedgerEntry {
+  id: string; at: string; date: string; reason: 'MONTHLY_GRANT' | 'ADJUSTMENT' | 'REDEMPTION' | 'EXPIRATION'; delta: number;
+  lotExpiresOn: string | null; reasonCode: string | null; by: string | null; service: string | null; runningTotal: number;
+}
+export interface CreditsView {
+  membership: MembershipView | null; balance: number; expiringSoon: { on: string; credits: number } | null; today: string;
+  lots: LotView[]; perks: PerkView[]; history: { entries: LedgerEntry[]; nextBefore: string | null };
+}
+
+export interface CheckoutPreview {
+  alreadyCheckedOut: boolean;
+  service: { id: string; name: string; category: string; subOption: string | null };
+  listPriceCents: number | null; priceNote: string | null; creditCost: number | null;
+  patient: { id: string; name: string } | null;
+  membership: { planCode: string; planName: string; status: string } | null;
+  balance: number | null;
+  credits: { available: boolean; cost: number | null; balanceAfter: number | null; reason: string | null };
+  perks: Array<{ perkId: string; label: string; remaining: number; period: string }>;
+  cash: { priceCents: number | null; priceKnown: boolean };
+}
+export interface CheckoutResult {
+  paymentType: 'MEMBER' | 'CASH'; memberBenefit: 'CREDITS' | 'PERK' | null; priceCents: number | null; creditsRedeemed: number;
+  cashDueCents: number; balanceBefore: number | null; balanceAfter: number | null; perkLabel: string | null; planName: string | null;
+  alreadyCheckedOut: boolean;
+}
+
+export const ADJUSTMENT_REASON_LABEL: Record<string, string> = {
+  correction: 'Correction (a mistake on the ledger)',
+  goodwill: 'Goodwill',
+  opening_balance: 'Opening balance (existing member)',
+  lost_credits: 'Credits lost in error',
+  other: 'Other',
+};
