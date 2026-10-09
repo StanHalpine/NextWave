@@ -950,6 +950,8 @@ section { padding-top: clamp(56px, 8vw, 104px); padding-bottom: clamp(56px, 8vw,
   padding-bottom: 12px;
 }
 .credit-table-row .credits { font-family: var(--font-mono); color: var(--lake-deep); }
+/* A two-column table (service, credits) — no price column. */
+.credit-table-row:not(:has(.price)) { grid-template-columns: 2fr 1fr; }
 .credit-table-row .price { font-family: var(--font-mono); }
 @media (max-width: 600px) {
   .credit-table-row { grid-template-columns: 1.6fr 1fr 1fr; gap: 10px; font-size: 14px; }
