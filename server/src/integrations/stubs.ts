@@ -13,8 +13,11 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { logger } from '../lib/logger.js';
 import type { AiScribe, FileStorage, Messaging, SoapDraft, UploadTarget } from './types.js';
+import { renderTemplate } from './templates.js';
 
-export const DEV_DATA_DIR = path.resolve(process.cwd(), '.devdata');
+// Overridable so the test run writes its fake texts and files to a throwaway folder
+// instead of the developer's real local outbox.
+export const DEV_DATA_DIR = path.resolve(process.env.DEV_DATA_DIR ?? path.join(process.cwd(), '.devdata'));
 
 /** Keys are opaque ids and paths, never user text. Anything else is refused. */
 const SAFE_KEY = /^[A-Za-z0-9][A-Za-z0-9/_.-]{0,200}$/;
@@ -85,12 +88,16 @@ export class StubAiScribe implements AiScribe {
 export class StubMessaging implements Messaging {
   async sendSms(input: { to: string; templateId: string; variables: Record<string, string> }): Promise<{ providerMessageId: string }> {
     const providerMessageId = `stub-${randomUUID()}`;
-    // The recipient and variables go to the LOCAL outbox file so a developer can
-    // see what would have been sent — never to the console/log stream.
+    // Rendering here, as a real adapter would, means the stub enforces the same
+    // three-field rule: a template given anything else throws instead of "sending".
+    const body = renderTemplate(input.templateId, input.variables);
+    // The recipient and the rendered body go to the LOCAL outbox file so a
+    // developer can see exactly what a patient would receive — never to the
+    // console / log stream.
     await mkdir(DEV_DATA_DIR, { recursive: true });
     await appendFile(
       path.join(DEV_DATA_DIR, 'sms-outbox.jsonl'),
-      JSON.stringify({ at: new Date().toISOString(), providerMessageId, ...input }) + '\n',
+      JSON.stringify({ at: new Date().toISOString(), providerMessageId, to: input.to, templateId: input.templateId, body }) + '\n',
     );
     logger.info('stub_sms_queued', { templateId: input.templateId, providerMessageId });
     return { providerMessageId };

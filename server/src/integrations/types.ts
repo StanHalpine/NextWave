@@ -67,6 +67,25 @@ export interface Messaging {
   }): Promise<{ providerMessageId: string }>;
 }
 
+/**
+ * Why a text failed, as a CATEGORY the caller can act on. Adapters translate the
+ * provider's own error into one of these and must NOT put the provider's message
+ * on the error: Twilio's messages can echo the recipient's number.
+ *
+ *   opted_out          the recipient texted STOP — stop texting them
+ *   invalid_recipient  not a number that can receive texts
+ *   transient          network / provider hiccup — safe to retry
+ *   rejected           refused for another reason (content, account) — do not retry
+ */
+export type MessagingFailure = 'opted_out' | 'invalid_recipient' | 'transient' | 'rejected';
+
+export class MessagingError extends Error {
+  constructor(public readonly failure: MessagingFailure) {
+    super(`Messaging failed: ${failure}`);
+    this.name = 'MessagingError';
+  }
+}
+
 export type IntegrationKindName = 'AI_SCRIBE' | 'FILE_STORAGE' | 'MESSAGING';
 
 export class NotConfiguredError extends Error {
