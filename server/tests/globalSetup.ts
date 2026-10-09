@@ -24,6 +24,9 @@ export async function setup() {
 
   const url = new URL(process.env.DATABASE_URL);
   url.searchParams.set('schema', SCHEMA);
+  // NW_TEST_POOL=3 re-runs the suite with a tiny connection pool — the setting under which
+  // a lock-order mistake turns from "rare" into "every time". See tests/walkin-race.test.ts.
+  if (process.env.NW_TEST_POOL) url.searchParams.set('connection_limit', process.env.NW_TEST_POOL);
   process.env.DATABASE_URL = url.toString();
 }
 

@@ -1,3 +1,5 @@
+import os from 'node:os';
+import path from 'node:path';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
@@ -12,6 +14,8 @@ export default defineConfig({
     env: {
       NODE_ENV: 'test',
       NW_NO_LISTEN: '1',
+      // Fake texts and files from the stubs go here, not into the developer's .devdata/.
+      DEV_DATA_DIR: path.join(os.tmpdir(), `nw-test-devdata-${process.pid}`),
       // A fixed 32-byte key (base64) so encrypted TOTP secrets are stable within
       // a run. It protects nothing real — the schema is thrown away.
       MFA_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64'),

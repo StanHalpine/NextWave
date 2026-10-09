@@ -23,7 +23,11 @@ import { audit } from './audit.js';
 /** Prisma model → audit resource type. */
 const AUDITED: Record<string, string> = {
   Booking: 'appointment',
-  User: 'patient',
+  // Booking.userId rows: the name/phone/email a booking was made under. A real
+  // patient record is the Patient model (below); keeping these apart keeps the audit
+  // trail honest about which kind of record was touched.
+  User: 'booking_contact',
+  Patient: 'patient',
   VisitNote: 'visit_note',
   Encounter: 'encounter',
 };

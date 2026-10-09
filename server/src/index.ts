@@ -17,6 +17,7 @@ import { notesRouter } from './routes/notes.js';
 import { adminRouter } from './routes/admin.js';
 import { authRouter } from './routes/auth.js';
 import { adminAccountsRouter } from './routes/adminAccounts.js';
+import { patientsRouter } from './routes/patients.js';
 import { demoGate } from './middleware/demoGate.js';
 import { requestContext } from './middleware/requestContext.js';
 import { loadSession } from './middleware/session.js';
@@ -96,8 +97,8 @@ export function buildApp() {
   app.get('/api/front-desk/schedule', auditAccess('appointment', { listKey: 'schedule' }));
   app.get('/api/front-desk/pending', auditAccess('appointment', { listKey: 'pending' }));
   app.get('/api/bookings/:id/notes', auditAccess('visit_note', { id: idParam, meta: () => ({ scope: 'booking' }) }));
-  app.get('/api/patients/:id/history', auditAccess('patient', { id: idParam }));
-  app.post('/api/patients/search', auditAccess('patient', { read: true, everyTime: true }));
+  app.get('/api/patients/:id/history', auditAccess('booking_contact', { id: idParam }));
+  app.post('/api/patients/search', auditAccess('booking_contact', { read: true, everyTime: true }));
 
   app.use('/api', authRouter);
   app.use('/api', adminAccountsRouter);
@@ -107,6 +108,10 @@ export function buildApp() {
   app.use('/api', frontDeskRouter);
   app.use('/api', notesRouter);
   app.use('/api', adminRouter);
+  // Phase 2: patients, schedule, front-desk workflow. Each handler audits its own reads
+  // and (through staffTransaction) its writes — they are NOT covered by the legacy
+  // auditAccess mounts above.
+  app.use('/api', patientsRouter);
 
   // The staff app (React + Vite), built to public/app. index.html must never be
   // cached so a deploy takes effect at once; its hashed assets can be.
