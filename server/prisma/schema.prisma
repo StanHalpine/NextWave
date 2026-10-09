@@ -144,6 +144,12 @@ model Service {
   durationMin Int
   bufferMin   Int
 
+  /// What the provider writes up after a visit: a full SOAP note, or a short
+  /// session log (time, duration, provider, notes). Per service and editable by an
+  /// admin. Defaults to SESSION_LOG so a newly added service is never silently
+  /// treated as a full clinical encounter — it is opted INTO SOAP.
+  documentationType DocumentationType @default(SESSION_LOG)
+
   /// Swatch key into SERVICE_COLOR_PALETTE (src/lib/serviceColors.ts), not a
   /// hex value — the palette is a fixed library grouped by discipline, and a
   /// service may only be assigned a swatch from its own category's family.
@@ -190,12 +196,24 @@ model Booking {
   isRecurring   Boolean       @default(false)
   createdAt     DateTime      @default(now())
 
-  user       User        @relation(fields: [userId], references: [id])
-  service    Service     @relation(fields: [serviceId], references: [id])
-  resource   Resource    @relation(fields: [resourceId], references: [id])
-  staff      Staff?      @relation(fields: [staffId], references: [id])
+  /// How the appointment came to exist. Existing code never sets this, so every
+  /// pre-Phase-2 and every online booking is ONLINE by default.
+  source             BookingSource @default(ONLINE)
+  /// The staff login that created it, when staff did (phone / walk-in). Null for
+  /// the anonymous widget.
+  createdByAccountId String?
+  /// The canonical patient record. Set only by Phase 2+ code: the anonymous widget
+  /// knows nothing of patients, so a booking is LINKED by the front desk afterwards.
+  patientId          String?
+
+  user       User         @relation(fields: [userId], references: [id])
+  service    Service      @relation(fields: [serviceId], references: [id])
+  resource   Resource     @relation(fields: [resourceId], references: [id])
+  staff      Staff?       @relation(fields: [staffId], references: [id])
   visitNotes VisitNote[]
   encounter  Encounter?
+  patient    Patient?     @relation(fields: [patientId], references: [id])
+  messages   MessageLog[]
 
   // The availability engine scans by resource/time and by staff/time; the
   // front desk queue scans by status.
@@ -203,6 +221,7 @@ model Booking {
   @@index([staffId, startTime, endTime])
   @@index([status, startTime])
   @@index([startTime])
+  @@index([patientId])
 }
 
 /// A specific variant of a service that a patient picks on the service page —
@@ -481,4 +500,122 @@ model IntegrationConfig {
   enabled     Boolean         @default(true)
   updatedById String?
   updatedAt   DateTime        @updatedAt
+}
+
+// =============================================================================
+// Phase 2 — Schedule + Front Desk: patients and appointment texts
+// =============================================================================
+
+enum BookingSource {
+  ONLINE
+  PHONE
+  WALK_IN
+  FRONT_DESK
+}
+
+enum DocumentationType {
+  SOAP
+  SESSION_LOG
+}
+
+enum ContactMethod {
+  PHONE
+  SMS
+  EMAIL
+}
+
+/// The canonical patient record, managed by the front desk (there is no patient
+/// login). Distinct from User, which is a per-booking contact snapshot created by
+/// the anonymous widget; a booking is linked to a Patient afterwards.
+///
+/// Deliberately NOT collected: SSN, insurance (cash practice), payment cards.
+model Patient {
+  id                String        @id @default(uuid())
+  firstName         String
+  lastName          String
+  preferredName     String?
+  dateOfBirth       DateTime?     @db.Date
+  sex               String?
+  /// As entered, for display.
+  phone             String
+  /// Digits only — what search and texting actually use.
+  phoneDigits       String
+  email             String?
+  addressLine1      String?
+  addressLine2      String?
+  city              String?
+  state             String?
+  postalCode        String?
+  emergencyName     String?
+  emergencyPhone    String?
+  emergencyRelation String?
+  preferredContact  ContactMethod @default(PHONE)
+
+  /// Consent to receive appointment texts. OFF until someone records it: the
+  /// anonymous booking widget cannot capture it, so a text is only ever sent to a
+  /// patient whose consent a staff member recorded here.
+  smsOptIn               Boolean   @default(false)
+  smsOptInAt             DateTime?
+  smsConsentRecordedById String?
+
+  /// Non-clinical ("prefers mornings"). Clinical content belongs in a visit note.
+  frontDeskNote String?
+  createdById   String
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  /// Soft delete — a patient record is never hard-deleted.
+  deletedAt     DateTime?
+
+  bookings Booking[]
+  messages MessageLog[]
+
+  @@index([lastName, firstName])
+  @@index([phoneDigits])
+  @@index([email])
+}
+
+enum MessageKind {
+  CONFIRMATION
+  REMINDER_24H
+}
+
+enum MessageStatus {
+  QUEUED
+  SENT
+  FAILED
+  SKIPPED
+}
+
+/// One row per text we have decided to send (or decided not to). It exists for
+/// IDEMPOTENCY — the unique key is what stops a job that runs twice, or on two
+/// instances, from texting a patient twice — and for knowing what happened.
+///
+/// It stores NO phone number and NO message body: the recipient is read from the
+/// patient at send time, and the body is rendered from templateId plus three
+/// fields (first name, date, time).
+///
+/// `forStart` is the appointment time the text was FOR. Moving an appointment
+/// changes it, which makes the confirmation and reminder due again for the new
+/// time instead of being suppressed by the old time's row.
+model MessageLog {
+  id                String        @id @default(uuid())
+  bookingId         String
+  patientId         String?
+  kind              MessageKind
+  forStart          DateTime
+  status            MessageStatus @default(QUEUED)
+  templateId        String
+  attempts          Int           @default(0)
+  providerMessageId String?
+  /// A code, never a provider error string (those can echo the recipient).
+  failureCode       String?
+  queuedAt          DateTime      @default(now())
+  sentAt            DateTime?
+  nextAttemptAt     DateTime?
+
+  booking Booking  @relation(fields: [bookingId], references: [id])
+  patient Patient? @relation(fields: [patientId], references: [id])
+
+  @@unique([bookingId, kind, forStart])
+  @@index([status, nextAttemptAt])
 }

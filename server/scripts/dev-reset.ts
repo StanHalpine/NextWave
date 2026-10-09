@@ -1,5 +1,5 @@
 /**
- * DEV ONLY: delete all booking activity, patients and clinical notes, leaving
+ * DEV ONLY: delete all booking activity, patients, texts and clinical notes, leaving
  * configuration (services, rooms, staff, shifts) and ACCOUNTS intact.
  *
  *   CONFIRM_DEV_RESET=yes npm run dev:reset
@@ -36,19 +36,23 @@ async function main(): Promise<number> {
   }
 
   const before = {
+    messages: await basePrisma.messageLog.count(),
     encounters: await basePrisma.encounter.count(),
     visitNotes: await basePrisma.visitNote.count(),
     bookings: await basePrisma.booking.count(),
-    patients: await basePrisma.user.count(),
+    bookingContacts: await basePrisma.user.count(),
+    patients: await basePrisma.patient.count(),
   };
 
-  // Order matters: Encounter and VisitNote RESTRICT deletion of their Booking,
-  // and amendments reference the note they supersede — break that chain first.
+  // Order matters: MessageLog, Encounter and VisitNote RESTRICT deletion of their
+  // Booking, and amendments reference the note they supersede — break that chain first.
   await basePrisma.$transaction([
+    basePrisma.messageLog.deleteMany({}),
     basePrisma.encounter.deleteMany({}),
     basePrisma.visitNote.updateMany({ data: { amendsId: null } }),
     basePrisma.visitNote.deleteMany({}),
     basePrisma.booking.deleteMany({}),
+    basePrisma.patient.deleteMany({}),
     basePrisma.user.deleteMany({}),
   ]);
 
