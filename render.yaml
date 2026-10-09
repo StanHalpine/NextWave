@@ -33,19 +33,27 @@ services:
     # on "TS2688: Cannot find type definition file for 'node'", and `npm run
     # seed` would later fail too because tsx would be absent.
     #
-    # `npm run seed` runs on EVERY deploy, deliberately. Migrations create empty
-    # tables, so without it the booking page has no services to offer and the
-    # app looks broken. The seed is idempotent — fixed UUIDs with upserts — and
-    # touches only Resource / Service / Staff / StaffSchedule. It never touches
-    # Booking, User or VisitNote, so re-running it cannot destroy demo activity.
-    buildCommand: npm ci --include=dev && npx prisma generate && npx prisma migrate deploy && npm run build && npm run seed
+    # `npm run seed` runs on EVERY deploy, deliberately: migrations create empty
+    # tables, so without it the booking page has no services to offer. It only
+    # ever populates an EMPTY database (it skips when any Service exists), so
+    # admin edits and deletions survive every deploy, and it runs in ONE
+    # transaction, so a failure leaves the database empty and re-runnable rather
+    # than half-populated. It never touches Booking, User, VisitNote, Account or
+    # the audit log.
+    #
+    # The staff app (React + Vite, in web/) is built into public/app, which
+    # Express serves at /app. It has its own package.json, hence its own install.
+    buildCommand: npm ci --include=dev && npx prisma generate && npx prisma migrate deploy && npm --prefix web ci --include=dev && npm --prefix web run build && npm run build && npm run seed
     startCommand: npm start
     healthCheckPath: /health
     envVars:
+      # Set in the Render dashboard, NOT wired to the database above. Two reasons:
+      #  1. In production the app refuses to start unless the URL requires TLS
+      #     (it must end in ?sslmode=require), and Render's generated connection
+      #     string does not add that.
+      #  2. A blueprint sync would otherwise overwrite a value you set by hand.
       - key: DATABASE_URL
-        fromDatabase:
-          name: nextwave-db
-          property: connectionString
+        sync: false
 
       - key: NODE_ENV
         value: production
@@ -74,13 +82,25 @@ services:
       - key: PREVIEW_KEY
         sync: false
 
-      # Basic Auth over the whole demo. Set these in the Render dashboard.
+      # The shared Basic Auth curtain is RETIRED — individual logins replace it.
+      # Flip to "on" (and set DEMO_USER / DEMO_PASSWORD) only to fall back during
+      # cutover.
+      - key: BASIC_AUTH_GATE
+        value: "off"
       - key: DEMO_USER
         sync: false
       - key: DEMO_PASSWORD
         sync: false
 
-      # Second layer on front desk / clinical routes. Let Render generate it,
-      # then copy the value out of the dashboard to sign in to the grid.
-      - key: FRONT_DESK_TOKEN
-        generateValue: true
+      # Public https origin, for one-time setup links.
+      - key: APP_BASE_URL
+        sync: false
+
+      # Encrypts authenticator secrets. Generate locally with `npm run gen-secrets`
+      # and paste it in. Never commit it; losing it invalidates every enrolment.
+      - key: MFA_ENCRYPTION_KEY
+        sync: false
+
+      # The FRONT_DESK_TOKEN that used to live here is gone: staff sign in
+      # individually. Create the first admin from the Render shell with
+      #   ADMIN_EMAIL=you@example.com npm run seed:admin
