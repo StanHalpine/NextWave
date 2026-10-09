@@ -2,11 +2,25 @@
 # Fills one day with bookings in a mix of statuses so the grid can be eyeballed.
 # Development aid only — never point this at production.
 #
-# Usage: ./scripts/demo-day.sh 2026-08-05
+# Approving or declining a request needs a staff login (the shared token this
+# used to send no longer exists). Use a FRONT_DESK account — they need no second
+# factor — created from the app (Admin → Accounts):
+#
+#   DEMO_STAFF_EMAIL=you@example.test DEMO_STAFF_PASSWORD='…' \
+#     ./scripts/demo-day.sh 2026-08-05
+#
+# Without credentials, requests are still created but left PENDING_REVIEW.
 
 set -uo pipefail
 API="${API:-http://localhost:4000}"
-TOKEN="${FRONT_DESK_TOKEN:-dev-front-desk-token-change-me}"
+JAR="$(mktemp)"; trap 'rm -f "$JAR"' EXIT
+CSRF=""
+if [ -n "${DEMO_STAFF_EMAIL:-}" ] && [ -n "${DEMO_STAFF_PASSWORD:-}" ]; then
+  CSRF=$(curl -s -c "$JAR" -X POST "$API/api/auth/login" -H 'content-type: application/json' \
+    -d "{\"email\":\"$DEMO_STAFF_EMAIL\",\"password\":\"$DEMO_STAFF_PASSWORD\"}" \
+    | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('csrfToken','') if not d.get('needs') else '')")
+  [ -z "$CSRF" ] && echo "  (login failed or needs extra steps — requests will stay PENDING_REVIEW)"
+fi
 DATE="${1:-$(date -v+2d +%Y-%m-%d 2>/dev/null || date -d '+2 days' +%Y-%m-%d)}"
 
 S=5e401ce0-0000-4000-8000-0000000000
@@ -33,9 +47,9 @@ print(s[$idx]['start'] if len(s)>$idx else '')")
     | python3 -c "import json,sys; print(json.load(sys.stdin).get('bookingId',''))")
   [ -z "$bid" ] && { echo "  skip $name — confirm refused"; return; }
 
-  if [ "$want" != "PENDING_REVIEW" ]; then
-    curl -s -o /dev/null -X PATCH "$API/api/bookings/$bid" \
-      -H "x-front-desk-token: $TOKEN" -H 'content-type: application/json' \
+  if [ "$want" != "PENDING_REVIEW" ] && [ -n "$CSRF" ]; then
+    curl -s -o /dev/null -b "$JAR" -X PATCH "$API/api/bookings/$bid" \
+      -H "x-csrf-token: $CSRF" -H 'content-type: application/json' \
       -d "{\"status\":\"$want\"}"
   fi
   echo "  $name → $want"
