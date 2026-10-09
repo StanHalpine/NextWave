@@ -11,6 +11,10 @@ import ModulePlaceholder from './pages/ModulePlaceholder';
 import AdminHome from './pages/AdminHome';
 import AdminAccounts from './pages/AdminAccounts';
 import AuditLog from './pages/AuditLog';
+import FrontDesk from './pages/FrontDesk';
+import Patients from './pages/Patients';
+import PatientProfile from './pages/PatientProfile';
+import Schedule from './pages/Schedule';
 
 /** Brand header for the pages shown before sign-in completes (no module nav yet). */
 function AuthFrame({ children }: { children: ReactNode }) {
@@ -20,12 +24,6 @@ function AuthFrame({ children }: { children: ReactNode }) {
       {children}
     </div>
   );
-}
-
-/** /schedule has no page of its own yet — it is the existing grid. */
-function ToLegacySchedule() {
-  window.location.replace('/dashboard.html');
-  return null;
 }
 
 export default function App() {
@@ -40,11 +38,10 @@ export default function App() {
           <Route path="/mfa/verify" element={<StepGate need="mfa_verify"><AuthFrame><MfaVerify /></AuthFrame></StepGate>} />
 
           <Route path="/" element={<Protected><Home /></Protected>} />
-          <Route path="/front-desk" element={<Protected roles={['FRONT_DESK', 'ADMIN']}>
-            <ModulePlaceholder moduleKey="front-desk" legacy={{ href: '/dashboard.html', label: 'Open the current front desk grid' }}
-              planned={["Today's appointments, checked-in patients, and patients seen / checked out", 'Check-in, check-out and no-show', 'Patient directory and profiles, with the credit tracker']} />
-          </Protected>} />
-          <Route path="/schedule" element={<Protected roles={['FRONT_DESK', 'ADMIN']}><ToLegacySchedule /></Protected>} />
+          <Route path="/front-desk" element={<Protected roles={['FRONT_DESK', 'ADMIN']}><FrontDesk /></Protected>} />
+          <Route path="/front-desk/patients" element={<Protected roles={['FRONT_DESK', 'ADMIN']}><Patients /></Protected>} />
+          <Route path="/front-desk/patients/:id" element={<Protected roles={['FRONT_DESK', 'ADMIN']}><PatientProfile /></Protected>} />
+          <Route path="/schedule" element={<Protected roles={['FRONT_DESK', 'ADMIN']}><Schedule /></Protected>} />
           <Route path="/provider" element={<Protected roles={['PROVIDER_CHIRO', 'PROVIDER_NP', 'PROVIDER_NURSE', 'ADMIN']}>
             <ModulePlaceholder moduleKey="provider" planned={['Your checked-in patients, filtered by specialty', 'SOAP note workspace with your own macro sets', 'AI scribe recording, reviewed and signed by you']} />
           </Protected>} />

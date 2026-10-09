@@ -17,9 +17,8 @@ const PROVIDERS: Role[] = ['PROVIDER_CHIRO', 'PROVIDER_NP', 'PROVIDER_NURSE'];
 export const MODULES: Module[] = [
   { key: 'front-desk', label: 'Front Desk', to: '/front-desk', roles: ['FRONT_DESK', 'ADMIN'], phase: 2,
     blurb: "Today's appointments, check-in and check-out, and the patient directory." },
-  // Schedule opens the existing, working master grid until the Phase 2 calendar replaces it.
-  { key: 'schedule', label: 'Schedule', href: '/dashboard.html', roles: ['FRONT_DESK', 'ADMIN'], phase: 1,
-    blurb: 'The day grid by room or by employee, and the pending-approval queue.' },
+  { key: 'schedule', label: 'Schedule', to: '/schedule', roles: ['FRONT_DESK', 'ADMIN'], phase: 2,
+    blurb: 'Day and week calendar by provider: book, move and cancel appointments, and approve online requests.' },
   { key: 'provider', label: 'Provider', to: '/provider', roles: [...PROVIDERS, 'ADMIN'], phase: 4,
     blurb: 'Your checked-in patients and SOAP notes.' },
   { key: 'accounting', label: 'Accounting', to: '/accounting', roles: ['ADMIN'], phase: 5,

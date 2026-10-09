@@ -81,6 +81,8 @@ export function Layout({ children }: { children: ReactNode }) {
   const { me, logout, hasRole } = useAuth();
   if (!me) return null;
   const visible = MODULES.filter((m) => hasRole(...m.roles));
+  // The calendar and the front desk columns need the room; the other pages read better narrow.
+  const wide = /^\/(schedule|front-desk)/.test(useLocation().pathname);
   return (
     <>
       <header className="topnav">
@@ -97,7 +99,7 @@ export function Layout({ children }: { children: ReactNode }) {
         </div>
         <button className="btn ghost" onClick={() => void logout()}>Sign out</button>
       </header>
-      <main className="page">{children}</main>
+      <main className={`page${wide ? ' wide' : ''}`}>{children}</main>
       <IdleWarning />
     </>
   );

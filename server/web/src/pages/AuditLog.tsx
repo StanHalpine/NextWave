@@ -7,7 +7,7 @@ interface Entry {
   action: string; resourceType: string; resourceId: string | null; success: boolean; requestId: string | null; meta: unknown;
 }
 
-const TYPES = ['appointment', 'patient', 'visit_note', 'encounter', 'account', 'route', 'audit_log'];
+const TYPES = ['appointment', 'patient', 'booking_contact', 'message', 'service', 'visit_note', 'encounter', 'account', 'route', 'audit_log'];
 const ACTIONS = ['CREATE', 'READ', 'UPDATE', 'DELETE', 'LOGIN', 'LOGIN_FAILED', 'LOGOUT', 'LOCKOUT', 'MFA_ENROLL', 'MFA_VERIFY', 'MFA_FAILED', 'PASSWORD_CHANGE', 'PASSWORD_RESET', 'ACCESS_DENIED'];
 
 export default function AuditLog() {
