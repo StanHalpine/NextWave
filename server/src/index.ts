@@ -19,6 +19,7 @@ import { authRouter } from './routes/auth.js';
 import { adminAccountsRouter } from './routes/adminAccounts.js';
 import { patientsRouter } from './routes/patients.js';
 import { scheduleRouter } from './routes/schedule.js';
+import { fdRouter } from './routes/fd.js';
 import { demoGate } from './middleware/demoGate.js';
 import { requestContext } from './middleware/requestContext.js';
 import { loadSession } from './middleware/session.js';
@@ -114,6 +115,7 @@ export function buildApp() {
   // auditAccess mounts above.
   app.use('/api', patientsRouter);
   app.use('/api', scheduleRouter);
+  app.use('/api', fdRouter);
 
   // The staff app (React + Vite), built to public/app. index.html must never be
   // cached so a deploy takes effect at once; its hashed assets can be.
