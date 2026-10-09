@@ -10,8 +10,8 @@ Three surfaces:
 | Surface | Path | Who | Built with |
 |---|---|---|---|
 | Patient booking widget | `/` | the public, anonymous | vanilla JS (embedded by deep links from the marketing site) |
-| **Staff app** | `/app` | signed-in staff | React + Vite (`web/`) |
-| Legacy staff pages | `/dashboard.html`, `/admin.html` | signed-in staff | vanilla JS, now behind the same login |
+| **Staff app** | `/app` | signed-in staff | React + Vite (`web/`): Front Desk, Patients, Schedule calendar, admin |
+| Legacy staff pages | `/dashboard.html`, `/admin.html` | signed-in staff | vanilla JS, behind the same login. The room/employee grid is still here; the new Schedule calendar is `/app/schedule` |
 
 ## Run it locally
 
@@ -53,7 +53,7 @@ and every audit row now mean a specific person.
 
 | Role | Sees |
 |---|---|
-| `FRONT_DESK` | the grid and pending queue, reports. Sees *that* clinical notes exist, never their text |
+| `FRONT_DESK` | Front Desk (today's dashboard, check-in/out, walk-ins), Patients, Schedule, the legacy grid and pending queue. Sees *that* clinical notes exist, never their text |
 | `PROVIDER_CHIRO` / `_NP` / `_NURSE` | clinical notes. Must be linked to a matching bookable provider record |
 | `ADMIN` | everything above except writing notes, plus accounts, audit log, configuration |
 
@@ -95,16 +95,78 @@ fails if `console.*` appears anywhere else in `src/`.
 (`sslmode=require|verify-ca|verify-full`), `MFA_ENCRYPTION_KEY` is set and valid,
 and `APP_BASE_URL` is an `https://` origin.
 
-## Deploying to Render
+## Front Desk, Patients and Schedule (Phase 2)
 
-`render.yaml` (repo root) is a Blueprint for the web service. It builds the
-server **and** the staff app.
+| Page | Path | What it does |
+|---|---|---|
+| Front Desk | `/app/front-desk` | Three columns from the `Encounter` table: today's appointments, checked in, seen/checked out. Check in, undo, check out, no-show, walk-in. The page asks for an online booking to be linked to a patient record before check-in (the API itself does not require it) |
+| Patients | `/app/front-desk/patients` | Directory (search is a `POST` — a name or number never goes in a URL), profile, visit history, text-consent control, a *Credit tracker* tab that is a placeholder until Phase 3 |
+| Schedule | `/app/schedule` | Day / week calendar with a provider filter. Click an empty time to book it; click an appointment to move, cancel, check in, approve or decline it |
+
+**The booking engine is untouched.** Creating, moving and walk-ins call the engine's own
+`computeDayAvailability()` and take the same row locks in the same order — every room the
+service may use, then every person who may deliver it, then the booking
+(`src/lib/scheduling.ts`, with the reasoning in its header). An online hold and a staff
+booking for the same slot get exactly one winner.
+
+**Writes are atomic with their audit row.** Staff writes run through `staffTransaction()`
+(`src/lib/staffTx.ts`): the audit entry is inserted by the same transaction, so a refused or
+failed change leaves no record of something that never happened. Reads call `audit.read()`.
+
+**Walk-ins** take the current 15-minute slot (10:07 → the 10:00 slot), already confirmed and
+checked in. If no room or provider is free it writes nothing and answers `409` with the next
+openings.
+
+**Moving** an appointment is in place (same id, patient and visit record) and all-or-nothing.
+**Cancelling** records a reason *code* (`patient_request`, `provider_unavailable`,
+`rescheduled_elsewhere`, `other`), never free text, and sends no text message.
+
+### Appointment texts
+
+A confirmation when an appointment is confirmed and a reminder 24 hours before, sent through
+the `Messaging` interface (a local stub until a real provider exists — the stub writes to
+`.devdata/sms-outbox.jsonl`, never to the log).
+
+- **Content:** first name, date and time only — no service, provider or room. Enforced in code
+  (`src/integrations/templates.ts`): templates are functions of exactly those three fields and
+  `renderTemplate()` rejects any other variable.
+- **Who:** only a *linked* patient whose consent a staff member recorded on their profile.
+  The anonymous online widget cannot capture consent, so an online booking is texted only
+  after the front desk links it to a consenting patient. Never walk-ins.
+- **When:** never outside 08:00–21:00 clinic time; a text that comes due overnight waits for
+  the morning. A patient who was only told less than a day before the visit gets no second text.
+- **Exactly once:** `MessageLog` is unique on (appointment, kind, appointment time) and inserting
+  the row is the claim, so overlapping runs, re-runs and restarts do not double-send. A move
+  changes the appointment time, so the new time is confirmed and reminded afresh.
+- **Failures:** transient errors retry (5, 15, 60 minutes, four attempts). A provider "STOP"
+  turns the patient's consent off. Only a failure *category* is stored — never a provider
+  message, which can echo the phone number.
+
+### Scheduled jobs
+
+Texts are sent by a job, not by the booking request, so something must run it. Pick one:
+
+```bash
+npm run jobs:run      # run every job once and exit — point cron / a Render Cron Job at this,
+                      # every 5 minutes. Needs the same environment as the web app.
+```
+
+or set `JOBS_IN_PROCESS=true` (interval `JOBS_INTERVAL_MIN`, default 5) to run them on a timer
+inside the web process. Use that only on a single **always-on** instance: a sleeping web service
+sends nothing while it sleeps. Running both is safe (every job is idempotent) but pointless.
+A confirmation therefore goes out within one interval of the appointment being confirmed, not instantly.
+
+## Deploying (Render blueprint; any Postgres)
+
+The app reads its database from **`DATABASE_URL` and nothing else**, so it runs
+against whatever Postgres you point it at: an external staging instance now, AWS
+RDS later. `render.yaml` (repo root) is a Blueprint for the **web service only** —
+it provisions no database. It builds the server and the staff app.
 
 1. Push the branch; Render → **New → Blueprint** → select it.
 2. Set the `sync: false` values in the dashboard:
-   - `DATABASE_URL` — your database, **ending `?sslmode=require`**. It is
-     deliberately not wired to the blueprint's database: production refuses a
-     non-TLS URL and Render's generated one does not add the parameter.
+   - `DATABASE_URL` — your Postgres, **ending `?sslmode=require`** (production
+     refuses to start on a non-TLS URL).
    - `APP_BASE_URL` — the public `https://` origin (used for setup links).
    - `MFA_ENCRYPTION_KEY` — from `npm run gen-secrets`. **Keep a copy**: losing
      it invalidates every enrolled authenticator.
@@ -112,16 +174,20 @@ server **and** the staff app.
    `npm run seed`, which populates an EMPTY database in one transaction and
    skips otherwise — so admin edits survive every deploy and a failed seed
    leaves the database empty rather than half-populated.
+   **The build environment must be able to reach `DATABASE_URL`.** Render's build
+   servers have no fixed IPs; if your Postgres allow-lists addresses, run
+   migrations from CI / a pre-deploy step instead (see the note in `render.yaml`).
 4. Open the service **Shell** and run `ADMIN_EMAIL=you@example.com npm run seed:admin`
    to get the first administrator's setup link.
+5. **Texts and reminders need a scheduler** — see *Scheduled jobs* below.
 
 `BASIC_AUTH_GATE=off` by default. Set it to `on` (with `DEMO_USER` /
 `DEMO_PASSWORD`) to put the old Basic Auth curtain back in front of the staff
 pages during cutover; individual logins apply either way.
 
-Free-tier caveats: the web service sleeps after ~15 minutes idle, and free
-Postgres **expires after 90 days**. A real patient record cannot live on a
-database that gets deleted — see `docs/PHASE1_NOTES.md`.
+The Render *web service* on the free plan sleeps after ~15 minutes idle. That
+matters for scheduled jobs: a sleeping service sends no reminders. Use a real
+scheduler (below) rather than relying on the web process being awake.
 
 ## How availability is decided
 
@@ -201,7 +267,19 @@ allowed. Every non-GET staff request also needs the `x-csrf-token` header.
 | GET | `/api/auth/me` | staff | Who am I, what step is outstanding |
 | GET/POST/PATCH | `/api/admin/accounts` (+ `/:id/reset-password`, `/unlock`, `/reset-mfa`) | admin | Accounts |
 | GET | `/api/admin/audit` · `/api/admin/integrations` | admin | Audit log · integration status |
-| * | `/api/admin/staff` · `/resources` · `/services` | admin | Configuration |
+| * | `/api/admin/staff` · `/resources` · `/services` | admin | Configuration (a service's `documentationType` — SOAP or session log — is edited here and audited) |
+| GET | `/api/fd/dashboard?date` | front desk, admin | The three-column day |
+| POST | `/api/fd/appointments/:id/check-in` · `/undo-check-in` · `/check-out` · `/no-show` | front desk, admin | Visit workflow |
+| POST | `/api/fd/walk-ins` | front desk, admin | Place and check in a walk-in (409 + next openings if none free) |
+| POST | `/api/fd/patients/search` | front desk, admin | Directory search (body `{ q, page }`) |
+| POST · GET · PATCH · DELETE | `/api/fd/patients` · `/:id` | front desk, admin (delete: admin) | Patient records; delete is a soft delete |
+| GET | `/api/fd/patients/:id/visits` | front desk, admin | Visit history |
+| POST | `/api/fd/patients/:id/sms-consent` | front desk, admin | Record consent / opt-out and how it was given |
+| GET · POST | `/api/fd/bookings/:id/patient-matches` · `/link-patient` | front desk, admin | Suggest and link an online booking to a patient |
+| GET | `/api/schedule/calendar?from&to` | front desk, admin | Up to 14 days: hours, provider shifts, rooms, appointments |
+| GET | `/api/schedule/slots?serviceId&date[&forAppointmentId]` | front desk, admin | Bookable starts (as if one appointment were not there, for a move) |
+| GET | `/api/schedule/appointments/:id` | front desk, admin | One appointment, with text delivery status |
+| POST | `/api/schedule/appointments` · `/:id/move` · `/:id/cancel` | front desk, admin | Create / move / cancel |
 
 Removed: `POST /api/admin/purge` (bulk-delete of patient data over HTTP) and
 `GET /api/patients?email=` (an email address in a URL).
@@ -317,7 +395,8 @@ record in the shape an export would be built from, but there is no FHIR or HL7
 mapping. Spec §8.5.
 
 **Not built** (nobody specified them): patient-facing booking UI, recurring
-appointment expansion (`isRecurring` is stored but never acted on), email/SMS
+appointment expansion (`isRecurring` is stored but never acted on), a real SMS provider
+(texts go to a local stub until Twilio is wired in), cancellation or reschedule texts, email
 confirmations, membership-credit integration, cancellation windows, provider
 time-off/blackout dates. (Automated tests now exist — `npm test` — covering auth, access control, audit and start-up guards; the booking engine itself is still verified by `scripts/race-test.sh` rather than unit tests.)
 
@@ -333,6 +412,7 @@ time-off/blackout dates. (Automated tests now exist — `npm test` — covering 
 | `npm run lint:logs` | Fail if anything but `lib/logger.ts` writes to the console |
 | `npm test` | Vitest — runs against a throwaway Postgres *schema* (see below) |
 | `npm run web:build` / `web:dev` / `web:install` | The React staff app |
+| `npm run jobs:run` | Run every scheduled job once (appointment texts) and exit — see *Scheduled jobs* |
 | `npm run dev:reset` | **Dev only**: delete bookings, patients and notes. Refuses when `NODE_ENV=production` or `BOOKING_MODE` is beta/live, and needs `CONFIRM_DEV_RESET=yes` |
 | `./scripts/race-test.sh [date] [n]` | Concurrency proof — exactly one winner for one room |
 | `./scripts/demo-day.sh [date]` | Fill a day with mixed-status bookings — **dev only**; needs `DEMO_STAFF_EMAIL` / `DEMO_STAFF_PASSWORD` of a front desk login to approve |
@@ -346,3 +426,10 @@ It uses a separate *schema* rather than your real tables because the audit log
 is append-only — rows a test wrote to the real schema could never be cleaned up.
 The connection string is derived in-process and never printed. Needs `CREATE`
 privilege on the database.
+
+The suite sends its fake texts and files to a throwaway folder (`DEV_DATA_DIR`), not to your
+`.devdata/`. `NW_TEST_POOL=3 npm test` re-runs everything with the connection pool capped at
+3 — the setting under which a lock-ordering mistake shows up every time rather than rarely.
+The walk-in race tests (`tests/walkin-race.test.ts`) fire concurrent walk-ins, bookings,
+moves, cancellations, check-ins and the existing approve route at one another and assert
+exact winner counts, no double-booking and no deadlock.
