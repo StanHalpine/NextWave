@@ -1,7 +1,8 @@
 {
   // Typecheck-only config: covers prisma/seed.ts too, which the build config
-  // deliberately excludes (seed runs through tsx, never compiled).
+  // deliberately excludes (seed runs through tsx, never compiled), plus the
+  // scripts and tests, which also run through tsx / vitest rather than tsc.
   "extends": "./tsconfig.json",
   "compilerOptions": { "noEmit": true, "rootDir": "." },
-  "include": ["src/**/*.ts", "prisma/**/*.ts"]
+  "include": ["src/**/*.ts", "prisma/**/*.ts", "scripts/**/*.ts", "tests/**/*.ts", "vitest.config.ts"]
 }

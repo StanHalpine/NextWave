@@ -11,26 +11,43 @@
     "seed": "tsx prisma/seed.ts",
     "migrate": "prisma migrate dev",
     "studio": "prisma studio",
-    "typecheck": "tsc --noEmit -p tsconfig.check.json"
+    "typecheck": "tsc --noEmit -p tsconfig.check.json",
+    "lint:logs": "node scripts/lint-logs.mjs",
+    "test": "vitest run",
+    "seed:admin": "tsx scripts/seed-admin.ts",
+    "dev:reset": "tsx scripts/dev-reset.ts",
+    "gen-secrets": "tsx scripts/gen-secrets.ts",
+    "web:install": "npm --prefix web install",
+    "web:build": "npm --prefix web run build",
+    "web:dev": "npm --prefix web run dev"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
+    "@node-rs/argon2": "^2.2.2",
     "@prisma/client": "^6.1.0",
+    "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "dotenv": "^17.4.2",
     "express": "^4.21.2",
+    "express-async-errors": "^3.1.1",
+    "express-rate-limit": "^8.7.1",
     "luxon": "^3.5.0",
+    "otplib": "^13.5.0",
     "zod": "^3.24.1"
   },
   "devDependencies": {
+    "@types/cookie-parser": "^1.4.10",
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
     "@types/luxon": "^3.4.2",
     "@types/node": "^22.10.5",
+    "@types/supertest": "^7.2.1",
     "prisma": "^6.1.0",
+    "supertest": "^7.3.1",
     "tsx": "^4.19.2",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "vitest": "^4.1.11"
   }
 }
