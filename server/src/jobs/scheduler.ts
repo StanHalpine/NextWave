@@ -17,9 +17,13 @@ import { logger } from '../lib/logger.js';
 import { runAsSystem } from '../lib/audit.js';
 import { getIntegrations, integrationStatuses } from '../integrations/index.js';
 import { runAppointmentTexts, type TextRunResult } from './appointmentTexts.js';
+import { runCreditExpiry, runMembershipGrants, type ExpiryRunResult, type GrantRunResult } from './credits.js';
 
 export interface JobsRunResult {
   appointmentTexts: TextRunResult | { disabled: true };
+  /** Always runs — credits are not a messaging feature. null = the job itself failed (logged). */
+  membershipGrants: GrantRunResult | null;
+  creditExpiry: ExpiryRunResult | null;
 }
 
 /** Run every job once. Never throws. */
@@ -34,8 +38,16 @@ export async function runAllJobsOnce(): Promise<JobsRunResult> {
       logger.error('job_failed', err, { job: 'appointment-texts' });
     }
   }
-  logger.info('jobs_ran', { appointmentTexts });
-  return { appointmentTexts };
+  // Grants first, then expiry: a fresh grant is never expired in the same pass, and each is its own
+  // failure domain — one job failing is logged and never stops the others.
+  const guarded = async <T>(job: string, fn: () => Promise<T>): Promise<T | null> => {
+    try { return await runAsSystem(job, fn); } catch (err) { logger.error('job_failed', err, { job }); return null; }
+  };
+  const membershipGrants = await guarded('membership-grants', () => runMembershipGrants());
+  const creditExpiry = await guarded('credit-expiry', () => runCreditExpiry());
+
+  logger.info('jobs_ran', { appointmentTexts, membershipGrants, creditExpiry });
+  return { appointmentTexts, membershipGrants, creditExpiry };
 }
 
 /** Start the in-process timer. Returns a stop function. */
