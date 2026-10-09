@@ -8,13 +8,16 @@ import { app, auditRows, blob, makeAccount, signInFully } from './helpers.js';
 import { patch, makePatient, makeClinic } from './phase2.js';
 
 describe('service documentation type (SOAP vs session log)', () => {
-  it('is seeded per the owner\'s list: SOAP for the six named services, session log for everything else', async () => {
-    const rows = await prisma.service.findMany({ where: { slug: { in: ['manual-adjustment', 'spinal-postural-exam', 'functional-medicine-consult', 'iv-therapy', 'vitamin-shots', 'biomarker-testing'] } } });
-    expect(rows.length).toBeGreaterThanOrEqual(6);
+  it('is seeded per the owner\'s list: SOAP for ten services, session log for the timed modalities and X-rays', async () => {
+    const soap = ['manual-adjustment', 'spinal-postural-exam', 'functional-medicine-consult', 'iv-therapy', 'vitamin-shots', 'biomarker-testing',
+      'hormone-optimization', 'peptide-therapy', 'personal-wellness-planning', 'supplementation'];
+    const rows = await prisma.service.findMany({ where: { slug: { in: soap } } });
+    expect(rows.length).toBeGreaterThanOrEqual(10);
     for (const r of rows) expect(r.documentationType, r.slug).toBe('SOAP');
 
-    for (const slug of ['hyperbaric-oxygen-therapy', 'red-light-therapy', 'body-composition']) {
+    for (const slug of ['hyperbaric-oxygen-therapy', 'red-light-therapy', 'body-composition', 'spinal-xrays']) {
       const timed = await prisma.service.findMany({ where: { slug } });
+      expect(timed.length, slug).toBeGreaterThan(0);
       for (const r of timed) expect(r.documentationType, slug).toBe('SESSION_LOG');
     }
   });
