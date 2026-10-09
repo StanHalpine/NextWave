@@ -17,7 +17,7 @@ import { now } from '../lib/clock.js';
 import { isoWeekday, localDayBounds, toLocalDateISO } from '../lib/time.js';
 import { staffTransaction } from '../lib/staffTx.js';
 import { APPT_INCLUDE, appointmentView } from '../lib/appointmentView.js';
-import { CANCEL_REASONS, cancelAppointment, createAppointment, moveAppointment } from '../lib/scheduling.js';
+import { CANCEL_REASONS, cancelAppointment, createAppointment, moveAppointment, slotsForDay } from '../lib/scheduling.js';
 import { requireFrontDesk } from '../middleware/frontDesk.js';
 import { sendSchedulingError } from './http.js';
 
@@ -93,6 +93,36 @@ scheduleRouter.get('/schedule/calendar', requireFrontDesk, async (req, res) => {
     rooms,
     appointments: rows.map(appointmentView),
   });
+});
+
+// ---- open slots (for the pickers) ---------------------------------------------------
+
+const slotsQuery = z.object({
+  serviceId: z.string().min(1).max(64),
+  date: isoDay,
+  /** Moving: treat this appointment as not there, so its own time and neighbours are offered. */
+  forAppointmentId: z.string().min(1).max(64).optional(),
+});
+
+/**
+ * Which starts are bookable. Returns availability only — no names — and which providers
+ * could take each start, so the desk can choose one. Uses the app clock, so a slot that
+ * has already begun is never offered.
+ */
+scheduleRouter.get('/schedule/slots', requireFrontDesk, async (req, res) => {
+  const q = slotsQuery.safeParse(req.query);
+  if (!q.success) return res.status(400).json({ error: 'serviceId and date (YYYY-MM-DD) are required.', code: 'bad_request' });
+  try {
+    const day = await slotsForDay(q.data.serviceId, q.data.date, now(), q.data.forAppointmentId);
+    if (!day) return res.status(404).json({ error: 'Unknown service.', code: 'unknown_service' });
+    audit.read('appointment', null, { scope: 'slots' }, 'slots');
+    res.json({
+      date: day.date, durationMin: day.durationMin, closedReason: day.closedReason ?? null,
+      slots: day.slots.map((s) => ({ start: s.start, localTime: s.localTime, staffIds: s.staffIds, resourceIds: s.resourceIds })),
+    });
+  } catch (err) {
+    if (!sendSchedulingError(res, err)) throw err;
+  }
 });
 
 // ---- one appointment ---------------------------------------------------------

@@ -298,3 +298,53 @@ describe('schedule: appointment detail', () => {
     expect((await fd.agent.get('/api/schedule/appointments/nope')).status).toBe(404);
   });
 });
+
+describe('schedule: open slots (the picker)', () => {
+  it('lists bookable starts with the providers who could take each, and hides what has begun', async () => {
+    const fd = await fdLogin();
+    const clinic = await makeClinic({ rooms: 2, staff: 2 });
+    const res = await fd.agent.get(`/api/schedule/slots?serviceId=${clinic.service.id}&date=${TUESDAY_DATE}`);
+    expect(res.status).toBe(200);
+    expect(res.body.durationMin).toBe(30);
+    const starts: string[] = res.body.slots.map((s: any) => s.start);
+    expect(starts).not.toContain(slotAt('10:00').toISOString());   // already begun at 10:07
+    expect(starts).toContain(slotAt('10:15').toISOString());
+    expect(starts).toContain(slotAt('18:30').toISOString());       // last 30-min start before 19:00 close
+    expect(starts).not.toContain(slotAt('18:45').toISOString());
+    const first = res.body.slots[0];
+    expect(first.staffIds.sort()).toEqual(clinic.staff.map((s) => s.id).sort());
+    expect(blob(res.body)).not.toMatch(/Patient/);
+
+    const sunday = await fd.agent.get(`/api/schedule/slots?serviceId=${clinic.service.id}&date=2026-10-18`);
+    expect(sunday.body.slots).toEqual([]);
+    expect(sunday.body.closedReason).toMatch(/closed/i);
+    expect((await fd.agent.get(`/api/schedule/slots?serviceId=nope&date=${TUESDAY_DATE}`)).status).toBe(404);
+    expect((await fd.agent.get('/api/schedule/slots?date=2026-10-13')).status).toBe(400);
+    expect((await request(app).get(`/api/schedule/slots?serviceId=${clinic.service.id}&date=${TUESDAY_DATE}`)).status).toBe(401);
+  });
+
+  it('for a move, offers the times that overlap the appointment\'s own — and leaves it untouched', async () => {
+    const fd = await fdLogin();
+    const clinic = await makeClinic();
+    const made = await create(fd, clinic, (await makePatient()).id, '11:00');
+    const id = made.body.appointment.id;
+
+    const plain = await fd.agent.get(`/api/schedule/slots?serviceId=${clinic.service.id}&date=${TUESDAY_DATE}`);
+    const plainStarts: string[] = plain.body.slots.map((s: any) => s.start);
+    expect(plainStarts).not.toContain(slotAt('11:15').toISOString());   // overlaps the booking, one room, one provider
+
+    const asIf = await fd.agent.get(`/api/schedule/slots?serviceId=${clinic.service.id}&date=${TUESDAY_DATE}&forAppointmentId=${id}`);
+    const asIfStarts: string[] = asIf.body.slots.map((s: any) => s.start);
+    expect(asIfStarts).toContain(slotAt('11:15').toISOString());
+    expect(asIfStarts).toContain(slotAt('11:00').toISOString());
+
+    const row = await prisma.booking.findUniqueOrThrow({ where: { id } });
+    expect(row.status).toBe('CONFIRMED');                                // the as-if cancellation rolled back
+    expect((await fd.agent.get(`/api/schedule/slots?serviceId=${clinic.service.id}&date=${TUESDAY_DATE}`)).body.slots.map((s: any) => s.start)).not.toContain(slotAt('11:15').toISOString());
+
+    const other = await makeClinic();
+    expect((await fd.agent.get(`/api/schedule/slots?serviceId=${other.service.id}&date=${TUESDAY_DATE}&forAppointmentId=${id}`)).status).toBe(404); // not that service's appointment
+    // And what it offered is genuinely movable.
+    expect((await post(fd, `/api/schedule/appointments/${id}/move`, { start: slotAt('11:15').toISOString() })).status).toBe(200);
+  });
+});

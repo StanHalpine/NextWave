@@ -28,6 +28,8 @@ import { DateTime } from 'luxon';
 import { config } from '../config.js';
 import { addMinutes, toLocalDateISO } from './time.js';
 import type { Rec } from './staffTx.js';
+import { basePrisma } from './prismaBase.js';
+import type { DayAvailability } from './availability.js';
 
 export class SchedulingError extends Error {
   constructor(
@@ -332,4 +334,32 @@ export async function createWalkIn(tx: Tx, rec: Rec, input: WalkInInput) {
   });
   await rec({ action: 'CREATE', resourceType: 'encounter', resourceId: encounter.id, meta: { to: 'CHECKED_IN', walkIn: true } });
   return { booking, encounter, service, proven };
+}
+
+/** Thrown from inside a transaction purely to roll it back while carrying a result out. */
+class RollbackWith<T> extends Error {
+  constructor(public readonly value: T) { super('rollback'); }
+}
+
+/**
+ * The bookable starts for a service on a day — the same answer the booking engine gives
+ * the public — optionally AS IF one appointment were not there, so the front desk can
+ * be offered 11:15 when moving an 11:00 appointment (which overlaps its own old slot).
+ *
+ * Read-only in effect: the "as if" is a cancellation inside a transaction that is always
+ * rolled back, and it takes no resource locks (so it cannot join a lock-order cycle).
+ */
+export async function slotsForDay(serviceId: string, dateISO: string, now: Date, ignoreBookingId?: string): Promise<DayAvailability | null> {
+  if (!ignoreBookingId) return computeDayAvailability(basePrisma, serviceId, dateISO, now);
+  try {
+    return await basePrisma.$transaction(async (tx) => {
+      const b = await tx.booking.findUnique({ where: { id: ignoreBookingId }, select: { serviceId: true } });
+      if (!b || b.serviceId !== serviceId) throw new SchedulingError(404, 'unknown_booking', 'Unknown appointment.');
+      await tx.booking.update({ where: { id: ignoreBookingId }, data: { status: 'CANCELLED' } });
+      throw new RollbackWith(await computeDayAvailability(tx, serviceId, dateISO, now));
+    });
+  } catch (err) {
+    if (err instanceof RollbackWith) return err.value as DayAvailability | null;
+    throw err;
+  }
 }
