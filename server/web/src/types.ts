@@ -18,7 +18,8 @@ export interface Appt {
   subOption: string | null;
   staff: { id: string; name: string } | null;
   resource: { id: string; name: string };
-  patient: { id: string | null; name: string; linked: boolean; smsOptIn: boolean };
+  patient: { id: string | null; name: string; linked: boolean; smsOptIn: boolean; /** where consent to texts comes from */ texts: 'patient' | 'online' | null };
+  patientConfirmedAt: string | null;
   encounter: { id: string; status: EncounterStatus; checkedInAt: string | null; checkedOutAt: string | null } | null;
 }
 

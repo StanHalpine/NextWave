@@ -568,6 +568,17 @@
     leaveApp();
   });
 
+  // ---- text-message consent ------------------------------------------------
+  // The wording comes from the server so the page can never show one thing and record another.
+  // If it cannot be loaded the checkbox simply stays hidden: no wording, no consent.
+  var smsLabel = null;
+  api('/api/sms/consent-label').then(function (r) {
+    if (!r || !r.label) return;
+    smsLabel = r.label;
+    $('sms-consent-label').textContent = r.label;
+    $('sms-consent-row').hidden = false;
+  }).catch(function () { /* checkbox stays hidden */ });
+
   $('details-form').addEventListener('submit', function (e) {
     e.preventDefault();
     if (!state.hold) return;
@@ -590,6 +601,7 @@
       return;
     }
 
+    var wantsTexts = !!f.smsConsent.checked && !!smsLabel;
     $('submit-btn').disabled = true;
     api('/api/bookings', { method: 'POST', body: JSON.stringify(payload) })
       .then(function (b) {
@@ -605,6 +617,17 @@
               hour: 'numeric', minute: '2-digit',
             }));
         $('step-done').scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+        // Record the tick, with the exact words shown. A separate request so the booking itself
+        // is never held up (or failed) by it; if this one fails we say so rather than pretend.
+        $('sms-done').hidden = true;
+        $('sms-fail').hidden = true;
+        if (wantsTexts && smsLabel && b.bookingId) {
+          api('/api/bookings/' + encodeURIComponent(b.bookingId) + '/sms-consent', {
+            method: 'POST', body: JSON.stringify({ label: smsLabel }),
+          }).then(function () { $('sms-done').hidden = false; })
+            .catch(function () { $('sms-fail').hidden = false; });
+        }
       })
       .catch(function (e2) {
         err.textContent = e2.message;

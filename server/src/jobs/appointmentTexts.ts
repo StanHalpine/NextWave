@@ -47,8 +47,9 @@ import { logger } from '../lib/logger.js';
 import { now as clockNow } from '../lib/clock.js';
 import { staffTransaction } from '../lib/staffTx.js';
 import { clinicHour, formatApptDate, formatApptTime } from '../lib/format.js';
-import { toE164 } from '../lib/phone.js';
-import { sanitizeFirstName, type TemplateId } from '../integrations/templates.js';
+import { loadSuppressions, suppressNumber } from '../lib/smsSuppression.js';
+import { SELECT_PATIENT_FOR_TEXT, candidateDigits, resolveRecipient, type Recipient } from '../lib/smsRecipient.js';
+import { type TemplateId } from '../integrations/templates.js';
 import { toLocalDateISO } from '../lib/time.js';
 import { DateTime } from 'luxon';
 import { config } from '../config.js';
@@ -91,14 +92,11 @@ type Kind = 'CONFIRMATION' | 'REMINDER_24H';
 
 interface Target {
   bookingId: string;
-  patientId: string;
+  /** The linked patient, if any — an online booking nobody has linked is still texted when its own checkbox was ticked. */
+  patientId: string | null;
   kind: Kind;
   forStart: Date;
 }
-
-type PatientLite = { id: string; firstName: string; preferredName: string | null; phone: string; smsOptIn: boolean; deletedAt: Date | null };
-
-const textable = (p: PatientLite | null): p is PatientLite => !!p && !p.deletedAt && p.smsOptIn && toE164(p.phone) !== null;
 
 function isUniqueViolation(err: unknown): boolean {
   return err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002';
@@ -124,28 +122,35 @@ export async function runAppointmentTexts(deps: TextRunDeps): Promise<TextRunRes
   });
   for (const row of due) await retry(row, deps, at, result);
 
-  // 2. Confirmations for appointments nobody has been told about.
+  // 2. Confirmations for appointments nobody has been told about. A booking is texted when EITHER
+  //    its linked patient has consented (staff recorded it) OR the person who made it ticked the
+  //    widget's checkbox — and the number has not since texted STOP (lib/smsRecipient.ts).
   const upcoming = await prisma.booking.findMany({
     where: {
       status: 'CONFIRMED',
       startTime: { gt: at },
-      patientId: { not: null },
       source: { not: 'WALK_IN' },
-      OR: [{ encounter: null }, { encounter: { status: 'SCHEDULED' } }],
+      AND: [
+        { OR: [{ patientId: { not: null } }, { smsConsentAt: { not: null } }] },
+        { OR: [{ encounter: null }, { encounter: { status: 'SCHEDULED' } }] },
+      ],
     },
     include: {
-      patient: { select: { id: true, firstName: true, preferredName: true, phone: true, smsOptIn: true, deletedAt: true } },
+      patient: { select: SELECT_PATIENT_FOR_TEXT },
+      user: { select: { name: true, phone: true } },
       messages: { select: { kind: true, forStart: true, queuedAt: true } },
     },
     orderBy: { startTime: 'asc' },
     take: BATCH * 5,
   });
+  const suppressed = await loadSuppressions(prisma, upcoming.flatMap(candidateDigits));
 
   for (const b of upcoming) {
     const has = (kind: Kind) => b.messages.some((m) => m.kind === kind && m.forStart.getTime() === b.startTime.getTime());
     if (has('CONFIRMATION')) continue;
-    if (!textable(b.patient)) { notEligible.add(b.id); continue; }
-    await deliver({ bookingId: b.id, patientId: b.patient.id, kind: 'CONFIRMATION', forStart: b.startTime }, b.patient, deps, at, result);
+    const to = resolveRecipient(b, suppressed);
+    if (!to) { notEligible.add(b.id); continue; }
+    await deliver({ bookingId: b.id, patientId: b.patientId, kind: 'CONFIRMATION', forStart: b.startTime }, to, deps, at, result);
   }
 
   // 3. Reminders, for what is now inside the 24-hour window. (A confirmation sent in
@@ -162,10 +167,11 @@ export async function runAppointmentTexts(deps: TextRunDeps): Promise<TextRunRes
     for (const b of soon) {
       const mine = fresh.filter((m) => m.bookingId === b.id && m.forStart.getTime() === b.startTime.getTime());
       if (mine.some((m) => m.kind === 'REMINDER_24H')) continue;
-      if (!textable(b.patient)) { notEligible.add(b.id); continue; }
+      const to = resolveRecipient(b, suppressed);
+      if (!to) { notEligible.add(b.id); continue; }
 
       const windowOpened = b.startTime.getTime() - 24 * 3_600_000;
-      const target: Target = { bookingId: b.id, patientId: b.patient.id, kind: 'REMINDER_24H', forStart: b.startTime };
+      const target: Target = { bookingId: b.id, patientId: b.patientId, kind: 'REMINDER_24H', forStart: b.startTime };
       const confirmation = mine.find((m) => m.kind === 'CONFIRMATION');
       if (toLocalDateISO(b.startTime) !== tomorrow) {
         // The wording says "see you tomorrow". Within 24 hours of an appointment that is TODAY
@@ -175,7 +181,7 @@ export async function runAppointmentTexts(deps: TextRunDeps): Promise<TextRunRes
       } else if (confirmation && confirmation.queuedAt.getTime() >= windowOpened) {
         await recordSkip(target, 'booked_inside_window', result); // they were told less than a day ago
       } else {
-        await deliver(target, b.patient, deps, at, result);
+        await deliver(target, to, deps, at, result);
       }
     }
   }
@@ -187,7 +193,7 @@ export async function runAppointmentTexts(deps: TextRunDeps): Promise<TextRunRes
 // ---- one message -------------------------------------------------------------
 
 /** Claim (insert the row), send, record. */
-async function deliver(t: Target, patient: PatientLite, deps: TextRunDeps, at: Date, out: TextRunResult) {
+async function deliver(t: Target, to: Recipient, deps: TextRunDeps, at: Date, out: TextRunResult) {
   let id: string;
   try {
     id = await staffTransaction(async (tx, rec) => {
@@ -204,7 +210,7 @@ async function deliver(t: Target, patient: PatientLite, deps: TextRunDeps, at: D
     if (isUniqueViolation(err)) return; // another runner has it
     throw err;
   }
-  await send(id, t, patient, 1, deps, at, out);
+  await send(id, t, to, 1, deps, at, out);
 }
 
 async function retry(row: { id: string; bookingId: string; kind: Kind; forStart: Date; attempts: number; nextAttemptAt: Date | null }, deps: TextRunDeps, at: Date, out: TextRunResult) {
@@ -218,29 +224,30 @@ async function retry(row: { id: string; bookingId: string; kind: Kind; forStart:
   const b = await prisma.booking.findUnique({
     where: { id: row.bookingId },
     include: {
-      patient: { select: { id: true, firstName: true, preferredName: true, phone: true, smsOptIn: true, deletedAt: true } },
+      patient: { select: SELECT_PATIENT_FOR_TEXT },
+      user: { select: { name: true, phone: true } },
       encounter: { select: { status: true } },
     },
   });
   const stale = !b || b.status !== 'CONFIRMED' || b.startTime.getTime() !== row.forStart.getTime() || b.startTime <= at
     || (b.encounter && b.encounter.status !== 'SCHEDULED');
-  if (stale || !textable(b.patient)) {
+  const to = stale ? null : resolveRecipient(b, await loadSuppressions(prisma, candidateDigits(b)));
+  if (stale || !to) {
     await finish(row.id, { status: 'SKIPPED', failureCode: stale ? 'superseded' : 'no_consent', nextAttemptAt: null }, out, 'skipped');
     return;
   }
-  const t: Target = { bookingId: row.bookingId, patientId: b.patient.id, kind: row.kind, forStart: row.forStart };
-  await send(row.id, t, b.patient, row.attempts + 1, deps, at, out);
+  const t: Target = { bookingId: row.bookingId, patientId: b.patientId, kind: row.kind, forStart: row.forStart };
+  await send(row.id, t, to, row.attempts + 1, deps, at, out);
 }
 
-async function send(id: string, t: Target, patient: PatientLite, attempt: number, deps: TextRunDeps, at: Date, out: TextRunResult) {
-  const to = toE164(patient.phone)!; // textable() guaranteed it
+async function send(id: string, t: Target, to: Recipient, attempt: number, deps: TextRunDeps, at: Date, out: TextRunResult) {
   // Exactly the placeholders each text uses: renderTemplate() refuses any other.
-  const first = sanitizeFirstName(patient.preferredName || patient.firstName);
+  const first = to.first;
   const variables: Record<string, string> = t.kind === 'CONFIRMATION'
     ? { first, day: formatApptDate(t.forStart), time: formatApptTime(t.forStart) }
     : { first, time: formatApptTime(t.forStart) };
   try {
-    const { providerMessageId } = await deps.messaging.sendSms({ to, templateId: TEMPLATE[t.kind], variables });
+    const { providerMessageId } = await deps.messaging.sendSms({ to: to.to, templateId: TEMPLATE[t.kind], variables });
     await finish(id, { status: 'SENT', providerMessageId, sentAt: at, nextAttemptAt: null, failureCode: null }, out, 'sent');
   } catch (err) {
     const failure = err instanceof MessagingError ? err.failure : 'transient';
@@ -250,7 +257,7 @@ async function send(id: string, t: Target, patient: PatientLite, attempt: number
       await finish(id, { nextAttemptAt: new Date(at.getTime() + wait), failureCode: 'transient' }, out, 'retry');
     } else {
       await finish(id, { status: 'FAILED', failureCode: failure === 'transient' ? 'transient_exhausted' : failure, nextAttemptAt: null }, out, 'failed');
-      if (failure === 'opted_out') await recordOptOut(patient.id);
+      if (failure === 'opted_out') await recordOptOut(to, at);
     }
   }
 }
@@ -283,10 +290,9 @@ async function recordSkip(t: Target, code: string, out: TextRunResult) {
   }
 }
 
-/** The provider says this number has texted STOP. Take consent off so nobody texts them again. */
-async function recordOptOut(patientId: string) {
+/** The provider says this number has texted STOP: put it on the do-not-text list and take any patient's consent off. */
+async function recordOptOut(to: Recipient, at: Date) {
   await staffTransaction(async (tx, rec) => {
-    await tx.patient.update({ where: { id: patientId }, data: { smsOptIn: false } });
-    await rec({ action: 'UPDATE', resourceType: 'patient', resourceId: patientId, meta: { fields: ['smsOptIn'], reason: 'provider_opt_out' } });
+    await suppressNumber(tx, rec, { phone: to.to, source: 'PROVIDER', at });
   });
 }

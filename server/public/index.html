@@ -112,6 +112,13 @@
         <textarea name="patientNote" rows="3" maxlength="2000"
           placeholder="e.g. recovering from a knee injury"></textarea>
       </label>
+      <!-- Text-message consent. Unchecked by default. The words come from the server
+           (GET /api/sms/consent-label) and are sent back with the tick, so what is stored is
+           exactly what was on screen. Hidden until the wording has loaded: no wording, no checkbox. -->
+      <label class="consent" id="sms-consent-row" hidden>
+        <input type="checkbox" name="smsConsent" id="sms-consent">
+        <span id="sms-consent-label"></span>
+      </label>
       <p class="form-err" id="form-err" hidden></p>
       <div class="form-actions">
         <button type="submit" class="btn btn-primary" id="submit-btn">Request appointment</button>
@@ -133,6 +140,8 @@
       <p class="muted">This time is held for you as a <strong>request</strong>, not a
       confirmed appointment. Our front desk will contact you by phone or email to
       confirm. If you need to change or cancel, call us.</p>
+      <p class="muted" id="sms-done" hidden>You'll get a text confirmation and a reminder the day before. Reply STOP at any time to opt out.</p>
+      <p class="muted" id="sms-fail" hidden>We couldn't save your text-message preference. Let the front desk know and we'll add it.</p>
       <div class="form-actions">
         <button type="button" class="btn btn-primary" id="again-btn">Book another service</button>
       </div>

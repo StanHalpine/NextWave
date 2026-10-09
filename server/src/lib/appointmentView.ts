@@ -41,7 +41,10 @@ export function appointmentView(b: ApptRow) {
       name: linked ? `${linked.firstName} ${linked.lastName}` : b.user.name,
       linked: !!linked,
       smsOptIn: linked?.smsOptIn ?? false,
+      /** Where consent to texts comes from, if anywhere: the patient's record (staff-recorded) or this booking's own checkbox. */
+      texts: linked?.smsOptIn ? ('patient' as const) : b.smsConsentAt ? ('online' as const) : null,
     },
+    patientConfirmedAt: b.patientConfirmedAt,
     encounter: b.encounter
       ? { id: b.encounter.id, status: b.encounter.status, checkedInAt: b.encounter.checkedInAt, checkedOutAt: b.encounter.checkedOutAt }
       : null,

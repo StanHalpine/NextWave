@@ -21,3 +21,18 @@ export function toE164(raw: string): string | null {
   if (d.length === 11 && d.startsWith('1')) return `+${d}`;
   return null;
 }
+
+/**
+ * ONE key for a US number however it was typed: "(612) 555-0142", "612-555-0142" and
+ * "1-612-555-0142" are all "16125550142". Anything that is not a US number falls back to its
+ * digits. Used for the do-not-text list, where two spellings of one number must not be two entries.
+ */
+export function canonicalDigits(raw: string): string {
+  return toE164(raw)?.slice(1) ?? phoneDigits(raw);
+}
+
+/** The spellings a stored phone may have as digits: with and without the leading 1. */
+export function phoneVariants(raw: string): string[] {
+  const c = canonicalDigits(raw);
+  return c.length === 11 && c.startsWith('1') ? [c, c.slice(1)] : [c];
+}

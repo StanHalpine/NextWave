@@ -362,6 +362,10 @@ form textarea { resize: vertical; }
 form .opt { font-size: 11px; opacity: 0.6; }
 
 .form-err { color: #b4746a; font-size: 13px; margin: 0 0 12px; }
+/* Text-message consent: a checkbox beside its words, not a full-width input. */
+form label.consent { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; line-height: 1.45; color: var(--ink); margin-bottom: 16px; cursor: pointer; }
+form label.consent[hidden] { display: none; }
+form label.consent input[type=checkbox] { width: 18px; height: 18px; margin: 1px 0 0; flex: none; padding: 0; accent-color: var(--lake, #4c6b72); }
 .form-actions { display: flex; gap: 9px; flex-wrap: wrap; margin-top: 6px; }
 
 .btn {

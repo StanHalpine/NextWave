@@ -385,10 +385,11 @@ export function AppointmentDialog({ id, today, onClose, onChanged }: { id: strin
             <dt>Booked</dt><dd>{sourceLabel(a.source)}</dd>
             {!a.patient.linked && (<><dt>Contact</dt><dd>{d.contact.name} · {fmtPhone(d.contact.phone)}{d.contact.email ? ` · ${d.contact.email}` : ''}</dd></>)}
             {d.patientNote && (<><dt>Patient’s note</dt><dd>{d.patientNote}</dd></>)}
+            {a.patientConfirmedAt && (<><dt>Patient</dt><dd>Replied <strong>C</strong> to confirm ({fmtInstantTime(a.patientConfirmedAt, tz)})</dd></>)}
             <dt>Texts</dt>
             <dd>
               {d.messages.length === 0
-                ? <span className="muted">{a.patient.smsOptIn ? 'None sent yet' : a.patient.linked ? 'No consent on file — no texts' : 'Link a patient record to enable texts'}</span>
+                ? <span className="muted">{a.patient.texts ? `None sent yet (consent ${a.patient.texts === 'online' ? 'given on the booking form' : 'recorded on the patient profile'})` : a.patient.linked ? 'No consent on file — no texts' : 'No consent — none was given on the booking form'}</span>
                 : <ul className="plain">{d.messages.map((m, i) => <li key={i}>{MSG_KIND[m.kind] ?? m.kind}: {msgSummary(m, tz)}</li>)}</ul>}
             </dd>
           </dl>

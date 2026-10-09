@@ -206,6 +206,15 @@ model Booking {
   /// knows nothing of patients, so a booking is LINKED by the front desk afterwards.
   patientId          String?
 
+  /// Consent to appointment texts given by the person who made THIS booking, on the public
+  /// widget's checkbox (unchecked by default). `smsConsentLabel` is the exact wording that was
+  /// on screen when they ticked it. Set only by the dedicated consent endpoint — the booking
+  /// route itself is untouched. Staff-recorded consent lives on Patient and keeps working.
+  smsConsentAt       DateTime?
+  smsConsentLabel    String?
+  /// Set when the patient replied C to the confirmation text.
+  patientConfirmedAt DateTime?
+
   user       User         @relation(fields: [userId], references: [id])
   service    Service      @relation(fields: [serviceId], references: [id])
   resource   Resource     @relation(fields: [resourceId], references: [id])
@@ -618,4 +627,14 @@ model MessageLog {
 
   @@unique([bookingId, kind, forStart])
   @@index([status, nextAttemptAt])
+}
+
+/// A phone number that texted STOP. Checked before EVERY send, whatever else says "consented":
+/// consent evidence newer than `suppressedAt` (a fresh checkbox, a staff-recorded consent) overrides
+/// it, an older one does not. Keyed by digits only; the number is never logged.
+model SmsSuppression {
+  phoneDigits  String   @id
+  suppressedAt DateTime
+  /// 'STOP' (the patient texted it) | 'PROVIDER' (the messaging provider reported an opt-out)
+  source       String
 }
