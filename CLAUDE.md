@@ -125,12 +125,14 @@ callout rather than more body text. Each test card also carries a one-line
 reuse `.test-dialog` / `.test-dialog-benefit` verbatim, opened by a "Learn
 more" button placed in a `.tier-card-actions` pair next to each "Choose …"
 button. The three-section pattern adapts to: (1) `What it is` — who the tier
-is for, (2) `What's included` — each perk with its walk-in dollar value
-spelled out, (3) `.test-dialog-benefit` "The math" — a concrete sample
-month/year showing service value against the monthly dues, closing with a
-`.test-dialog-urge` line. Keep the dollar figures tied to real prices on the
-service pages (not the `credit-table` on this same page, which uses older
-IV naming) — re-derive them if pricing changes.
+is for, (2) `What's included` — each perk, in the owner's own words, (3)
+`.test-dialog-benefit` "Value" — the owner's "Approximate monthly value" figure
+as the `h4`, closing with a `.test-dialog-urge` line holding the owner's
+"Best for:" sentence. The tier copy (4 / 6 / 8 Wellness Credits, perks, savings,
+the credit-cost table) comes from the owner **verbatim**; the figures are theirs,
+not derived from the service pages, so do not "re-derive" them. The credit costs
+shown in the `credit-table` are the same numbers seeded as `Service.creditCost`
+in the booking app (`server/prisma/seed.ts`) — change them in both places.
 
 ### Logo usage
 
