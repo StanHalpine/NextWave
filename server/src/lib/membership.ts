@@ -31,7 +31,8 @@ export async function openMembership(db: Pick<Tx, 'membership'>, patientId: stri
 }
 
 /** Grant every month that has come due for ONE membership (normally exactly one). Idempotent. Returns months granted. */
-export async function grantDue(tx: Tx, rec: Rec, membershipId: string, today: string, opts: { actorAccountId?: string | null; skipLocked?: boolean } = {}): Promise<number> {
+export async function grantDue(tx: Tx, rec: Rec, membershipId: string, now: Date, opts: { actorAccountId?: string | null; skipLocked?: boolean } = {}): Promise<number> {
+  const today = clinicDay(now);
   // Lock the membership row so two runners cannot work it at once. SKIP LOCKED: if another job
   // holds it, it is being granted — move on rather than wait.
   const rows = opts.skipLocked
@@ -48,7 +49,7 @@ export async function grantDue(tx: Tx, rec: Rec, membershipId: string, today: st
   for (let i = 0; i < MAX_PERIODS_PER_RUN && next <= today; i++) {
     const made = await grantMonthly(tx, rec, {
       patientId: m.patientId, membershipId: m.id, credits: m.plan.creditsPerMonth, rolloverDays: m.plan.rolloverDays,
-      periodStart: next, actorAccountId: opts.actorAccountId ?? null,
+      periodStart: next, now, actorAccountId: opts.actorAccountId ?? null,
     });
     if (made) granted++;
     next = grantDate(startedOn, monthsBetween(startedOn, next) + 1);
@@ -73,7 +74,7 @@ export async function enroll(tx: Tx, rec: Rec, a: { patientId: string; planCode:
     data: { patientId: a.patientId, planId: plan.id, status: 'ACTIVE', startedOn: toDateOnly(today), nextGrantOn: toDateOnly(today), createdById: a.accountId },
   });
   await rec({ action: 'CREATE', resourceType: 'membership', resourceId: m.id, meta: { plan: plan.code, startedOn: today } });
-  const granted = await grantDue(tx, rec, m.id, today, { actorAccountId: a.accountId });
+  const granted = await grantDue(tx, rec, m.id, a.now, { actorAccountId: a.accountId });
   return { membership: m, plan, firstGrant: granted > 0 ? plan.creditsPerMonth : 0, balance: await balance(tx, a.patientId, today) };
 }
 
@@ -107,7 +108,7 @@ export async function updateMembership(tx: Tx, rec: Rec, a: { patientId: string;
       const next = firstGrantOnOrAfter(fromDateOnly(m.startedOn), today);
       const updated = await tx.membership.update({ where: { id: m.id }, data: { status: 'ACTIVE', pausedAt: null, nextGrantOn: toDateOnly(next) } });
       await rec({ action: 'UPDATE', resourceType: 'membership', resourceId: m.id, meta: { fields: ['status', 'nextGrantOn'], to: 'ACTIVE' } });
-      const granted = await grantDue(tx, rec, m.id, today, { actorAccountId: null });
+      const granted = await grantDue(tx, rec, m.id, a.now, { actorAccountId: null });
       return { membership: updated, changed: true as const, granted };
     }
     case 'cancel': {

@@ -148,12 +148,12 @@ export function expiringSoon(lots: Lot[], today: string, days = EXPIRING_SOON_DA
  * Grant one month's credits. Idempotent: the unique key (membership, period, reason) means a re-run
  * — or two runners at once — gets `false` and writes nothing. Returns whether THIS call created the lot.
  */
-export async function grantMonthly(tx: Tx, rec: Rec, a: { patientId: string; membershipId: string; credits: number; rolloverDays: number; periodStart: string; actorAccountId?: string | null }): Promise<boolean> {
+export async function grantMonthly(tx: Tx, rec: Rec, a: { patientId: string; membershipId: string; credits: number; rolloverDays: number; periodStart: string; now: Date; actorAccountId?: string | null }): Promise<boolean> {
   if (a.credits <= 0) return false; // a tier with no monthly credits grants nothing (the period still advances)
   const rows = await tx.$queryRaw<Array<{ id: string }>>`
     INSERT INTO "CreditLedger" ("patientId", "membershipId", "reason", "delta", "lotExpiresOn", "periodStart", "actorAccountId", "createdAt")
     VALUES (${a.patientId}, ${a.membershipId}, 'MONTHLY_GRANT'::"LedgerReason", ${a.credits},
-            (${a.periodStart}::date + ${a.rolloverDays}::int), ${a.periodStart}::date, ${a.actorAccountId ?? null}, now())
+            (${a.periodStart}::date + ${a.rolloverDays}::int), ${a.periodStart}::date, ${a.actorAccountId ?? null}, ${a.now})
     ON CONFLICT ("membershipId", "periodStart", "reason") DO NOTHING
     RETURNING id::text AS id`;
   if (rows.length === 0) return false;
@@ -168,7 +168,7 @@ export interface TakeResult { before: number; after: number; ledgerId: bigint; d
  * Throws 409 `insufficient_credits` (writing nothing) if the spendable balance is short.
  */
 export async function takeCredits(tx: Tx, rec: Rec, a: {
-  patientId: string; amount: number; reason: 'REDEMPTION' | 'ADJUSTMENT'; today: string;
+  patientId: string; amount: number; reason: 'REDEMPTION' | 'ADJUSTMENT'; today: string; now: Date;
   actorAccountId: string | null; encounterId?: string | null; revenueEventId?: string | null; reasonCode?: string | null;
 }): Promise<TakeResult> {
   if (!Number.isInteger(a.amount) || a.amount <= 0) throw fail(400, 'bad_amount', 'Enter a whole number of credits above zero.');
@@ -187,7 +187,7 @@ export async function takeCredits(tx: Tx, rec: Rec, a: {
 
   const row = await tx.creditLedger.create({
     data: {
-      patientId: a.patientId, reason: a.reason, delta: -a.amount, actorAccountId: a.actorAccountId,
+      patientId: a.patientId, reason: a.reason, delta: -a.amount, actorAccountId: a.actorAccountId, createdAt: a.now,
       encounterId: a.encounterId ?? null, revenueEventId: a.revenueEventId ?? null, reasonCode: a.reasonCode ?? null,
     },
   });
@@ -201,14 +201,14 @@ export async function takeCredits(tx: Tx, rec: Rec, a: {
 
 /** Add credits as a new lot (an admin's manual adjustment). Caller holds lockPatient(). */
 export async function addCredits(tx: Tx, rec: Rec, a: {
-  patientId: string; amount: number; today: string; rolloverDays: number; actorAccountId: string; reasonCode: AdjustmentReason;
+  patientId: string; amount: number; today: string; now: Date; rolloverDays: number; actorAccountId: string; reasonCode: AdjustmentReason;
 }): Promise<{ before: number; after: number }> {
   if (!Number.isInteger(a.amount) || a.amount <= 0) throw fail(400, 'bad_amount', 'Enter a whole number of credits above zero.');
   const before = await balance(tx, a.patientId, a.today);
   await tx.creditLedger.create({
     data: {
       patientId: a.patientId, reason: 'ADJUSTMENT', delta: a.amount, lotExpiresOn: toDateOnly(addDaysISO(a.today, a.rolloverDays)),
-      actorAccountId: a.actorAccountId, reasonCode: a.reasonCode,
+      actorAccountId: a.actorAccountId, reasonCode: a.reasonCode, createdAt: a.now,
     },
   });
   await rec({ action: 'CREATE', resourceType: 'credit_ledger', resourceId: a.patientId, meta: { reason: 'ADJUSTMENT', credits: a.amount, reasonCode: a.reasonCode } });
@@ -216,10 +216,10 @@ export async function addCredits(tx: Tx, rec: Rec, a: {
 }
 
 /** Write down lots whose last day has passed (one EXPIRATION row per lot). Caller holds lockPatient(). Returns credits expired. */
-export async function expireLapsed(tx: Tx, rec: Rec, patientId: string, today: string): Promise<number> {
+export async function expireLapsed(tx: Tx, rec: Rec, patientId: string, today: string, now: Date): Promise<number> {
   let total = 0;
   for (const lot of (await getLots(tx, patientId, today)).filter((l) => l.status === 'LAPSED')) {
-    const row = await tx.creditLedger.create({ data: { patientId, reason: 'EXPIRATION', delta: -lot.remaining, actorAccountId: null } });
+    const row = await tx.creditLedger.create({ data: { patientId, reason: 'EXPIRATION', delta: -lot.remaining, actorAccountId: null, createdAt: now } });
     await tx.creditAllocation.create({ data: { ledgerId: row.id, lotId: BigInt(lot.id), amount: lot.remaining } });
     total += lot.remaining;
   }
@@ -266,7 +266,7 @@ export async function perkStates(db: Read & Pick<Tx, 'planPerk'>, membership: { 
  * check-outs cannot both take the last guest pass.
  */
 export async function usePerk(tx: Tx, rec: Rec, a: {
-  membershipId: string; perkId: string; patientId: string; today: string; actorAccountId: string; revenueEventId?: string | null;
+  membershipId: string; perkId: string; patientId: string; today: string; now: Date; actorAccountId: string; revenueEventId?: string | null;
 }): Promise<PerkState> {
   const locked = await tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM "Membership" WHERE id = ${a.membershipId} FOR UPDATE`;
   if (locked.length === 0) throw fail(404, 'unknown_membership', 'Unknown membership.');
@@ -276,7 +276,7 @@ export async function usePerk(tx: Tx, rec: Rec, a: {
   if (!state) throw fail(409, 'perk_unavailable', 'That perk is not part of this membership (or is switched off).');
   if (state.remaining < 1) throw fail(409, 'perk_used_up', `No ${state.label.toLowerCase()} left this ${state.period === 'MONTHLY' ? 'month' : state.period === 'QUARTERLY' ? 'quarter' : 'year'}.`, { used: state.used, quantity: state.quantity });
   await tx.perkUsage.create({
-    data: { membershipId: m.id, perkId: a.perkId, patientId: a.patientId, periodKey: state.periodKey, quantity: 1, revenueEventId: a.revenueEventId ?? null, actorAccountId: a.actorAccountId },
+    data: { membershipId: m.id, perkId: a.perkId, patientId: a.patientId, periodKey: state.periodKey, quantity: 1, revenueEventId: a.revenueEventId ?? null, actorAccountId: a.actorAccountId, createdAt: a.now },
   });
   await rec({ action: 'CREATE', resourceType: 'perk_usage', resourceId: a.patientId, meta: { perk: state.key, periodKey: state.periodKey } });
   return { ...state, used: state.used + 1, remaining: state.remaining - 1 };

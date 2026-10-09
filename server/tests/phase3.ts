@@ -20,8 +20,8 @@ export async function makeMembership(patientId: string, code: 'PREVENT' | 'RESTO
 }
 
 /** One lot, through the same code path the job uses. */
-export async function grantLot(a: { patientId: string; membershipId: string; credits: number; periodStart: string; rolloverDays?: number }) {
-  return staffTransaction((tx, rec) => grantMonthly(tx, rec, { ...a, rolloverDays: a.rolloverDays ?? 90 }));
+export async function grantLot(a: { patientId: string; membershipId: string; credits: number; periodStart: string; rolloverDays?: number; now?: Date }) {
+  return staffTransaction((tx, rec) => grantMonthly(tx, rec, { ...a, rolloverDays: a.rolloverDays ?? 90, now: a.now ?? new Date() }));
 }
 
 /** SUM(delta): the ledger's own total. Equals the spendable balance once expiry has been written down. */
@@ -59,4 +59,28 @@ export async function checkedInVisit(clinic: Awaited<ReturnType<typeof creditSer
   });
   const encounter = await prisma.encounter.create({ data: { bookingId: booking.id, status: 'CHECKED_IN', checkedInAt: new Date() } });
   return { booking, encounter };
+}
+
+/** A private plan (and perks) for a test, so editing it cannot disturb the seeded tiers other tests read. */
+let planN = 0;
+export async function makePlan(opts: {
+  credits?: number; rolloverDays?: number; priceCents?: number; active?: boolean;
+  perks?: Array<{ key: string; label?: string; period?: 'MONTHLY' | 'QUARTERLY' | 'ANNUAL'; quantity: number; active?: boolean; serviceIds?: string[] }>;
+} = {}) {
+  const code = `T${Date.now().toString(36).toUpperCase()}${++planN}`;
+  const plan = await prisma.membershipPlan.create({
+    data: {
+      code, name: `Test plan ${code}`, priceCents: opts.priceCents ?? 12300, creditsPerMonth: opts.credits ?? 5, rolloverDays: opts.rolloverDays ?? 90,
+      active: opts.active ?? true, sortOrder: 99,
+    },
+  });
+  const perks = [];
+  for (const [i, k] of (opts.perks ?? []).entries()) {
+    const perk = await prisma.planPerk.create({
+      data: { planId: plan.id, key: k.key, label: k.label ?? k.key, period: k.period ?? 'MONTHLY', quantity: k.quantity, active: k.active ?? true, sortOrder: i },
+    });
+    for (const serviceId of k.serviceIds ?? []) await prisma.planPerkService.create({ data: { perkId: perk.id, serviceId } });
+    perks.push(perk);
+  }
+  return { plan, perks };
 }

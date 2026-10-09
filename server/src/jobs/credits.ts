@@ -25,7 +25,8 @@ export interface GrantRunResult { due: number; granted: number }
 export interface ExpiryRunResult { patients: number; creditsExpired: number }
 
 export async function runMembershipGrants(deps: { now?: Date } = {}): Promise<GrantRunResult> {
-  const today = clinicDay(deps.now ?? clockNow());
+  const at = deps.now ?? clockNow();
+  const today = clinicDay(at);
   const due = await basePrisma.membership.findMany({
     where: { status: 'ACTIVE', nextGrantOn: { lte: toDateOnly(today) } },
     select: { id: true },
@@ -34,13 +35,14 @@ export async function runMembershipGrants(deps: { now?: Date } = {}): Promise<Gr
   });
   let granted = 0;
   for (const m of due) {
-    granted += await staffTransaction((tx, rec) => grantDue(tx, rec, m.id, today, { skipLocked: true }));
+    granted += await staffTransaction((tx, rec) => grantDue(tx, rec, m.id, at, { skipLocked: true }));
   }
   return { due: due.length, granted };
 }
 
 export async function runCreditExpiry(deps: { now?: Date } = {}): Promise<ExpiryRunResult> {
-  const today = clinicDay(deps.now ?? clockNow());
+  const at = deps.now ?? clockNow();
+  const today = clinicDay(at);
   const patients = await basePrisma.$queryRaw<Array<{ patientId: string }>>`
     SELECT DISTINCT l."patientId"
     FROM "CreditLedger" l
@@ -51,7 +53,7 @@ export async function runCreditExpiry(deps: { now?: Date } = {}): Promise<Expiry
   for (const p of patients) {
     expired += await staffTransaction(async (tx, rec) => {
       await lockPatient(tx, p.patientId);
-      return expireLapsed(tx, rec, p.patientId, today);
+      return expireLapsed(tx, rec, p.patientId, today, at);
     });
   }
   return { patients: patients.length, creditsExpired: expired };

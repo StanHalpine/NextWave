@@ -17,11 +17,11 @@ import { grantLot, ledgerSum, makeMembership, planByCode, spendableOn } from './
 afterAll(() => setClockForTests(null));
 const at = (iso: string) => new Date(`${iso}T18:00:00Z`);   // noon-ish in Chicago: the clinic date is `iso` whatever the season
 const take = (patientId: string, amount: number, today: string, reason: 'REDEMPTION' | 'ADJUSTMENT' = 'REDEMPTION') =>
-  staffTransaction(async (tx, rec) => { await lockPatient(tx, patientId); return takeCredits(tx, rec, { patientId, amount, reason, today, actorAccountId: null }); });
+  staffTransaction(async (tx, rec) => { await lockPatient(tx, patientId); return takeCredits(tx, rec, { patientId, amount, reason, today, now: at(today), actorAccountId: null }); });
 
 describe('the tiers are data, and the seed matches the owner\'s structure', () => {
   it('has Prevent / Restore / Optimize at 4 / 6 / 8 credits a month, 90-day rollover, $99 / $199 / $299', async () => {
-    const plans = await prisma.membershipPlan.findMany({ orderBy: { sortOrder: 'asc' } });
+    const plans = await prisma.membershipPlan.findMany({ where: { code: { in: ['PREVENT', 'RESTORE', 'OPTIMIZE'] } }, orderBy: { sortOrder: 'asc' } });
     expect(plans.map((p) => [p.code, p.creditsPerMonth, p.rolloverDays, p.priceCents])).toEqual([
       ['PREVENT', 4, 90, 9900], ['RESTORE', 6, 90, 19900], ['OPTIMIZE', 8, 90, 29900],
     ]);
@@ -40,7 +40,7 @@ describe('the tiers are data, and the seed matches the owner\'s structure', () =
   });
 
   it('ships the perk counters pre-filled from the tier copy but SWITCHED OFF, with their services linked', async () => {
-    const perks = await prisma.planPerk.findMany({ include: { plan: true, services: { include: { service: true } } }, orderBy: [{ plan: { sortOrder: 'asc' } }, { sortOrder: 'asc' }] });
+    const perks = await prisma.planPerk.findMany({ where: { plan: { code: { in: ['PREVENT', 'RESTORE', 'OPTIMIZE'] } } }, include: { plan: true, services: { include: { service: true } } }, orderBy: [{ plan: { sortOrder: 'asc' } }, { sortOrder: 'asc' }] });
     expect(perks).toHaveLength(9);
     expect(perks.every((p) => p.active === false)).toBe(true);
     const row = (code: string, key: string) => perks.find((p) => p.plan.code === code && p.key === key)!;
@@ -176,7 +176,7 @@ describe('redemption is FIFO', () => {
     const m = await makeMembership(p.id, 'PREVENT', '2026-09-13');
     const admin = await prisma.account.create({ data: { email: `fifo-${Date.now()}@example.test`, displayName: 'Adj', roles: ['ADMIN'], passwordHash: 'x' } });
     await grantLot({ patientId: p.id, membershipId: m.id, credits: 4, periodStart: '2026-09-13' });                 // expires 2026-12-12
-    await staffTransaction(async (tx, rec) => { await lockPatient(tx, p.id); await addCredits(tx, rec, { patientId: p.id, amount: 5, today: '2026-10-01', rolloverDays: 90, actorAccountId: admin.id, reasonCode: 'goodwill' }); }); // expires 2026-12-30
+    await staffTransaction(async (tx, rec) => { await lockPatient(tx, p.id); await addCredits(tx, rec, { patientId: p.id, amount: 5, today: '2026-10-01', now: at('2026-10-01'), rolloverDays: 90, actorAccountId: admin.id, reasonCode: 'goodwill' }); }); // expires 2026-12-30
     const r = await take(p.id, 6, '2026-10-02');
     expect(r.drawnFrom.map((d) => d.amount)).toEqual([4, 2]);
   });
@@ -353,7 +353,7 @@ describe('manual adjustment, expiry write-down, and perk-free helpers', () => {
   it('adds credits as a NEW lot with its own expiry, and writes the reason code', async () => {
     const p = await makePatient();
     const admin = await prisma.account.create({ data: { email: `adj-${Date.now()}@example.test`, displayName: 'Adj', roles: ['ADMIN'], passwordHash: 'x' } });
-    const r = await staffTransaction(async (tx, rec) => { await lockPatient(tx, p.id); return addCredits(tx, rec, { patientId: p.id, amount: 3, today: '2026-10-14', rolloverDays: 90, actorAccountId: admin.id, reasonCode: 'opening_balance' }); });
+    const r = await staffTransaction(async (tx, rec) => { await lockPatient(tx, p.id); return addCredits(tx, rec, { patientId: p.id, amount: 3, today: '2026-10-14', now: at('2026-10-14'), rolloverDays: 90, actorAccountId: admin.id, reasonCode: 'opening_balance' }); });
     expect(r).toEqual({ before: 0, after: 3 });
     const row = await basePrisma.creditLedger.findFirstOrThrow({ where: { patientId: p.id } });
     expect(row).toMatchObject({ reason: 'ADJUSTMENT', delta: 3, reasonCode: 'opening_balance', actorAccountId: admin.id });
@@ -362,7 +362,7 @@ describe('manual adjustment, expiry write-down, and perk-free helpers', () => {
 
   it('expireLapsed on a patient with nothing lapsed writes nothing', async () => {
     const p = await makePatient();
-    const n = await staffTransaction(async (tx, rec) => { await lockPatient(tx, p.id); return expireLapsed(tx, rec, p.id, '2026-10-14'); });
+    const n = await staffTransaction(async (tx, rec) => { await lockPatient(tx, p.id); return expireLapsed(tx, rec, p.id, '2026-10-14', at('2026-10-14')); });
     expect(n).toBe(0);
     expect(await balance(basePrisma, p.id, '2026-10-14')).toBe(0);
   });
