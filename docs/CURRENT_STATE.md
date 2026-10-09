@@ -1,5 +1,13 @@
 # NextWave Wellness — Current State Audit
 
+> **Phase 1 has since been built** (2026-10-09; see `docs/PHASE1_NOTES.md`). This
+> document is the audit of the system **as it was before Phase 1** and is kept as
+> the baseline. Several findings below are therefore now resolved — in
+> particular: no per-user accounts or roles, no audit log, raw error objects in
+> logs, hard-deleting `POST /admin/purge`, no DB-TLS check, and the shared
+> front-desk token. Each is marked *[updated]* only where it was revised on the
+> day of the audit; for the current state, read PHASE1_NOTES.md and the README.
+
 Audited 2026-10-09 on branch `scheduling-engine` (HEAD `de55888`). The audit
 itself was read-only. **Updated the same day after review** with the owner's
 decisions (below) and the cleanup they approved; sections that changed are

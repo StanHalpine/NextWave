@@ -1,6 +1,21 @@
 # NextWave Wellness — Clinic System Specification
 
-Version 1 · 2026-10-09 · Status: **awaiting approval — nothing below is built.**
+Version 1.1 · 2026-10-09 · Status: **approved; Phase 1 built.** Phases 2–5 not started.
+
+> **Revision 1.1 — decisions recorded after approval** (the body below is otherwise
+> unchanged from the approved v1; sections touched are marked *[rev 1.1]*):
+>
+> | Item | Decision |
+> |---|---|
+> | Staff app UI (A-1) | **React + Vite.** The anonymous booking widget stays vanilla (it is linked from the marketing site). The legacy `dashboard.html` / `admin.html` stay vanilla behind the same login until their modules are rebuilt |
+> | Multi-role accounts (A-4) | **Allowed.** An account may hold `ADMIN` plus one provider role (and/or `FRONT_DESK`). Note authorship records the provider role used. `Account.roles` is an array |
+> | SOAP vs session log (A-5) | **Per-service flag.** SOAP required for chiropractic, NP consult, IV therapy, injections, bloodwork. HBOT and red light get a short **session log** (time, duration, provider, notes) instead. Flag lands with the Phase 4 migration; the session-log table is Phase 4 |
+> | MFA (A-9) | **TOTP mandatory for `admin` in Phase 1. Providers get it before real patient data enters — a Phase 4 gate** (`MFA_REQUIRED_ROLES`) |
+> | Perks (A-12) | **Tracked** as monthly entitlement counters, separate from credits (monthly shot or IV, quarterly body composition, guest passes). Phase 3 |
+> | Raw SQL audit | The four hand-written `FOR UPDATE` statements are lock-only; see §6 |
+> | Basic-auth gate | Retired by default; `BASIC_AUTH_GATE` flag kept for cutover |
+> | `Encounter` table | Created in **Phase 1** (schema only); the workflow that drives it is Phase 2 |
+> | All other §9 assumptions | Defaults accepted |
 
 Companion to `docs/CURRENT_STATE.md` (what exists today). This document turns
 the approved flowchart into pages, schema, API, and a five-phase plan.
@@ -668,6 +683,8 @@ Reports return **aggregates only** — no patient identifiers.
 |---|---|---|
 | No PHI in logs, errors, URLs | `lib/logger.ts` is the only allowed logger (CI grep fails on `console.*` in `src/`). Errors log **class, a PHI-stripped message, and request ID only**. Prisma errors: code + model name; the `message` is never logged (it embeds query arguments). Zod errors: field paths only. Error responses to clients carry a request reference, never `err.message`. Search is `POST`. | 1 |
 | Audit every C/R/U/D on patient, appointment, soap_note, credit_ledger | **Writes:** a Prisma client extension intercepts create/update/upsert/delete (and `*Many`, resolving ids first) on audited models and writes the `AuditLog` row **in the same transaction**. Because it wraps the client, the existing booking code is audited without being edited. Actor and request ID come from `AsyncLocalStorage`; the public widget audits as actor `null`. **Reads:** explicit `audit.read()` in handlers that return PHI; list/search = one row, `resourceId` null, count in `meta`. *Deliberate exemption:* the availability engine reads bookings for occupancy but returns no PHI, so it is not audited (would be noise). Audited models: patient, booking (appointment), encounter, soap_note + revisions, credit_ledger, membership, charge, visit_note, user (booking contact), account. | 1 (+ each model as it lands) |
+| *[rev 1.1]* The four hand-written `SELECT … FOR UPDATE` statements (`holds.ts` ×2, `bookings.ts` ×2) | The Prisma client extension cannot see raw SQL, so these were examined individually: each reads only opaque `id`s from `Resource` / `Staff` (neither is PHI nor an audited resource) and writes nothing — they are lock acquisitions. The PHI-bearing writes inside those same transactions (`booking.create/update`, `user.create`) go through the client and **are** audited, with the actor. What no client hook can see is an attempt *refused before any write* — a 409 slot-taken or 410 hold-expired — so those four routes (plus `GET /api/holds/:id`, `GET /api/bookings/:id` and the staff read routes) are covered by route-level `auditAccess()` middleware mounted in `index.ts`, recording refusals as `success=false` and reads as `READ`. The locking code itself is untouched | 1 |
+| *[rev 1.1]* Audit entries are buffered per request and flushed in one insert after the response | An inline insert from inside a Prisma interactive transaction needs a second pooled connection; under the booking race every connection can be held by a transaction waiting on a row lock held by one that is waiting for a connection. Buffering removes the possibility. Trade-off: a process killed between a commit and the flush loses that entry. New Phase 2+ code that must be atomic with its audit row uses `auditInTx()` | 1 |
 | Never PHI *values* in audit rows | `meta` holds counts and changed field **names** only | 1 |
 | Role-based access, minimum necessary | `requireRole(...)` per route; front desk cannot read note text; providers scoped to their queue/patients | 1 → 4 |
 | 15-minute inactivity logout | Server-side session, sliding `lastActivityAt`; cookie is opaque, httpOnly, `Secure`, `SameSite=Strict`; client countdown + warning. 12 h absolute cap | 1 |
@@ -694,7 +711,7 @@ Each phase ends with: typecheck clean, existing `race-test.sh` still gives
 exactly-one-winner, new tests green, a demo against seed data, and your
 review before the next phase.
 
-### Phase 1 — Foundation  *(size: L)*
+### Phase 1 — Foundation  *(size: L)* — **built; see `docs/PHASE1_NOTES.md`**
 **Migrations:** `Account`, `Session`, `AuditLog` (+ immutability trigger), soft-delete columns where clinical tables exist.
 **Build:**
 - Per-user auth: login/logout/me/ping/change-password, Argon2id, lockout, httpOnly session cookie, 15-min idle + 12-h cap, CSRF header, restricted CORS.
