@@ -23,7 +23,6 @@
 (function () {
   'use strict';
 
-  var TOKEN_KEY = 'nw.frontDeskToken'; // shared with the front desk grid
   var DAYS = ['', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
   var ROLES = [
     ['CHIROPRACTOR', 'Chiropractor'],
@@ -46,27 +45,19 @@
    */
   var pending = {};
 
-  function token() { return localStorage.getItem(TOKEN_KEY) || ''; }
-
+  // Authentication is handled by session.js (loaded first): it sends the session
+  // cookie, adds the CSRF header to writes, and redirects to login on a 401.
   function api(path, opts) {
     opts = opts || {};
     var headers = opts.headers || {};
-    headers['x-front-desk-token'] = token();
     if (opts.body) headers['content-type'] = 'application/json';
     return fetch(path, Object.assign({}, opts, { headers: headers })).then(function (r) {
-      if (r.status === 401) { signOut('Session rejected — sign in again.'); throw new Error('unauthorised'); }
       return r.json().then(function (body) {
+        if (r.status === 401) throw new Error('unauthorised'); // session.js is already redirecting
         if (!r.ok) throw new Error(body.error || ('HTTP ' + r.status));
         return body;
       });
     });
-  }
-
-  function signOut(msg) {
-    localStorage.removeItem(TOKEN_KEY);
-    $('app').hidden = true;
-    $('gate').hidden = false;
-    if (msg) { $('gate-err').textContent = msg; $('gate-err').hidden = false; }
   }
 
   function toast(msg, isErr) {
@@ -689,47 +680,10 @@
   // ---- boot --------------------------------------------------------------
 
   function refreshAll() {
-    return Promise.all([loadStaff(), loadRooms(), loadServices()]).then(loadDangerZone);
-  }
-
-  function loadDangerZone() {
-    return api('/api/admin/purge').then(function (r) {
-      var box = $('danger-zone');
-      if (!r.allowed) { box.hidden = true; return; }
-      box.hidden = false;
-
-      var d = r.wouldDelete;
-      var total = d.bookings + d.patients + d.visitNotes;
-      box.innerHTML =
-        '<div class="danger">'
-        + '<h2>Clear all booking data</h2>'
-        + '<p>Deletes every booking, patient record and clinical note. Services, '
-        + 'rooms, staff and shifts are kept. <strong>This cannot be undone.</strong></p>'
-        + '<div class="counts">' + d.bookings + ' bookings · ' + d.patients
-        + ' patients · ' + d.visitNotes + ' clinical notes</div>'
-        + (total === 0 ? '<p class="counts">Nothing to clear.</p>' : '')
-        + '</div>';
-      if (total === 0) return;
-
-      var row = document.createElement('div');
-      var input = document.createElement('input');
-      input.placeholder = 'Type DELETE ALL BOOKINGS';
-      var go = el('button', 'btn btn-decline', 'Clear everything');
-      go.addEventListener('click', function () {
-        api('/api/admin/purge', { method: 'POST', body: JSON.stringify({ confirm: input.value.trim() }) })
-          .then(function (res) {
-            toast('Cleared ' + res.deleted.bookings + ' bookings, '
-              + res.deleted.patients + ' patients, ' + res.deleted.visitNotes + ' notes.');
-            refreshAll();
-          }).catch(function (e) { toast(e.message, true); });
-      });
-      row.appendChild(input); row.appendChild(go);
-      box.querySelector('.danger').appendChild(row);
-    }).catch(function () { $('danger-zone').hidden = true; });
+    return Promise.all([loadStaff(), loadRooms(), loadServices()]);
   }
 
   function start() {
-    $('gate').hidden = true;
     $('app').hidden = false;
     refreshAll();
   }
@@ -737,23 +691,12 @@
   $('save-go').addEventListener('click', saveAll);
   $('save-discard').addEventListener('click', discardAll);
 
-  $('gate-go').addEventListener('click', function () {
-    var v = $('gate-token').value.trim();
-    if (!v) return;
-    localStorage.setItem(TOKEN_KEY, v);
-    api('/api/admin/staff').then(start).catch(function () { /* signOut already ran */ });
-  });
-  $('gate-token').addEventListener('keydown', function (e) {
-    if (e.key === 'Enter') $('gate-go').click();
-  });
   $('signout').addEventListener('click', function () {
     if (pendingCount() && !confirm('You have unsaved changes. Sign out anyway?')) return;
-    signOut(null);
+    NW.logout();
   });
 
-  if (token()) {
-    api('/api/admin/staff').then(start).catch(function () { /* gate shown */ });
-  } else {
-    $('gate').hidden = false;
-  }
+  // session.js resolves the signed-in account first; the page only starts once
+  // that is known (and never starts at all for a role that may not use it).
+  NW.ready.then(start);
 })();

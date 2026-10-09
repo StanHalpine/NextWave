@@ -14,7 +14,6 @@
 (function () {
   'use strict';
 
-  var TOKEN_KEY = 'nw.frontDeskToken';
   var VIEW_KEY = 'nw.frontDeskView';
   var ROW_H = 22;   // must match --row-h
   var STEP = 15;    // minutes per row
@@ -24,30 +23,26 @@
 
   var $ = function (id) { return document.getElementById(id); };
 
-  // ---- token -------------------------------------------------------------
-
-  function token() { return localStorage.getItem(TOKEN_KEY) || ''; }
+  // ---- api ---------------------------------------------------------------
+  // Authentication is handled by session.js (loaded first): it sends the session
+  // cookie, adds the CSRF header to writes, and redirects to login on a 401.
 
   function api(path, opts) {
     opts = opts || {};
     var headers = opts.headers || {};
-    headers['x-front-desk-token'] = token();
     if (opts.body) headers['content-type'] = 'application/json';
     return fetch(path, Object.assign({}, opts, { headers: headers })).then(function (r) {
-      if (r.status === 401) { signOut('Session rejected — sign in again.'); throw new Error('unauthorised'); }
       return r.json().then(function (body) {
+        if (r.status === 401) throw new Error('unauthorised'); // session.js is already redirecting
         if (!r.ok) throw new Error(body.error || ('HTTP ' + r.status));
         return body;
       });
     });
   }
 
-  function signOut(msg) {
-    localStorage.removeItem(TOKEN_KEY);
-    $('app').hidden = true;
-    $('gate').hidden = false;
-    if (msg) { $('gate-err').textContent = msg; $('gate-err').hidden = false; }
-  }
+  var PROVIDER_ROLES = ['PROVIDER_CHIRO', 'PROVIDER_NP', 'PROVIDER_NURSE'];
+  /** Only a provider login can write a clinical note — authorship comes from the session. */
+  function canWriteNotes() { return window.NW && NW.hasRole.apply(null, PROVIDER_ROLES); }
 
   // ---- helpers -----------------------------------------------------------
 
@@ -414,16 +409,6 @@
 
   // ---- clinical notes ----------------------------------------------------
 
-  var staffCache = null;
-
-  function loadStaff() {
-    if (staffCache) return Promise.resolve(staffCache);
-    return api('/api/front-desk/staff').then(function (r) {
-      staffCache = r.staff;
-      return staffCache;
-    });
-  }
-
   /**
    * Notes panel inside the booking dialog. Clinical notes are only offered on
    * a visit that actually happened — the API refuses them on HOLD and
@@ -435,10 +420,8 @@
 
     var clinical = b.status === 'CONFIRMED' || b.status === 'CANCELLED';
 
-    Promise.all([api('/api/bookings/' + b.id + '/notes'), clinical ? loadStaff() : []])
-      .then(function (res) {
-        var data = res[0];
-        var staff = res[1];
+    api('/api/bookings/' + b.id + '/notes')
+      .then(function (data) {
         box.innerHTML = '';
 
         if (data.patientNote) {
@@ -454,6 +437,17 @@
         head.innerHTML = '<span class="eyebrow">Clinical notes</span>';
         box.appendChild(head);
 
+        // Front desk is told notes EXIST but not what they say (minimum necessary).
+        if (data.restricted) {
+          var r = document.createElement('p');
+          r.className = 'note-empty';
+          r.textContent = data.noteCount
+            ? data.noteCount + ' clinical note' + (data.noteCount > 1 ? 's' : '') + ' on this visit — visible to providers.'
+            : 'No clinical notes yet.';
+          box.appendChild(r);
+          return;
+        }
+
         if (!data.notes.length) {
           var none = document.createElement('p');
           none.className = 'note-empty';
@@ -465,7 +459,7 @@
 
         data.notes.forEach(function (n) { box.appendChild(noteEl(n, b)); });
 
-        if (clinical) box.appendChild(composer(b, staff));
+        if (clinical && canWriteNotes()) box.appendChild(composer(b));
       })
       .catch(function (e) {
         box.innerHTML = '<p class="note-empty">Could not load notes: ' + esc(e.message) + '</p>';
@@ -507,11 +501,13 @@
       el.appendChild(hist);
     }
 
-    var amend = document.createElement('button');
-    amend.className = 'note-amend-btn';
-    amend.textContent = 'Amend';
-    amend.addEventListener('click', function () { amendForm(n, b, el); });
-    el.appendChild(amend);
+    if (canWriteNotes()) {
+      var amend = document.createElement('button');
+      amend.className = 'note-amend-btn';
+      amend.textContent = 'Amend';
+      amend.addEventListener('click', function () { amendForm(n, b, el); });
+      el.appendChild(amend);
+    }
     return el;
   }
 
@@ -522,8 +518,7 @@
     f.className = 'amend-form';
     f.innerHTML =
       '<textarea class="note-input" rows="3">' + esc(n.body) + '</textarea>'
-      + '<input class="note-reason-input" placeholder="Why is this being amended? (required)">'
-      + '<select class="note-author"></select>';
+      + '<input class="note-reason-input" placeholder="Why is this being amended? (required)">';
     var actions = document.createElement('div');
     actions.className = 'note-actions';
 
@@ -539,18 +534,15 @@
     f.appendChild(actions);
     anchor.appendChild(f);
 
-    loadStaff().then(function (staff) { fillStaff(f.querySelector('.note-author'), staff); });
-
     save.addEventListener('click', function () {
       var body = f.querySelector('.note-input').value.trim();
       var reason = f.querySelector('.note-reason-input').value.trim();
-      var authorId = f.querySelector('.note-author').value;
       if (!body) return toast('An amended note cannot be empty.', true);
       if (!reason) return toast('An amendment must say why.', true);
       save.disabled = true;
       api('/api/visit-notes/' + n.id + '/amend', {
         method: 'POST',
-        body: JSON.stringify({ authorId: authorId, body: body, amendReason: reason }),
+        body: JSON.stringify({ body: body, amendReason: reason }),
       }).then(function () {
         toast('Amendment saved. The original is preserved.');
         renderNotes(b);
@@ -559,7 +551,7 @@
     });
   }
 
-  function composer(b, staff) {
+  function composer(b) {
     var f = document.createElement('div');
     f.className = 'note-composer';
     f.innerHTML =
@@ -567,7 +559,8 @@
       + ['SUBJECTIVE', 'OBJECTIVE', 'ASSESSMENT', 'PLAN', 'GENERAL'].map(function (k) {
           return '<option value="' + k + '"' + (k === 'GENERAL' ? ' selected' : '') + '>' + k + '</option>';
         }).join('')
-      + '</select><select class="note-author"></select>'
+      + '</select>'
+      + '<p class="note-as">Signed as <strong>' + esc(NW.me.displayName) + '</strong> — recorded from your login.</p>'
       + '<textarea class="note-input" rows="3" placeholder="Clinical note for this visit…"></textarea>';
 
     var actions = document.createElement('div');
@@ -578,8 +571,6 @@
     actions.appendChild(add);
     f.appendChild(actions);
 
-    fillStaff(f.querySelector('.note-author'), staff, b.staff);
-
     add.addEventListener('click', function () {
       var body = f.querySelector('.note-input').value.trim();
       if (!body) return toast('A note cannot be empty.', true);
@@ -587,7 +578,6 @@
       api('/api/bookings/' + b.id + '/notes', {
         method: 'POST',
         body: JSON.stringify({
-          authorId: f.querySelector('.note-author').value,
           kind: f.querySelector('.note-kind-select').value,
           body: body,
         }),
@@ -599,15 +589,6 @@
     });
 
     return f;
-  }
-
-  /** Default the author to the provider who ran the visit, when we know them. */
-  function fillStaff(sel, staff, preferName) {
-    sel.innerHTML = staff.map(function (s) {
-      return '<option value="' + esc(s.id) + '"'
-        + (preferName && s.name === preferName ? ' selected' : '')
-        + '>' + esc(s.name) + '</option>';
-    }).join('');
   }
 
   // ---- load --------------------------------------------------------------
@@ -649,22 +630,12 @@
   // ---- boot --------------------------------------------------------------
 
   function start() {
-    $('gate').hidden = true;
     $('app').hidden = false;
+    if ($('who')) $('who').textContent = NW.me.displayName;
     setView(state.view);
     var today = new Date().toISOString().slice(0, 10);
     setDate(today);
   }
-
-  $('gate-go').addEventListener('click', function () {
-    var v = $('gate-token').value.trim();
-    if (!v) return;
-    localStorage.setItem(TOKEN_KEY, v);
-    api('/api/front-desk/pending').then(start).catch(function () { /* signOut already ran */ });
-  });
-  $('gate-token').addEventListener('keydown', function (e) {
-    if (e.key === 'Enter') $('gate-go').click();
-  });
 
   [].forEach.call(document.querySelectorAll('.view-btn'), function (b) {
     b.addEventListener('click', function () { setView(b.dataset.view); });
@@ -675,14 +646,12 @@
   $('today').addEventListener('click', function () { setDate(new Date().toISOString().slice(0, 10)); });
   $('date').addEventListener('change', function (e) { setDate(e.target.value); });
   $('refresh').addEventListener('click', load);
-  $('signout').addEventListener('click', function () { signOut(null); });
+  $('signout').addEventListener('click', function () { NW.logout(); });
 
   // Keep the grid honest while it sits open on the front desk screen.
   setInterval(function () { if (!$('app').hidden) load(); }, 30000);
 
-  if (token()) {
-    api('/api/front-desk/pending').then(start).catch(function () { /* gate shown */ });
-  } else {
-    $('gate').hidden = false;
-  }
+  // session.js resolves the signed-in account first; the page only starts once
+  // that is known (and never starts at all for a role that may not use it).
+  NW.ready.then(start);
 })();

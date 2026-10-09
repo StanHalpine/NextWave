@@ -10,16 +10,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="dashboard.css">
 </head>
-<body>
-
-<!-- Token gate. Shown until a working front desk token is stored. -->
-<div id="gate" class="gate" hidden>
-  <h2>Front desk sign-in</h2>
-  <p>Enter the front desk access token. It is stored in this browser only.</p>
-  <input type="password" id="gate-token" placeholder="Access token" autocomplete="current-password">
-  <button class="btn btn-approve" id="gate-go">Open dashboard</button>
-  <p id="gate-err" style="color:#b4746a;margin-top:10px;" hidden></p>
-</div>
+<body data-roles="FRONT_DESK,ADMIN">
 
 <div id="app" hidden>
   <div class="demo-banner-fd"><strong>DEMO</strong> — sample data only. <a href="index.html">Patient booking view →</a></div>
@@ -54,6 +45,8 @@
     </div>
 
     <button class="btn btn-ghost" id="refresh">Refresh</button>
+    <span class="who" id="who"></span>
+    <a class="btn btn-ghost" href="/app">Staff app</a>
     <button class="btn btn-ghost" id="signout">Sign out</button>
   </header>
 
@@ -82,6 +75,7 @@
 
 <div class="toast" id="toast"></div>
 
+<script src="session.js"></script>
 <script src="dashboard.js"></script>
 </body>
 </html>

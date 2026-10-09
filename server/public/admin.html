@@ -11,15 +11,7 @@
 <link rel="stylesheet" href="dashboard.css">
 <link rel="stylesheet" href="admin.css">
 </head>
-<body>
-
-<div id="gate" class="gate" hidden>
-  <h2>Front desk sign-in</h2>
-  <p>Enter the front desk access token. It is stored in this browser only.</p>
-  <input type="password" id="gate-token" placeholder="Access token" autocomplete="current-password">
-  <button class="btn btn-approve" id="gate-go">Open configuration</button>
-  <p id="gate-err" style="color:#b4746a;margin-top:10px;" hidden></p>
-</div>
+<body data-roles="ADMIN">
 
 <div id="app" hidden>
   <div class="demo-banner-fd">
@@ -78,7 +70,6 @@
     </section>
 
     <!-- Only rendered when BOOKING_MODE=demo; the server refuses regardless. -->
-    <section class="panel" id="danger-zone" hidden></section>
 
   </main>
   <!-- Sticky, so it is visible no matter how far down the page an edit was
@@ -95,6 +86,7 @@
 
 <div class="toast" id="toast"></div>
 
+<script src="session.js"></script>
 <script src="admin.js"></script>
 </body>
 </html>
