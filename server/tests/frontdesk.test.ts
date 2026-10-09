@@ -24,7 +24,9 @@ async function rawBooking(clinic: Awaited<ReturnType<typeof makeClinic>>, hhmm: 
   });
 }
 
-const act = (s: any, id: string, what: 'check-in' | 'undo-check-in' | 'check-out' | 'no-show') => post(s, `/api/fd/appointments/${id}/${what}`);
+// Check-out now settles the visit; these workflow tests pay cash ($55.00 — the fixture service has no list price, so the amount is given).
+const act = (s: any, id: string, what: 'check-in' | 'undo-check-in' | 'check-out' | 'no-show') =>
+  post(s, `/api/fd/appointments/${id}/${what}`, what === 'check-out' ? { payment: 'CASH', priceCents: 5500 } : {});
 
 describe('front desk: access', () => {
   it('is closed to anonymous callers and providers; CSRF is enforced on actions', async () => {

@@ -18,7 +18,9 @@ import { localDayBounds, toLocalDateISO } from '../lib/time.js';
 import { config } from '../config.js';
 import { staffTransaction } from '../lib/staffTx.js';
 import { APPT_INCLUDE, appointmentView } from '../lib/appointmentView.js';
-import { checkIn, checkOut, markNoShow, undoCheckIn } from '../lib/encounters.js';
+import { checkIn, markNoShow, undoCheckIn } from '../lib/encounters.js';
+import { checkoutPreview, checkoutVisit } from '../lib/checkout.js';
+import { basePrisma } from '../lib/prismaBase.js';
 import { SchedulingError, createWalkIn, walkInSlotStart } from '../lib/scheduling.js';
 import { requireFrontDesk } from '../middleware/frontDesk.js';
 import { sendSchedulingError } from './http.js';
@@ -71,7 +73,7 @@ fdRouter.get('/fd/dashboard', requireFrontDesk, async (req, res) => {
 
 // ---- visit actions -----------------------------------------------------------
 
-type Action = typeof checkIn | typeof undoCheckIn | typeof checkOut | typeof markNoShow;
+type Action = typeof checkIn | typeof undoCheckIn | typeof markNoShow;
 
 function visitAction(path: string, run: (tx: Parameters<Action>[0], rec: Parameters<Action>[1], a: { bookingId: string; accountId: string; now: Date }) => Promise<unknown>) {
   fdRouter.post(`/fd/appointments/:id/${path}`, requireFrontDesk, async (req, res) => {
@@ -88,7 +90,8 @@ function visitAction(path: string, run: (tx: Parameters<Action>[0], rec: Paramet
 
 visitAction('check-in', (tx, rec, a) => checkIn(tx, rec, a));
 visitAction('undo-check-in', (tx, rec, a) => undoCheckIn(tx, rec, a));
-visitAction('check-out', (tx, rec, a) => checkOut(tx, rec, a));
+// Check-out is no longer a bare state change: it settles the visit (credits, a perk, or cash),
+// records the revenue event, and checks the patient out in one transaction. See lib/checkout.ts.
 visitAction('no-show', (tx, rec, a) => markNoShow(tx, rec, a));
 
 // ---- walk-ins ----------------------------------------------------------------
@@ -137,6 +140,37 @@ fdRouter.post('/fd/walk-ins', requireFrontDesk, async (req, res) => {
         nextAvailable: next,
       });
     }
+    if (!sendSchedulingError(res, err)) throw err;
+  }
+});
+
+// ---- check-out: settle the visit ----------------------------------------------------------------
+
+const checkoutBody = z.discriminatedUnion('payment', [
+  z.object({ payment: z.literal('CREDITS') }).strict(),
+  z.object({ payment: z.literal('PERK'), perkId: z.string().min(1).max(64) }).strict(),
+  z.object({ payment: z.literal('CASH'), priceCents: z.number().int().positive().max(100_000_00).optional() }).strict(),
+]);
+
+/** What the check-out screen shows: price, balance before and after, and every way this visit can be paid. */
+fdRouter.get('/fd/appointments/:id/checkout-preview', requireFrontDesk, async (req, res) => {
+  const id = req.params.id ?? '';
+  const preview = await checkoutPreview(basePrisma as never, id, now());
+  if (!preview) return res.status(404).json({ error: 'Unknown appointment.', code: 'not_found' });
+  audit.read('appointment', id, { section: 'checkout' });
+  if (preview.patient) audit.read('credit_ledger', preview.patient.id, { section: 'checkout' });
+  res.json({ preview });
+});
+
+fdRouter.post('/fd/appointments/:id/check-out', requireFrontDesk, async (req, res) => {
+  const bookingId = req.params.id ?? '';
+  const parsed = checkoutBody.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Choose how this visit was paid: credits, a perk, or cash.', code: 'bad_request' });
+  try {
+    const checkout = await staffTransaction((tx, rec) => checkoutVisit(tx, rec, { bookingId, accountId: req.auth!.account.id, now: now(), ...parsed.data }));
+    const row = await prisma.booking.findUniqueOrThrow({ where: { id: bookingId }, include: APPT_INCLUDE });
+    res.json({ appointment: appointmentView(row), checkout });
+  } catch (err) {
     if (!sendSchedulingError(res, err)) throw err;
   }
 });

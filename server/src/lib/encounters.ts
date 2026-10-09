@@ -20,7 +20,7 @@ import { SchedulingError } from './scheduling.js';
 
 type Tx = Prisma.TransactionClient;
 
-async function lockedBooking(tx: Tx, bookingId: string) {
+export async function lockedBooking(tx: Tx, bookingId: string) {
   await tx.$queryRaw`SELECT id FROM "Booking" WHERE id = ${bookingId} FOR UPDATE`;
   const b = await tx.booking.findUnique({ where: { id: bookingId }, include: { encounter: true } });
   if (!b) throw new SchedulingError(404, 'unknown_booking', 'Unknown appointment.');

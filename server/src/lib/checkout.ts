@@ -1,0 +1,212 @@
+/**
+ * Check-out: settle the visit and finish it, in ONE transaction.
+ *
+ * A visit is paid one of three ways:
+ *   CREDITS — a member redeems the service's credit cost (oldest lot first);
+ *   PERK    — a member uses an included perk (monthly shot or IV, quarterly body composition, …);
+ *   CASH    — paid at the desk. The price is RECORDED; nothing is processed or charged here.
+ * Whichever it is, exactly one RevenueEvent row is written (service, price, member/cash, encounter),
+ * the credits or perk are taken, and the encounter becomes CHECKED_OUT — all or nothing.
+ *
+ * Idempotent: a second submit for the same visit (a double click, a retry) changes nothing and
+ * returns what was recorded the first time. The unique RevenueEvent.encounterId is the backstop.
+ *
+ * Lock order: Booking (lockedBooking) → Patient (lockPatient) → Membership (usePerk).
+ */
+
+import { randomUUID } from 'node:crypto';
+import type { Prisma } from '@prisma/client';
+import { lockedBooking, checkOut } from './encounters.js';
+import { balance, clinicDay, CreditError, lockPatient, perkStates, takeCredits, usePerk, type PerkState } from './credits.js';
+import { openMembership } from './membership.js';
+import type { Rec } from './staffTx.js';
+
+type Tx = Prisma.TransactionClient;
+const fail = (status: 400 | 404 | 409, code: string, message: string, extra: Record<string, unknown> = {}) => new CreditError(status, code, message, extra);
+
+export type PaymentChoice =
+  | { payment: 'CREDITS' }
+  | { payment: 'PERK'; perkId: string }
+  | { payment: 'CASH'; priceCents?: number };
+
+export interface CheckoutSummary {
+  paymentType: 'MEMBER' | 'CASH';
+  memberBenefit: 'CREDITS' | 'PERK' | null;
+  priceCents: number | null;
+  creditsRedeemed: number;
+  cashDueCents: number;
+  /** The patient's spendable credits before and after (null when there is no patient record). */
+  balanceBefore: number | null;
+  balanceAfter: number | null;
+  perkLabel: string | null;
+  planName: string | null;
+  recordedAt: string;
+  /** True when this call found the visit already checked out and changed nothing. */
+  alreadyCheckedOut: boolean;
+}
+
+/** What the visit is worth at list price: the chosen option's price, else the service's. */
+function listPrice(service: { priceCents: number | null; options: Array<{ label: string; priceCents: number }> }, subOption: string | null): number | null {
+  const opt = subOption ? service.options.find((o) => o.label === subOption) : undefined;
+  return opt?.priceCents ?? service.priceCents ?? null;
+}
+
+async function loadVisit(tx: Tx, bookingId: string) {
+  return tx.booking.findUniqueOrThrow({
+    where: { id: bookingId },
+    include: {
+      encounter: true,
+      service: { include: { options: { select: { label: true, priceCents: true } } } },
+    },
+  });
+}
+
+export async function checkoutVisit(tx: Tx, rec: Rec, a: { bookingId: string; accountId: string; now: Date } & PaymentChoice): Promise<CheckoutSummary> {
+  const locked = await lockedBooking(tx, a.bookingId);                // 1. the Booking row
+  const enc = locked.encounter;
+  if (!enc || enc.status === 'SCHEDULED' || enc.status === 'NO_SHOW') throw fail(409, 'not_checked_in', 'This patient has not been checked in.');
+
+  const existing = await tx.revenueEvent.findUnique({ where: { encounterId: enc.id } });
+  if (enc.status === 'CHECKED_OUT') {
+    if (!existing) throw fail(409, 'checked_out_without_record', 'This visit was checked out before check-out recorded a payment, so there is nothing to add to.');
+    return summarise(tx, existing, true);
+  }
+  if (existing) throw fail(409, 'already_recorded', 'A payment is already recorded for this visit.');
+
+  const b = await loadVisit(tx, a.bookingId);
+  const patientId = b.patientId;
+  const today = clinicDay(a.now);
+  const price = listPrice(b.service, b.subOption);
+  const eventId = randomUUID();
+
+  let balanceBefore: number | null = null;
+  let balanceAfter: number | null = null;
+  let membership: Awaited<ReturnType<typeof openMembership>> = null;
+  if (patientId) {
+    await lockPatient(tx, patientId);                                  // 2. the Patient row
+    membership = await openMembership(tx, patientId);
+    balanceBefore = await balance(tx, patientId, today);
+    balanceAfter = balanceBefore;
+  }
+
+  let paymentType: 'MEMBER' | 'CASH' = 'CASH';
+  let memberBenefit: 'CREDITS' | 'PERK' | null = null;
+  let credits = 0;
+  let cashDue = 0;
+  let recordedPrice = price;
+  let perk: PerkState | null = null;
+
+  if (a.payment === 'CREDITS') {
+    if (!patientId) throw fail(409, 'no_patient', 'Link this visit to a patient record before using credits.');
+    const cost = b.service.creditCost;
+    if (cost == null) throw fail(409, 'not_credit_eligible', `${b.service.name} cannot be paid with Wellness Credits.`);
+    const taken = await takeCredits(tx, rec, { patientId, amount: cost, reason: 'REDEMPTION', today, now: a.now, actorAccountId: a.accountId, encounterId: enc.id, revenueEventId: eventId }); // 3. the ledger
+    paymentType = 'MEMBER'; memberBenefit = 'CREDITS'; credits = cost; balanceAfter = taken.after;
+  } else if (a.payment === 'PERK') {
+    if (!patientId) throw fail(409, 'no_patient', 'Link this visit to a patient record before using a perk.');
+    if (!membership || membership.status !== 'ACTIVE') throw fail(409, 'membership_not_active', 'Perks are available only to a patient with an active membership.');
+    const covers = await tx.planPerkService.findFirst({ where: { perkId: a.perkId, serviceId: b.serviceId, perk: { planId: membership.planId, active: true } } });
+    if (!covers) throw fail(409, 'perk_not_for_service', `That perk does not cover ${b.service.name}.`);
+    perk = await usePerk(tx, rec, { membershipId: membership.id, perkId: a.perkId, patientId, today, now: a.now, actorAccountId: a.accountId, revenueEventId: eventId });
+    paymentType = 'MEMBER'; memberBenefit = 'PERK';
+  } else {
+    if (price == null) {
+      if (a.priceCents == null) throw fail(400, 'price_required', 'This service has no set price — enter the amount collected.', { priceKnown: false });
+      recordedPrice = a.priceCents;
+    } else if (a.priceCents != null && a.priceCents !== price) {
+      throw fail(400, 'price_mismatch', 'That is not this service\'s price. Prices are changed by an administrator.', { priceCents: price });
+    }
+    if (recordedPrice == null || !Number.isInteger(recordedPrice) || recordedPrice <= 0) throw fail(400, 'bad_price', 'Enter the amount as a whole number of cents above zero.');
+    cashDue = recordedPrice;
+  }
+
+  const row = await tx.revenueEvent.create({
+    data: {
+      id: eventId, encounterId: enc.id, bookingId: b.id, patientId, serviceId: b.serviceId,
+      serviceName: b.service.name, serviceCategory: b.service.category, subOption: b.subOption,
+      priceCents: recordedPrice, paymentType, memberBenefit, creditsRedeemed: credits, cashDueCents: cashDue,
+      planCode: paymentType === 'MEMBER' && membership ? membership.plan.code : null,
+      occurredAt: a.now, recordedById: a.accountId,
+    },
+  });
+  await rec({ action: 'CREATE', resourceType: 'revenue_event', resourceId: row.id, meta: { paymentType, memberBenefit, credits, cashDueCents: cashDue } });
+
+  await checkOut(tx, rec, { bookingId: a.bookingId, accountId: a.accountId, now: a.now });
+
+  return {
+    paymentType, memberBenefit, priceCents: recordedPrice, creditsRedeemed: credits, cashDueCents: cashDue,
+    balanceBefore, balanceAfter, perkLabel: perk?.label ?? null,
+    planName: membership?.plan.name ?? null, recordedAt: a.now.toISOString(), alreadyCheckedOut: false,
+  };
+}
+
+async function summarise(tx: Tx, e: Prisma.RevenueEventGetPayload<object>, alreadyCheckedOut: boolean): Promise<CheckoutSummary> {
+  const perk = e.memberBenefit === 'PERK' ? await tx.perkUsage.findFirst({ where: { revenueEventId: e.id }, include: { perk: { select: { label: true } } } }) : null;
+  return {
+    paymentType: e.paymentType, memberBenefit: e.memberBenefit, priceCents: e.priceCents, creditsRedeemed: e.creditsRedeemed,
+    cashDueCents: e.cashDueCents, balanceBefore: null, balanceAfter: null, perkLabel: perk?.perk.label ?? null,
+    planName: null, recordedAt: e.occurredAt.toISOString(), alreadyCheckedOut,
+  };
+}
+
+// ---- the check-out screen's read ----------------------------------------------------------------
+
+export interface CheckoutPreview {
+  alreadyCheckedOut: boolean;
+  service: { id: string; name: string; category: string; subOption: string | null };
+  listPriceCents: number | null;
+  priceNote: string | null;
+  creditCost: number | null;
+  patient: { id: string; name: string } | null;
+  membership: { planCode: string; planName: string; status: string } | null;
+  /** Spendable credits now; null with no patient record. */
+  balance: number | null;
+  credits: { available: boolean; cost: number | null; balanceAfter: number | null; reason: string | null };
+  perks: Array<{ perkId: string; label: string; remaining: number; period: string }>;
+  cash: { priceCents: number | null; priceKnown: boolean };
+}
+
+export async function checkoutPreview(tx: Tx, bookingId: string, now: Date): Promise<CheckoutPreview | null> {
+  const b = await tx.booking.findUnique({
+    where: { id: bookingId },
+    include: {
+      encounter: { select: { id: true, status: true } },
+      service: { include: { options: { select: { label: true, priceCents: true } } } },
+      patient: { select: { id: true, firstName: true, lastName: true } },
+    },
+  });
+  if (!b) return null;
+  const today = clinicDay(now);
+  const price = listPrice(b.service, b.subOption);
+  const done = b.encounter?.status === 'CHECKED_OUT';
+
+  let bal: number | null = null;
+  let membership: Awaited<ReturnType<typeof openMembership>> = null;
+  if (b.patientId) {
+    bal = await balance(tx, b.patientId, today);
+    membership = await openMembership(tx, b.patientId);
+  }
+  const cost = b.service.creditCost;
+  let reason: string | null = null;
+  if (!b.patientId) reason = 'Link a patient record to use credits.';
+  else if (cost == null) reason = `${b.service.name} is not credit-eligible.`;
+  else if ((bal ?? 0) < cost) reason = `Needs ${cost} credits; ${bal ?? 0} available.`;
+
+  const perks: CheckoutPreview['perks'] = [];
+  if (membership && membership.status === 'ACTIVE') {
+    for (const p of await perkStates(tx, membership, today)) {
+      if (p.serviceIds.includes(b.serviceId) && p.remaining > 0) perks.push({ perkId: p.perkId, label: p.label, remaining: p.remaining, period: p.period });
+    }
+  }
+  return {
+    alreadyCheckedOut: done,
+    service: { id: b.service.id, name: b.service.name, category: b.service.category, subOption: b.subOption },
+    listPriceCents: price, priceNote: b.service.priceNote, creditCost: cost,
+    patient: b.patient ? { id: b.patient.id, name: `${b.patient.firstName} ${b.patient.lastName}` } : null,
+    membership: membership ? { planCode: membership.plan.code, planName: membership.plan.name, status: membership.status } : null,
+    balance: bal,
+    credits: { available: reason === null, cost, balanceAfter: reason === null && bal != null && cost != null ? bal - cost : null, reason },
+    perks,
+    cash: { priceCents: price, priceKnown: price != null },
+  };
+}
