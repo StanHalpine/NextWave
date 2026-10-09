@@ -613,7 +613,7 @@
       return d;
     }
 
-    var picker, staffPicker, colorPicker;
+    var picker, staffPicker, colorPicker, docSelect;
 
     function queueService() {
       // The header dot mirrors whatever color is currently picked, saved or
@@ -638,6 +638,7 @@
             roomIds: picker.selected(),
             staffIds: staffPicker.selected(),
             color: colorPicker.selected(),
+            documentationType: docSelect.value,
           }),
         });
       }, card);
@@ -673,6 +674,22 @@
     colorPicker = colorSwatchPicker(s.category, s.color, queueService);
     colorBox.appendChild(colorPicker);
     card.appendChild(colorBox);
+
+    // What the provider writes up afterwards. Defaults to the short session log so a new
+    // service is never silently treated as a full clinical encounter.
+    var docBox = el('div', 'svc-rooms');
+    docBox.appendChild(el('label', 'svc-rooms-label', 'Visit documentation'));
+    docSelect = el('select');
+    [['SOAP', 'Full SOAP note (subjective, objective, assessment, plan)'],
+     ['SESSION_LOG', 'Session log (time, duration, provider, notes)']].forEach(function (o) {
+      var opt = el('option', null, o[1]);
+      opt.value = o[0];
+      docSelect.appendChild(opt);
+    });
+    docSelect.value = s.documentationType || 'SESSION_LOG';
+    docSelect.addEventListener('change', queueService);
+    docBox.appendChild(docSelect);
+    card.appendChild(docBox);
 
     return card;
   }

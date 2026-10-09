@@ -15,6 +15,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
+import { audit } from '../lib/audit.js';
 import { requireRole } from '../middleware/session.js';
 import { SERVICE_COLOR_PALETTE, SERVICE_COLOR_KEYS } from '../lib/serviceColors.js';
 
@@ -342,6 +343,10 @@ const servicePatch = z.object({
   /// service's own category below — the enum only proves it is A valid
   /// swatch, not one from the right family.
   color: z.enum(SERVICE_COLOR_KEYS).optional(),
+  /// What a provider writes up after this service: a full SOAP note or a short
+  /// session log. Applies to notes started after the change (Phase 4 reads it
+  /// when a visit begins).
+  documentationType: z.enum(['SOAP', 'SESSION_LOG']).optional(),
 }).strict();
 
 adminRouter.patch('/admin/services/:id', async (req, res) => {
@@ -418,6 +423,14 @@ adminRouter.patch('/admin/services/:id', async (req, res) => {
       note = `${affected} upcoming booking(s) keep the old ${existing.durationMin}-minute length. `
         + 'Only new bookings use the new duration.';
     }
+  }
+  // Which kind of clinical note a service requires is a documentation POLICY, not a
+  // cosmetic setting, so a change is recorded — who, which service, from → to.
+  if (fields.documentationType && fields.documentationType !== existing.documentationType) {
+    audit.record({
+      action: 'UPDATE', resourceType: 'service', resourceId: existing.id,
+      meta: { fields: ['documentationType'], from: existing.documentationType, to: fields.documentationType },
+    });
   }
   res.json({ service: svc, note });
 });

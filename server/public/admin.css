@@ -137,6 +137,16 @@
   color: var(--ink);
 }
 .edit-form .form-actions { display: flex; gap: 7px; grid-column: 1 / -1; }
+.svc-rooms select {
+  font-family: var(--font-body);
+  font-size: 14px;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--paper);
+  color: var(--ink);
+  max-width: 100%;
+}
 
 /* ---- warnings ---------------------------------------------------------- */
 
