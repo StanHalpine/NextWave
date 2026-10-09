@@ -64,6 +64,7 @@ model Staff {
   bookings   Booking[]
   visitNotes VisitNote[]
   services   ServiceStaff[]
+  account    Account?
 
   @@index([role])
 }
@@ -194,6 +195,7 @@ model Booking {
   resource   Resource    @relation(fields: [resourceId], references: [id])
   staff      Staff?      @relation(fields: [staffId], references: [id])
   visitNotes VisitNote[]
+  encounter  Encounter?
 
   // The availability engine scans by resource/time and by staff/time; the
   // front desk queue scans by status.
@@ -251,6 +253,14 @@ model VisitNote {
   /// Why this amendment was made — required when amending, for the audit trail.
   amendReason String?
 
+  /// Which login wrote this, taken from the SESSION — never from the request
+  /// body. Null only on rows written before accounts existed, when authorship
+  /// was merely claimed.
+  authorAccountId String?
+  /// The provider role the author was acting in, so a person holding admin AND
+  /// a provider role leaves an unambiguous record of which hat they wore.
+  authorRole      AccountRole?
+
   booking   Booking    @relation(fields: [bookingId], references: [id], onDelete: Restrict)
   author    Staff      @relation(fields: [authorId], references: [id], onDelete: Restrict)
   amends    VisitNote? @relation("NoteAmendment", fields: [amendsId], references: [id], onDelete: Restrict)
@@ -258,4 +268,217 @@ model VisitNote {
 
   @@index([bookingId, createdAt])
   @@index([authorId])
+}
+
+// =============================================================================
+// Phase 1 — Foundation: staff accounts, sessions, audit, encounters, integrations
+// =============================================================================
+
+enum AccountRole {
+  FRONT_DESK     @map("front_desk")
+  PROVIDER_CHIRO @map("provider_chiro")
+  PROVIDER_NP    @map("provider_np")
+  PROVIDER_NURSE @map("provider_nurse")
+  ADMIN          @map("admin")
+}
+
+/// A staff LOGIN. Deliberately separate from Staff (a bookable provider): a
+/// receptionist needs a login but is never bookable, and a provider's bookable
+/// identity must outlive a password reset. There are no patient accounts.
+model Account {
+  id                 String        @id @default(uuid())
+  /// Lower-cased on write; the login identifier.
+  email              String        @unique
+  displayName        String
+  /// Argon2id.
+  passwordHash       String
+  /// Multi-role. Any mix of FRONT_DESK / ADMIN plus AT MOST ONE provider role,
+  /// and a provider role requires a matching linked Staff row (enforced in
+  /// application code at write time).
+  roles              AccountRole[]
+  staffId            String?       @unique
+  active             Boolean       @default(true)
+  mustChangePassword Boolean       @default(true)
+
+  failedLoginCount  Int       @default(0)
+  lockedUntil       DateTime?
+  lastLoginAt       DateTime?
+  passwordChangedAt DateTime?
+
+  /// TOTP. The secret is AES-256-GCM encrypted with MFA_ENCRYPTION_KEY — it must
+  /// be recoverable to verify codes, so it cannot be hashed.
+  mfaSecretEnc        String?
+  mfaPendingSecretEnc String? // set during enrolment, promoted on first valid code
+  mfaEnabledAt        DateTime?
+  /// Highest TOTP time-step already accepted, so a code cannot be replayed.
+  mfaLastStep         Int?
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  staff         Staff?            @relation(fields: [staffId], references: [id])
+  sessions      Session[]
+  setupTokens   SetupToken[]
+  recoveryCodes MfaRecoveryCode[]
+}
+
+model Session {
+  id             String    @id @default(uuid())
+  accountId      String
+  /// SHA-256 of the opaque cookie value. The raw token is never stored, so a
+  /// database read cannot be replayed as a login.
+  tokenHash      String    @unique
+  csrfToken      String
+  createdAt      DateTime  @default(now())
+  /// Slides on USER activity only (see lib/sessions.ts) — background polling must
+  /// not keep an unattended screen signed in.
+  lastActivityAt DateTime  @default(now())
+  /// Absolute cap regardless of activity.
+  expiresAt      DateTime
+  /// Null until the TOTP step is satisfied (when the account requires MFA).
+  mfaVerifiedAt  DateTime?
+  revokedAt      DateTime?
+  revokedReason  String?
+  ipAddress      String?
+  userAgent      String?
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId])
+  @@index([lastActivityAt])
+}
+
+enum SetupTokenPurpose {
+  SETUP
+  RESET
+}
+
+/// One-time link that lets a new (or reset) account choose its own password, so
+/// no password is ever created, emailed or logged by an administrator.
+model SetupToken {
+  id          String            @id @default(uuid())
+  accountId   String
+  tokenHash   String            @unique
+  purpose     SetupTokenPurpose
+  expiresAt   DateTime
+  usedAt      DateTime?
+  createdAt   DateTime          @default(now())
+  createdById String?
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId])
+}
+
+model MfaRecoveryCode {
+  id        String    @id @default(uuid())
+  accountId String
+  /// SHA-256 of the code; shown to the user exactly once.
+  codeHash  String
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId])
+}
+
+enum AuditAction {
+  CREATE
+  READ
+  UPDATE
+  DELETE
+  EXPORT
+  LOGIN
+  LOGIN_FAILED
+  LOGOUT
+  LOCKOUT
+  PASSWORD_CHANGE
+  PASSWORD_RESET
+  MFA_ENROLL
+  MFA_VERIFY
+  MFA_FAILED
+  SESSION_REVOKED
+  ACCESS_DENIED
+}
+
+/// Append-only. A trigger (see the phase1 migration) rejects UPDATE and DELETE,
+/// so the record of who touched what cannot be quietly rewritten. There is
+/// deliberately NO foreign key to Account: a departed employee's trail must
+/// outlive their login.
+///
+/// Holds opaque ids and counts only — never a name, number, note, or any PHI
+/// value. `meta` is restricted to field NAMES and counts.
+model AuditLog {
+  id             BigInt      @id @default(autoincrement())
+  occurredAt     DateTime    @default(now())
+  /// Null = the anonymous public widget, or a system job.
+  actorAccountId String?
+  actorRoles     String? // comma-joined role names at the time
+  action         AuditAction
+  resourceType   String
+  resourceId     String?
+  success        Boolean     @default(true)
+  requestId      String?
+  ipAddress      String?
+  meta           Json?
+
+  @@index([resourceType, resourceId])
+  @@index([actorAccountId, occurredAt])
+  @@index([occurredAt])
+  @@index([requestId])
+}
+
+enum EncounterStatus {
+  SCHEDULED
+  CHECKED_IN
+  IN_PROGRESS
+  SEEN
+  CHECKED_OUT
+  NO_SHOW
+}
+
+/// The visit itself, separate from Booking so the existing approval lifecycle
+/// (HOLD / PENDING_REVIEW / CONFIRMED / …) is untouched. Table only in Phase 1;
+/// the front-desk workflow that drives it arrives in Phase 2.
+model Encounter {
+  id              String          @id @default(uuid())
+  bookingId       String          @unique
+  status          EncounterStatus @default(SCHEDULED)
+  checkedInAt     DateTime?
+  checkedInById   String?
+  startedAt       DateTime?
+  startedById     String?
+  seenAt          DateTime?
+  checkedOutAt    DateTime?
+  checkedOutById  String?
+  noShowAt        DateTime?
+  scribeConsentAt DateTime?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  /// Soft delete — clinical records are never hard-deleted.
+  deletedAt       DateTime?
+
+  booking Booking @relation(fields: [bookingId], references: [id])
+
+  @@index([status, checkedInAt])
+}
+
+enum IntegrationKind {
+  AI_SCRIBE
+  FILE_STORAGE
+  MESSAGING
+}
+
+/// Which implementation backs each service interface, plus NON-SECRET settings
+/// (region, bucket name, model id). Credentials never live here — they come
+/// from the environment or an IAM role.
+model IntegrationConfig {
+  kind        IntegrationKind @id
+  provider    String          @default("stub")
+  settings    Json            @default("{}")
+  enabled     Boolean         @default(true)
+  updatedById String?
+  updatedAt   DateTime        @updatedAt
 }
