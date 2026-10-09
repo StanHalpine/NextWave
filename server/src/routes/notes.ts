@@ -1,16 +1,25 @@
 /**
  * Clinical visit notes and patient history.
  *
- * Every route here returns or accepts PHI, so all of them are token-gated.
- * See spec §7.5 — the shared token is a stopgap, and these endpoints are the
- * reason it needs replacing with real staff accounts.
+ * Every route here returns or accepts PHI, so all of them require a signed-in
+ * staff account.
+ *
+ *   WRITE a note      provider roles only. The author is the signed-in account's
+ *                     linked provider record — taken from the SESSION, never the
+ *                     request body, so authorship is proven rather than claimed.
+ *   READ note text    providers and admins. Front desk sees THAT notes exist
+ *                     (a count) but not what they say — minimum necessary.
  */
 
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
-import { requireFrontDesk } from '../middleware/frontDesk.js';
+import { logger } from '../lib/logger.js';
+import { hasRole, requireRole } from '../middleware/session.js';
+import { PROVIDER_ROLES } from '../lib/sessions.js';
 import { resolveNoteChains, type RawNote } from '../lib/notes.js';
+import type { Request } from 'express';
+import type { AccountRole } from '@prisma/client';
 
 export const notesRouter = Router();
 
@@ -18,29 +27,40 @@ const NOTE_INCLUDE = {
   author: { select: { id: true, name: true, role: true } },
 } as const;
 
+/**
+ * The provider identity behind this request. An unattributed clinical note is
+ * not a valid record, so a signed-in account that is not linked to an active
+ * provider record cannot write one — even if it has a provider role.
+ */
+async function sessionAuthor(req: Request): Promise<{ staffId: string; role: AccountRole } | { error: string }> {
+  const account = req.auth!.account;
+  const role = account.roles.find((r) => PROVIDER_ROLES.includes(r));
+  if (!role || !account.staffId) return { error: 'Your account is not linked to a provider record, so it cannot write clinical notes.' };
+  const staff = await prisma.staff.findUnique({ where: { id: account.staffId }, select: { active: true } });
+  if (!staff?.active) return { error: 'Your provider record is inactive.' };
+  return { staffId: account.staffId, role };
+}
+
+const canReadNotes = (req: Request) => hasRole(req, 'ADMIN', ...PROVIDER_ROLES);
+
 const createBody = z.object({
-  // Which provider is writing. Required — an unattributed clinical note is not
-  // a valid record. Once staff logins exist this comes from the session
-  // instead of the request body.
-  authorId: z.string().uuid('authorId must be a staff UUID.'),
   kind: z.enum(['SUBJECTIVE', 'OBJECTIVE', 'ASSESSMENT', 'PLAN', 'GENERAL']).optional(),
   body: z.string().trim().min(1, 'A note cannot be empty.').max(20000),
 }).strict();
 
 /** POST /api/bookings/:id/notes — add a clinical note to a visit. */
-notesRouter.post('/bookings/:id/notes', requireFrontDesk, async (req, res) => {
+notesRouter.post('/bookings/:id/notes', requireRole(...PROVIDER_ROLES), async (req, res) => {
   const parsed = createBody.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Invalid body.' });
   }
-  const { authorId, kind, body } = parsed.data;
+  const { kind, body } = parsed.data;
 
-  const [booking, author] = await Promise.all([
-    prisma.booking.findUnique({ where: { id: req.params.id } }),
-    prisma.staff.findUnique({ where: { id: authorId } }),
-  ]);
+  const author = await sessionAuthor(req);
+  if ('error' in author) return res.status(403).json({ error: author.error, code: 'no_provider_identity' });
+
+  const booking = await prisma.booking.findUnique({ where: { id: req.params.id } });
   if (!booking) return res.status(404).json({ error: 'Unknown booking.' });
-  if (!author) return res.status(400).json({ error: 'Unknown author — authorId must be a staff member.' });
 
   // A note about a visit that never happened is almost always a mis-click.
   if (booking.status === 'HOLD' || booking.status === 'PENDING_REVIEW') {
@@ -50,7 +70,10 @@ notesRouter.post('/bookings/:id/notes', requireFrontDesk, async (req, res) => {
   }
 
   const note = await prisma.visitNote.create({
-    data: { bookingId: booking.id, authorId, kind: kind ?? 'GENERAL', body },
+    data: {
+      bookingId: booking.id, authorId: author.staffId, kind: kind ?? 'GENERAL', body,
+      authorAccountId: req.auth!.account.id, authorRole: author.role,
+    },
     include: NOTE_INCLUDE,
   });
 
@@ -66,7 +89,6 @@ notesRouter.post('/bookings/:id/notes', requireFrontDesk, async (req, res) => {
 });
 
 const amendBody = z.object({
-  authorId: z.string().uuid('authorId must be a staff UUID.'),
   body: z.string().trim().min(1, 'An amended note cannot be empty.').max(20000),
   amendReason: z.string().trim().min(1, 'An amendment must say why.').max(500),
 }).strict();
@@ -77,12 +99,15 @@ const amendBody = z.object({
  * Deliberately POST-and-insert rather than PATCH-and-update: the original text
  * is preserved verbatim. There is no endpoint that mutates or deletes a note.
  */
-notesRouter.post('/visit-notes/:id/amend', requireFrontDesk, async (req, res) => {
+notesRouter.post('/visit-notes/:id/amend', requireRole(...PROVIDER_ROLES), async (req, res) => {
   const parsed = amendBody.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Invalid body.' });
   }
-  const { authorId, body, amendReason } = parsed.data;
+  const { body, amendReason } = parsed.data;
+
+  const author = await sessionAuthor(req);
+  if ('error' in author) return res.status(403).json({ error: author.error, code: 'no_provider_identity' });
 
   try {
     const result = await prisma.$transaction(async (tx) => {
@@ -101,13 +126,12 @@ notesRouter.post('/visit-notes/:id/amend', requireFrontDesk, async (req, res) =>
         };
       }
 
-      const author = await tx.staff.findUnique({ where: { id: authorId } });
-      if (!author) return { status: 400 as const, error: 'Unknown author.' };
-
       const note = await tx.visitNote.create({
         data: {
           bookingId: target.bookingId,
-          authorId,
+          authorId: author.staffId,
+          authorAccountId: req.auth!.account.id,
+          authorRole: author.role,
           kind: target.kind,
           body,
           amendsId: target.id,
@@ -128,13 +152,13 @@ notesRouter.post('/visit-notes/:id/amend', requireFrontDesk, async (req, res) =>
       createdAt: result.note.createdAt.toISOString(),
     });
   } catch (err) {
-    console.error('[notes] amend failed', err);
+    logger.error('notes_amend_failed', err);
     return res.status(500).json({ error: 'Could not amend that note.' });
   }
 });
 
 /** GET /api/bookings/:id/notes — current notes for one visit, with history. */
-notesRouter.get('/bookings/:id/notes', requireFrontDesk, async (req, res) => {
+notesRouter.get('/bookings/:id/notes', requireRole(), async (req, res) => {
   const booking = await prisma.booking.findUnique({
     where: { id: req.params.id },
     select: { id: true, patientNote: true },
@@ -147,6 +171,11 @@ notesRouter.get('/bookings/:id/notes', requireFrontDesk, async (req, res) => {
     orderBy: { createdAt: 'asc' },
   });
 
+  // Minimum necessary: front desk is told notes exist, not what they say.
+  // (patientNote is what the PATIENT wrote when booking — not clinical.)
+  if (!canReadNotes(req)) {
+    return res.json({ bookingId: booking.id, patientNote: booking.patientNote, notes: [], noteCount: rows.length, restricted: true });
+  }
   res.json({
     bookingId: booking.id,
     patientNote: booking.patientNote,
@@ -161,7 +190,7 @@ notesRouter.get('/bookings/:id/notes', requireFrontDesk, async (req, res) => {
  * each with what the patient said at booking and what the provider wrote
  * afterwards. This is the shape an EHR export would be built from.
  */
-notesRouter.get('/patients/:id/history', requireFrontDesk, async (req, res) => {
+notesRouter.get('/patients/:id/history', requireRole(), async (req, res) => {
   const patient = await prisma.user.findUnique({
     where: { id: req.params.id },
     select: { id: true, name: true, email: true, phone: true, createdAt: true },
@@ -198,18 +227,28 @@ notesRouter.get('/patients/:id/history', requireFrontDesk, async (req, res) => {
       resource: b.resource.name,
       provider: b.staff,
       patientNote: b.patientNote,
-      notes: resolveNoteChains(b.visitNotes as RawNote[]),
+      notes: canReadNotes(req) ? resolveNoteChains(b.visitNotes as RawNote[]) : [],
+      noteCount: b.visitNotes.length,
     })),
+    ...(canReadNotes(req) ? {} : { restricted: true }),
   });
 });
 
-/** GET /api/patients?email=… — find a patient before pulling their history. */
-notesRouter.get('/patients', requireFrontDesk, async (req, res) => {
-  const email = typeof req.query.email === 'string' ? req.query.email.trim() : '';
-  if (!email) return res.status(400).json({ error: 'An email query parameter is required.' });
+const searchBody = z.object({ email: z.string().trim().min(3).max(254) }).strict();
+
+/**
+ * POST /api/patients/search — find a patient before pulling their history.
+ *
+ * POST with a JSON body rather than the GET ?email= this replaces: an email
+ * address is PHI, and a query string is written to access logs, proxy logs and
+ * browser history. Request bodies are not.
+ */
+notesRouter.post('/patients/search', requireRole(), async (req, res) => {
+  const parsed = searchBody.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'An email is required.' });
 
   const patients = await prisma.user.findMany({
-    where: { email: { equals: email, mode: 'insensitive' } },
+    where: { email: { equals: parsed.data.email, mode: 'insensitive' } },
     select: { id: true, name: true, email: true, phone: true, _count: { select: { bookings: true } } },
     take: 25,
   });

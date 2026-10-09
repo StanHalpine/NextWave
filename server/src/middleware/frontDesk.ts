@@ -1,26 +1,13 @@
-import type { NextFunction, Request, Response } from 'express';
-import { timingSafeEqual } from 'node:crypto';
-import { config } from '../config.js';
+import { requireRole } from './session.js';
 
 /**
- * Shared-secret gate for front desk endpoints.
+ * The shared-secret gate that used to live here is gone: every staff action now
+ * authenticates as a specific person (see middleware/session.ts), which is what
+ * makes a note's author, an approval's approver, and an audit row mean anything.
  *
- * This is deliberately the simplest thing that keeps the queue off the public
- * internet. It is NOT per-user auth: there is no staff login, no audit trail of
- * who approved what, and one leaked token exposes every patient record behind
- * it. Replace with real staff accounts before this handles live PHI.
+ * The export is kept — with the same name — so the existing route files keep
+ * their `requireFrontDesk` guard without being edited. It now means "a
+ * signed-in front desk or admin account, with a verified second factor where
+ * required, and a valid CSRF token on writes."
  */
-export function requireFrontDesk(req: Request, res: Response, next: NextFunction) {
-  const expected = config.frontDeskToken;
-  if (!expected) {
-    return res.status(503).json({ error: 'FRONT_DESK_TOKEN is not configured on the server.' });
-  }
-
-  const header = req.get('x-front-desk-token') ?? '';
-  const a = Buffer.from(header);
-  const b = Buffer.from(expected);
-  if (a.length !== b.length || !timingSafeEqual(a, b)) {
-    return res.status(401).json({ error: 'Front desk authentication required.' });
-  }
-  next();
-}
+export const requireFrontDesk = requireRole('FRONT_DESK', 'ADMIN');
