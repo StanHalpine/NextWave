@@ -20,6 +20,7 @@ import { adminAccountsRouter } from './routes/adminAccounts.js';
 import { patientsRouter } from './routes/patients.js';
 import { scheduleRouter } from './routes/schedule.js';
 import { fdRouter } from './routes/fd.js';
+import { startInProcessScheduler } from './jobs/scheduler.js';
 import { demoGate } from './middleware/demoGate.js';
 import { requestContext } from './middleware/requestContext.js';
 import { loadSession } from './middleware/session.js';
@@ -181,6 +182,7 @@ async function main() {
       port: config.port,
       timezone: config.clinicTimezone,
       basicAuthGate: config.basicAuthGate,
+      jobsInProcess: config.jobsInProcess,
       production: config.isProduction,
     });
   });
@@ -190,9 +192,12 @@ async function main() {
   const sweeper = setInterval(sweep, 60_000);
   void sweep();
 
+  const stopJobs = config.jobsInProcess ? startInProcessScheduler() : () => undefined;
+
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.on(signal, () => {
       clearInterval(sweeper);
+      stopJobs();
       server.close(() => prisma.$disconnect().then(() => process.exit(0)));
     });
   }

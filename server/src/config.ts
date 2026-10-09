@@ -151,6 +151,14 @@ export const config = {
   mfaRequiredRoles: list('MFA_REQUIRED_ROLES', ['ADMIN']),
   mfaKey: mfaKey(),
 
+  /**
+   * Run scheduled jobs (appointment texts) on a timer inside the web process. Off by
+   * default: production should use an external scheduler (`npm run jobs:run`), which
+   * keeps working when the web process sleeps or restarts. See jobs/scheduler.ts.
+   */
+  jobsInProcess: flag('JOBS_IN_PROCESS', false),
+  jobsIntervalMin: Math.max(1, int('JOBS_INTERVAL_MIN', 5)),
+
   /** Booking grid granularity. Slots start on multiples of this. */
   slotGranularityMin: 15,
 
