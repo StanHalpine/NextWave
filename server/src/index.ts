@@ -21,6 +21,7 @@ import { patientsRouter } from './routes/patients.js';
 import { scheduleRouter } from './routes/schedule.js';
 import { fdRouter } from './routes/fd.js';
 import { smsPublicRouter } from './routes/smsPublic.js';
+import { smsInboundRouter } from './routes/smsInbound.js';
 import { startInProcessScheduler } from './jobs/scheduler.js';
 import { demoGate } from './middleware/demoGate.js';
 import { requestContext } from './middleware/requestContext.js';
@@ -108,6 +109,7 @@ export function buildApp() {
   app.use('/api', adminAccountsRouter);
   app.use('/api', availabilityRouter);
   app.use('/api', smsPublicRouter);  // consent label + the booking widget's consent checkbox
+  app.use('/api', smsInboundRouter); // the messaging provider's STOP / HELP / C webhook (signed)
   app.use('/api', holdsRouter);
   app.use('/api', bookingsRouter);
   app.use('/api', frontDeskRouter);

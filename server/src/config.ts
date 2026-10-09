@@ -169,3 +169,10 @@ export const config = {
 if (isProduction && !config.appBaseUrl.startsWith('https://')) {
   throw new Error('Refusing to start: APP_BASE_URL must be set to the https:// origin in production.');
 }
+
+// Real text messaging is switched on by giving the app the provider's auth token (it also
+// verifies the inbound STOP/HELP webhook). A HELP reply must tell the patient how to reach the
+// clinic, so refuse to run that way without the phone number.
+if (isProduction && process.env.TWILIO_AUTH_TOKEN && !process.env.CLINIC_PHONE) {
+  throw new Error('Refusing to start: CLINIC_PHONE is not set. The text-message HELP reply must give the clinic\'s phone number.');
+}

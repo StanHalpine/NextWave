@@ -6,7 +6,7 @@
 import { spawnSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
 
-function boot(overrides: { sslmode?: string | null; mfaKey?: string | null; baseUrl?: string | null }) {
+function boot(overrides: { sslmode?: string | null; mfaKey?: string | null; baseUrl?: string | null; env?: Record<string, string> }) {
   const url = new URL(process.env.DATABASE_URL!);
   url.searchParams.delete('sslmode');
   url.searchParams.delete('ssl');
@@ -17,6 +17,9 @@ function boot(overrides: { sslmode?: string | null; mfaKey?: string | null; base
   delete env.APP_BASE_URL;
   if (overrides.mfaKey) env.MFA_ENCRYPTION_KEY = overrides.mfaKey;
   if (overrides.baseUrl) env.APP_BASE_URL = overrides.baseUrl;
+  delete env.TWILIO_AUTH_TOKEN;
+  delete env.CLINIC_PHONE;
+  Object.assign(env, overrides.env ?? {});
 
   const r = spawnSync('npx', ['tsx', '-e', "import('./src/config.ts').catch((e) => { console.error('Error: ' + e.message); process.exit(1); })"], { env, encoding: 'utf8', timeout: 30_000 });
   const out = `${r.stdout}${r.stderr}`;
@@ -51,6 +54,13 @@ describe('production refuses to start when it is not safe', () => {
   it('without an https APP_BASE_URL', () => {
     expect(boot({ sslmode: 'require', mfaKey: KEY, baseUrl: null }).status).not.toBe(0);
     expect(boot({ sslmode: 'require', mfaKey: KEY, baseUrl: 'http://staff.example.test' }).status).not.toBe(0);
+  });
+  it('with real text messaging switched on (a provider token) but no clinic phone for the HELP reply', () => {
+    const r = boot({ sslmode: 'require', mfaKey: KEY, baseUrl: HTTPS, env: { TWILIO_AUTH_TOKEN: 'x'.repeat(32) } });
+    expect(r.status).not.toBe(0);
+    expect(r.out).toMatch(/CLINIC_PHONE is not set/);
+    expect(r.out).not.toContain('x'.repeat(32));                  // the token is never echoed
+    expect(boot({ sslmode: 'require', mfaKey: KEY, baseUrl: HTTPS, env: { TWILIO_AUTH_TOKEN: 'x'.repeat(32), CLINIC_PHONE: '(612) 555-0100' } }).status).toBe(0);
   });
   it('and starts when everything is in order', () => {
     expect(boot({ sslmode: 'require', mfaKey: KEY, baseUrl: HTTPS }).status).toBe(0);
