@@ -1,6 +1,6 @@
 # NextWave Wellness — Clinic System Specification
 
-Version 1.1 · 2026-10-09 · Status: **approved; Phase 1 built.** Phases 2–5 not started.
+Version 1.2 · 2026-10-09 · Status: **Phase 1 approved. Phase 2 approved to build.** Phases 3–5 not started.
 
 > **Revision 1.1 — decisions recorded after approval** (the body below is otherwise
 > unchanged from the approved v1; sections touched are marked *[rev 1.1]*):
@@ -16,6 +16,18 @@ Version 1.1 · 2026-10-09 · Status: **approved; Phase 1 built.** Phases 2–5 n
 > | Basic-auth gate | Retired by default; `BASIC_AUTH_GATE` flag kept for cutover |
 > | `Encounter` table | Created in **Phase 1** (schema only); the workflow that drives it is Phase 2 |
 > | All other §9 assumptions | Defaults accepted |
+>
+> **Revision 1.2 — decisions recorded at Phase 2 approval:**
+>
+> | Item | Decision |
+> |---|---|
+> | **Phase order** | Phases 3 (Patient Profile + Credits) and 4 (Provider + SOAP) **may be swapped.** If charting is needed before the credit ledger is finished, build Provider + SOAP first. The dependency that makes this safe: Phase 2 now ships the Patient entity and the Encounter workflow, and Phase 4 needs only those — not credits. Cost of swapping: check-out would not yet redeem credits or record a charge, and Accounting (Phase 5) needs `Charge`, so Phase 5 follows Phase 3 either way |
+> | Provider scoped view before Phase 4 | **No.** Dual-role (Admin + Provider) accounts cover it |
+> | Patient entity | **Moves from Phase 3 into Phase 2**: `Patient`, the POST-search directory, the profile page (demographics + contact), and `Booking.patientId`. The Credit Tracker tab is a placeholder until Phase 3. Membership, credits, ledger and charges stay in Phase 3 |
+> | Documentation flag (A-5) | **`Service.documentationType` = `SOAP` \| `SESSION_LOG`, per service and admin-editable.** SOAP: chiropractic adjustment, chiropractic exam / new patient, NP consult, functional medicine consult, IV therapy, injections, bloodwork. Session log: HBOT, red light, body composition, and any other timed modality. **Any service not named defaults to `SESSION_LOG`** and is listed in `PHASE2_NOTES.md` for confirmation. Lands in Phase 2 (the column and its admin control); the note screens that consume it are Phase 4 |
+> | Text messages | Confirmation and a 24-hour reminder, via the `Messaging` interface, **stub only**. **Templates may contain only the patient's first name, the appointment date, and the time — no service names, no provider names.** Twilio A2P registration and the Security Edition BAA are the owner's, in progress |
+> | Database hosting | `render.yaml` provisions **no** database. The app reads `DATABASE_URL` and nothing else. Staging = an external Postgres; production = AWS RDS later |
+> | Basic-auth gate | Already retired by default in Phase 1 (`BASIC_AUTH_GATE`, default off) |
 
 Companion to `docs/CURRENT_STATE.md` (what exists today). This document turns
 the approved flowchart into pages, schema, API, and a five-phase plan.
@@ -729,15 +741,16 @@ review before the next phase.
 **Exit:** can't reach any staff API without a session; idle session dies at 15 min; a note's author cannot be spoofed; grep finds no raw error logging; race test unchanged.
 **Needs from you:** a new database (the old one expired); the first admin's email; MFA decision (A-9).
 
-### Phase 2 — Schedule + Front Desk  *(M)*
-**Migrations:** `Encounter`; `Booking.source`, `createdByAccountId`, `rescheduledFromId`.
+### Phase 2 — Schedule + Front Desk  *(M → L: now includes the patient directory)* — *[rev 1.2]*
+**Migrations:** `Patient`, `MessageLog`; `Booking.source`, `createdByAccountId`, `patientId`; `Service.documentationType`. (`Encounter` shipped in Phase 1. `rescheduledFromId` is not added: a move updates the appointment in place, so its encounter, patient link and history stay attached.)
+**Rev 1.2 build additions:** patient directory (POST search) and profile with demographics and contact details; a Credit Tracker placeholder tab; confirmation text and a 24-hour reminder text, sent by an idempotent scheduled job through the stubbed `Messaging` interface, only to patients with recorded SMS consent, and only inside 08:00–21:00 clinic time.
 **Build:** three-column Front Desk dashboard; check-in / undo / no-show / check-out (state only); walk-ins; Schedule calendar (day by room/employee — re-homing today's grid — plus week view); staff-created appointments through the existing availability engine; cancel and reschedule; confirmation SMS on approval via `MessageSender` (stub in dev).
 **Exit:** an appointment can be created, checked in, and checked out end-to-end by front desk; walk-in racing test (extend `race-test.sh`) still yields no double-booking.
 **Needs from you:** Twilio account + A2P 10DLC registration (carrier lead time — start early) if SMS is in scope (A-8).
 
-### Phase 3 — Patient Profile + Credits  *(L)*
-**Migrations:** `Patient`, `MembershipPlan`, `PlanDiscount`, `Membership`, `CreditLedger` (+ append-only trigger, partial unique index), `CreditAllocation`, `Charge`; `Booking.patientId`; `Service.creditCost`.
-**Build:** patient directory (POST search) and profile (demographics, visits, credit tracker); booking-contact → patient linking with **suggested** matches, never auto-merge; membership enroll/pause/cancel; credit engine — monthly grant (idempotent, unique per membership+period), 90-day expiry job, FIFO redemption at check-out; check-out step records the `Charge` and redeems credits; manual adjustment (admin); worker + scheduler entry point (`npm run jobs`) for the platform cron; **`membership.html` updated to the 4/6/8 structure and new copy**; seed plans and credit costs; appointment reminder SMS job.
+### Phase 3 — Credits + Membership  *(L)* — *[rev 1.2: the Patient entity, directory and profile are built in Phase 2; this phase fills in the Credit Tracker tab. May be swapped with Phase 4.]*
+**Migrations:** ~~`Patient`~~ *(Phase 2)*, `MembershipPlan`, `PlanDiscount`, `Membership`, `CreditLedger` (+ append-only trigger, partial unique index), `CreditAllocation`, `Charge`; ~~`Booking.patientId`~~ *(Phase 2)*; `Service.creditCost`.
+**Build:** the Credit Tracker tab on the profile; membership enroll/pause/cancel; credit engine — monthly grant (idempotent, unique per membership+period), 90-day expiry job, FIFO redemption at check-out; check-out step records the `Charge` and redeems credits; manual adjustment (admin); worker + scheduler entry point (`npm run jobs`) for the platform cron; **`membership.html` updated to the 4/6/8 structure and new copy**; seed plans and credit costs. *(The reminder SMS job moved to Phase 2.)*
 **Exit:** running the monthly job twice grants once; a redemption consumes the oldest lot; balance always equals `SUM(delta)`; ledger rows cannot be updated or deleted at the DB.
 **Needs from you:** price of an additional credit (A-10); cancellation forfeiture rule (A-11); whether included perks (monthly shot/IV, quarterly body composition, guest passes) are tracked (A-12).
 

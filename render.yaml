@@ -5,8 +5,11 @@
 # start commands at the server/ folder.
 #
 # In Render: New → Blueprint → connect this repo → select branch.
-# Provisions the Postgres instance and the web service together and wires
-# DATABASE_URL between them.
+# Provisions the web service ONLY. This blueprint deliberately has no database:
+# the app reads its database from the DATABASE_URL environment variable and
+# nothing else, so the same code runs against whatever Postgres you point it at
+# — an external staging instance now, AWS RDS later. Set DATABASE_URL in the
+# dashboard; it must end ?sslmode=require (production refuses to start without TLS).
 #
 # This file does NOT affect the existing static site that serves
 # nextwave-wellness.com — manually created Render services ignore render.yaml.
@@ -14,12 +17,6 @@
 # Values marked sync:false are NOT stored in this file — Render prompts for
 # them at deploy time. Never commit secrets here; this file is public in the
 # repo.
-
-databases:
-  - name: nextwave-db
-    databaseName: nextwave
-    user: nextwave
-    plan: free # 90-day expiry on free Postgres — move to a paid plan before it lapses
 
 services:
   - type: web
@@ -41,17 +38,20 @@ services:
     # than half-populated. It never touches Booking, User, VisitNote, Account or
     # the audit log.
     #
+    # NOTE — the build runs `prisma migrate deploy` and the seed, so the BUILD
+    # environment must be able to reach DATABASE_URL. Render's build servers do not
+    # have fixed IP addresses: if your Postgres only accepts allow-listed IPs, the
+    # build will fail to connect. Either allow the connection, or move migrations to
+    # a step that runs somewhere that CAN reach it (a CI job, or Render's
+    # preDeployCommand) and drop `prisma migrate deploy` / `npm run seed` from here.
     # The staff app (React + Vite, in web/) is built into public/app, which
     # Express serves at /app. It has its own package.json, hence its own install.
     buildCommand: npm ci --include=dev && npx prisma generate && npx prisma migrate deploy && npm --prefix web ci --include=dev && npm --prefix web run build && npm run build && npm run seed
     startCommand: npm start
     healthCheckPath: /health
     envVars:
-      # Set in the Render dashboard, NOT wired to the database above. Two reasons:
-      #  1. In production the app refuses to start unless the URL requires TLS
-      #     (it must end in ?sslmode=require), and Render's generated connection
-      #     string does not add that.
-      #  2. A blueprint sync would otherwise overwrite a value you set by hand.
+      # Set in the Render dashboard; never stored here. The URL must require TLS
+      # (end it ?sslmode=require): production refuses to start otherwise.
       - key: DATABASE_URL
         sync: false
 
