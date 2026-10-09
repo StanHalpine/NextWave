@@ -207,85 +207,92 @@ async function main() {
     return;
   }
 
-  for (const r of resources) {
-    // update:{} — never clobber a room the admin screen has edited.
-    await prisma.resource.upsert({ where: { id: r.id }, create: r, update: {} });
-  }
-  console.log(`  resources       ${resources.length}`);
-
-  for (const s of services) {
-    const { resourceType, requiredRole, ...row } = s;
-    await prisma.service.upsert({ where: { id: row.id }, create: row, update: {} });
-  }
-  console.log(`  services        ${services.length}`);
-
-  // Service ↔ room links. `resourceType` above is now only the seed's shorthand
-  // for "every room of this type" — the real relationship lives in ServiceRoom
-  // and is edited per-room in the admin screen.
-  let links = 0;
-  for (const s of services) {
-    for (const r of resources.filter((x) => x.type === s.resourceType)) {
-      await prisma.serviceRoom.upsert({
-        where: { serviceId_resourceId: { serviceId: s.id, resourceId: r.id } },
-        create: { serviceId: s.id, resourceId: r.id },
-        update: {},
-      });
-      links++;
+  // ONE transaction: if anything fails the database is left EMPTY, so the next
+  // run starts clean. Without this, a failure after the services were written
+  // left them committed, and the `alreadyConfigured` guard above then treated the
+  // half-populated database as finished — no staff, no availability, no error.
+  await prisma.$transaction(async (tx) => {
+    for (const r of resources) {
+      // update:{} — never clobber a room the admin screen has edited.
+      await tx.resource.upsert({ where: { id: r.id }, create: r, update: {} });
     }
-  }
-  console.log(`  serviceRooms    ${links}`);
+    console.log(`  resources       ${resources.length}`);
 
-  // Who may perform each service. `requiredRole` above is now only the seed's
-  // shorthand for "everyone with this role" — the real relationship is
-  // per-person in ServiceStaff and is never inherited by new hires.
-  let quals = 0;
-  for (const s of services) {
-    for (const st of staff.filter((x) => x.role === s.requiredRole)) {
-      await prisma.serviceStaff.upsert({
-        where: { serviceId_staffId: { serviceId: s.id, staffId: st.id } },
-        create: { serviceId: s.id, staffId: st.id },
-        update: {},
-      });
-      quals++;
+    for (const s of services) {
+      const { resourceType, requiredRole, ...row } = s;
+      await tx.service.upsert({ where: { id: row.id }, create: row, update: {} });
     }
-  }
-  console.log(`  serviceStaff    ${quals}`);
+    console.log(`  services        ${services.length}`);
 
-  for (const o of serviceOptions) {
-    await prisma.serviceOption.upsert({
-      where: { serviceId_label: { serviceId: o.serviceId, label: o.label } },
-      create: o,
-      update: {},
-    });
-  }
-  console.log(`  serviceOptions  ${serviceOptions.length}`);
-
-  let shiftCount = 0;
-  for (const person of staff) {
-    const { shifts, ...row } = person;
-    await prisma.staff.upsert({ where: { id: row.id }, create: row, update: {} });
-
-    // Only seed shifts for a member who has none. Replacing the set here
-    // would destroy a roster edited through the admin screen on every deploy.
-    const existingShifts = await prisma.staffSchedule.count({ where: { staffId: row.id } });
-    if (existingShifts > 0) continue;
-
-    for (const shift of shifts) {
-      for (const dayOfWeek of shift.days) {
-        await prisma.staffSchedule.create({
-          data: {
-            staffId: row.id,
-            dayOfWeek,
-            startTime: shift.startTime,
-            endTime: shift.endTime,
-          },
+    // Service ↔ room links. `resourceType` above is now only the seed's shorthand
+    // for "every room of this type" — the real relationship lives in ServiceRoom
+    // and is edited per-room in the admin screen.
+    let links = 0;
+    for (const s of services) {
+      for (const r of resources.filter((x) => x.type === s.resourceType)) {
+        await tx.serviceRoom.upsert({
+          where: { serviceId_resourceId: { serviceId: s.id, resourceId: r.id } },
+          create: { serviceId: s.id, resourceId: r.id },
+          update: {},
         });
-        shiftCount++;
+        links++;
       }
     }
-  }
-  console.log(`  staff           ${staff.length}`);
-  console.log(`  staffSchedules  ${shiftCount}`);
+    console.log(`  serviceRooms    ${links}`);
+
+    // Staff (and their shifts) MUST exist before ServiceStaff links to them.
+    let shiftCount = 0;
+    for (const person of staff) {
+      const { shifts, ...row } = person;
+      await tx.staff.upsert({ where: { id: row.id }, create: row, update: {} });
+
+      // Only seed shifts for a member who has none. Replacing the set here
+      // would destroy a roster edited through the admin screen on every deploy.
+      const existingShifts = await tx.staffSchedule.count({ where: { staffId: row.id } });
+      if (existingShifts > 0) continue;
+
+      for (const shift of shifts) {
+        for (const dayOfWeek of shift.days) {
+          await tx.staffSchedule.create({
+            data: {
+              staffId: row.id,
+              dayOfWeek,
+              startTime: shift.startTime,
+              endTime: shift.endTime,
+            },
+          });
+          shiftCount++;
+        }
+      }
+    }
+    console.log(`  staff           ${staff.length}`);
+    console.log(`  staffSchedules  ${shiftCount}`);
+
+    // Who may perform each service. `requiredRole` above is now only the seed's
+    // shorthand for "everyone with this role" — the real relationship is
+    // per-person in ServiceStaff and is never inherited by new hires.
+    let quals = 0;
+    for (const s of services) {
+      for (const st of staff.filter((x) => x.role === s.requiredRole)) {
+        await tx.serviceStaff.upsert({
+          where: { serviceId_staffId: { serviceId: s.id, staffId: st.id } },
+          create: { serviceId: s.id, staffId: st.id },
+          update: {},
+        });
+        quals++;
+      }
+    }
+    console.log(`  serviceStaff    ${quals}`);
+
+    for (const o of serviceOptions) {
+      await tx.serviceOption.upsert({
+        where: { serviceId_label: { serviceId: o.serviceId, label: o.label } },
+        create: o,
+        update: {},
+      });
+    }
+    console.log(`  serviceOptions  ${serviceOptions.length}`);
+  }, { timeout: 120_000, maxWait: 30_000 });
 }
 
 main()
