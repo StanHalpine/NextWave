@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { randomBytes } from 'node:crypto';
 import { logger } from './lib/logger.js';
+import { PUBLISHED_CLINIC_PHONE } from './clinicContact.js';
 
 function required(name: string): string {
   const v = process.env[name];
@@ -159,6 +160,13 @@ export const config = {
   jobsInProcess: flag('JOBS_IN_PROCESS', false),
   jobsIntervalMin: Math.max(1, int('JOBS_INTERVAL_MIN', 5)),
 
+  /**
+   * The clinic's phone number, given to a patient who texts HELP. CLINIC_PHONE overrides the number
+   * published on the website (src/clinicContact.ts). A getter, so a change to the environment is
+   * seen without a restart — which is what lets tests set it.
+   */
+  get clinicPhone(): string { return (process.env.CLINIC_PHONE ?? '').trim() || PUBLISHED_CLINIC_PHONE || ''; },
+
   /** Booking grid granularity. Slots start on multiples of this. */
   slotGranularityMin: 15,
 
@@ -173,6 +181,6 @@ if (isProduction && !config.appBaseUrl.startsWith('https://')) {
 // Real text messaging is switched on by giving the app the provider's auth token (it also
 // verifies the inbound STOP/HELP webhook). A HELP reply must tell the patient how to reach the
 // clinic, so refuse to run that way without the phone number.
-if (isProduction && process.env.TWILIO_AUTH_TOKEN && !process.env.CLINIC_PHONE) {
+if (isProduction && process.env.TWILIO_AUTH_TOKEN && !config.clinicPhone) {
   throw new Error('Refusing to start: CLINIC_PHONE is not set. The text-message HELP reply must give the clinic\'s phone number.');
 }

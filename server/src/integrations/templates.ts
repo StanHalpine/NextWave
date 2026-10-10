@@ -40,29 +40,29 @@ export const TEMPLATES = {
     when: 'When an appointment is confirmed, to a patient who consented to texts',
     text: "NextWave Wellness: Hi {first}, you're confirmed for {day} at {time}. Reply C to confirm or call us to change. Reply STOP to opt out.",
   },
-  appt_reminder_24h_v2: {
+  appt_reminder_24h_v3: {
     when: 'The day before the appointment (within 24 hours of it), to a patient who consented to texts',
-    text: 'NextWave Wellness: Reminder — {first}, see you tomorrow at {time}. Reply STOP to opt out.',
+    text: 'NextWave Wellness: Reminder for {first}: see you tomorrow at {time}. Reply STOP to opt out.',
   },
 } as const satisfies Record<string, Def>;
 
 /** Automatic answers to a patient's own inbound text (src/routes/smsInbound.ts). */
 export const REPLIES = {
-  reply_stop_v1: {
+  reply_stop_v2: {
     when: 'Once, when a patient texts STOP (not repeated if they text it again)',
-    text: 'NextWave Wellness: You have been unsubscribed and will not receive any more text messages from us. Reply START to resubscribe.',
+    text: "NextWave Wellness: You're unsubscribed from appointment texts. Reply START to resubscribe.",
   },
-  reply_start_v1: {
+  reply_start_v2: {
     when: 'When a patient who had opted out texts START',
-    text: 'NextWave Wellness: You are resubscribed to appointment texts. Msg & data rates may apply. Reply STOP to opt out.',
+    text: "NextWave Wellness: You're resubscribed to appointment texts. Reply STOP to opt out.",
   },
-  reply_help_v1: {
-    when: 'When a patient texts HELP',
-    text: 'NextWave Wellness: For help, call {phone}. Msg & data rates may apply. Reply STOP to opt out.',
+  reply_help_v2: {
+    when: 'When a patient texts HELP (also the answer to "C" when the patient has no upcoming appointment)',
+    text: 'NextWave Wellness: This number sends appointment texts only. Call {phone} for help. Reply STOP to opt out.',
   },
-  reply_confirmed_v1: {
+  reply_confirmed_v2: {
     when: 'When a patient replies C to a confirmation text',
-    text: "NextWave Wellness: Thanks {first}, you're all set for {day} at {time}.",
+    text: 'NextWave Wellness: Thanks {first}, your appointment is confirmed.',
   },
 } as const satisfies Record<string, Def>;
 

@@ -66,17 +66,17 @@ describe('message templates', () => {
   it('are EXACTLY the wording the owner approved', () => {
     expect(renderTemplate('appt_confirmation_v2', V)).toBe(
       "NextWave Wellness: Hi Ingrid, you're confirmed for Wednesday, Oct 14 at 10:00 AM. Reply C to confirm or call us to change. Reply STOP to opt out.");
-    expect(renderTemplate('appt_reminder_24h_v2', { first: 'Ingrid', time: '10:00 AM' })).toBe(
-      'NextWave Wellness: Reminder — Ingrid, see you tomorrow at 10:00 AM. Reply STOP to opt out.');
+    expect(renderTemplate('appt_reminder_24h_v3', { first: 'Ingrid', time: '10:00 AM' })).toBe(
+      'NextWave Wellness: Reminder for Ingrid: see you tomorrow at 10:00 AM. Reply STOP to opt out.');
     // The raw strings, with their placeholders, as handed to the A2P form.
     expect(TEMPLATES.appt_confirmation_v2.text).toBe("NextWave Wellness: Hi {first}, you're confirmed for {day} at {time}. Reply C to confirm or call us to change. Reply STOP to opt out.");
-    expect(TEMPLATES.appt_reminder_24h_v2.text).toBe('NextWave Wellness: Reminder — {first}, see you tomorrow at {time}. Reply STOP to opt out.');
+    expect(TEMPLATES.appt_reminder_24h_v3.text).toBe('NextWave Wellness: Reminder for {first}: see you tomorrow at {time}. Reply STOP to opt out.');
   });
 
   it('carry first name, day and time — and nothing else about the care', () => {
     expect([...ALLOWED_VARIABLES]).toEqual(['first', 'day', 'time']);
     expect(placeholdersOf('appt_confirmation_v2')).toEqual(['day', 'first', 'time']);
-    expect(placeholdersOf('appt_reminder_24h_v2')).toEqual(['first', 'time']);
+    expect(placeholdersOf('appt_reminder_24h_v3')).toEqual(['first', 'time']);
     for (const id of Object.keys(TEMPLATES) as Array<keyof typeof TEMPLATES>) {
       for (const v of placeholdersOf(id)) expect((ALLOWED_VARIABLES as readonly string[]).includes(v), `${id} uses {${v}}`).toBe(true);
       // Strip the fields and the fixed wording's own words: no service, provider or room can remain.
@@ -89,7 +89,7 @@ describe('message templates', () => {
     expect(() => renderTemplate('appt_confirmation_v2', { ...V, service: 'Spinal Exam' })).toThrow(TemplateError);
     expect(() => renderTemplate('appt_confirmation_v2', { ...V, provider: 'Dr. Lee' })).toThrow(TemplateError);
     expect(() => renderTemplate('appt_confirmation_v2', { first: 'Ingrid', day: 'x' })).toThrow(TemplateError);
-    expect(() => renderTemplate('appt_reminder_24h_v2', V)).toThrow(TemplateError);          // the reminder takes no {day}
+    expect(() => renderTemplate('appt_reminder_24h_v3', V)).toThrow(TemplateError);          // the reminder takes no {day}
     expect(() => renderTemplate('appt_cancel_v1', V)).toThrow(TemplateError);
     expect(() => renderTemplate('appt_confirmation_v2', { ...V, first: 'Ingrid\nvisit https://x.test' })).toThrow(TemplateError);
     expect(() => renderTemplate('appt_confirmation_v2', { ...V, first: '' })).toThrow(TemplateError);
@@ -111,17 +111,29 @@ describe('message templates', () => {
   });
 
   it('replies are held to the same rule; the only extra they may carry is the clinic phone', () => {
-    expect(renderTemplate('reply_help_v1', { phone: '(612) 555-0100' })).toBe('NextWave Wellness: For help, call (612) 555-0100. Msg & data rates may apply. Reply STOP to opt out.');
-    expect(renderTemplate('reply_confirmed_v1', V)).toContain('Wednesday, Oct 14 at 10:00 AM');
+    // The owner's exact wording for the four replies.
+    expect(REPLIES.reply_stop_v2.text).toBe("NextWave Wellness: You're unsubscribed from appointment texts. Reply START to resubscribe.");
+    expect(REPLIES.reply_start_v2.text).toBe("NextWave Wellness: You're resubscribed to appointment texts. Reply STOP to opt out.");
+    expect(REPLIES.reply_help_v2.text).toBe('NextWave Wellness: This number sends appointment texts only. Call {phone} for help. Reply STOP to opt out.');
+    expect(REPLIES.reply_confirmed_v2.text).toBe('NextWave Wellness: Thanks {first}, your appointment is confirmed.');
+    expect(renderTemplate('reply_help_v2', { phone: '(612) 555-0100' })).toBe('NextWave Wellness: This number sends appointment texts only. Call (612) 555-0100 for help. Reply STOP to opt out.');
+    expect(renderTemplate('reply_confirmed_v2', { first: 'Ingrid' })).toBe('NextWave Wellness: Thanks Ingrid, your appointment is confirmed.');
     for (const id of Object.keys(REPLIES)) for (const v of placeholdersOf(id)) expect(['first', 'day', 'time', 'phone']).toContain(v);
   });
 
-  it('report their size honestly: the reminder\'s em dash makes it Unicode', () => {
+  it('report their size honestly: every message is plain GSM-7 and fits one segment', () => {
     const conf = smsInfo(renderTemplate('appt_confirmation_v2', V));
     expect(conf).toMatchObject({ encoding: 'GSM-7', segments: 1 });
-    const rem = smsInfo(renderTemplate('appt_reminder_24h_v2', { first: 'Ingrid', time: '10:00 AM' }));
-    expect(rem.encoding).toBe('UCS-2');
-    expect(rem.nonGsm).toEqual(['—']);
+    const rem = smsInfo(renderTemplate('appt_reminder_24h_v3', { first: 'Ingrid', time: '10:00 AM' }));
+    expect(rem).toMatchObject({ encoding: 'GSM-7', segments: 1, nonGsm: [] });
+    // The reply texts too (the clinic number is the longest thing that can be put in one).
+    const replies = [
+      renderTemplate('reply_stop_v2', {}), renderTemplate('reply_start_v2', {}),
+      renderTemplate('reply_help_v2', { phone: '(612) 555-0100' }), renderTemplate('reply_confirmed_v2', { first: 'Ingrid' }),
+    ];
+    for (const r of replies) expect(smsInfo(r), r).toMatchObject({ encoding: 'GSM-7', segments: 1 });
+    // The one thing that WOULD cost more is a non-GSM character, which is why this is checked at all.
+    expect(smsInfo('Reminder — see you').encoding).toBe('UCS-2');
     expect(smsInfo('a'.repeat(160))).toMatchObject({ encoding: 'GSM-7', segments: 1 });
     expect(smsInfo('a'.repeat(161))).toMatchObject({ segments: 2, length: 161 });
     expect(smsInfo('[' + 'a'.repeat(159))).toMatchObject({ segments: 2 });               // "[" costs two
@@ -260,7 +272,7 @@ describe('24-hour reminders', () => {
 
     await runAppointmentTexts({ messaging: m, now: T1 });
     await runAppointmentTexts({ messaging: m, now: T1 });
-    expect(callsFor(calls, p).map((c) => c.templateId)).toEqual(['appt_confirmation_v2', 'appt_reminder_24h_v2']);
+    expect(callsFor(calls, p).map((c) => c.templateId)).toEqual(['appt_confirmation_v2', 'appt_reminder_24h_v3']);
     expect(callsFor(calls, p)[1]!.variables).toEqual({ first: 'Ingrid', time: '10:00 AM' });   // the reminder says "tomorrow": no day
     const kinds = (await prisma.messageLog.findMany({ where: { bookingId: b.id } })).map((r) => `${r.kind}:${r.status}`).sort();
     expect(kinds).toEqual(['CONFIRMATION:SENT', 'REMINDER_24H:SENT']);
@@ -290,7 +302,7 @@ describe('24-hour reminders', () => {
     });
     const { m, calls } = fakeMessaging();
     await runAppointmentTexts({ messaging: m, now: slotAt('15:00', '2026-10-13') });
-    expect(callsFor(calls, p).map((c) => c.templateId)).toEqual(['appt_reminder_24h_v2']);
+    expect(callsFor(calls, p).map((c) => c.templateId)).toEqual(['appt_reminder_24h_v3']);
   });
 
   it('is NEVER sent for an appointment that is today — "see you tomorrow" would be false', async () => {
@@ -337,13 +349,13 @@ describe('a moved appointment', () => {
     expect(moved.status).toBe(200);
 
     await runAppointmentTexts({ messaging: m, now: T1 });       // confirmation for 11:00; reminder not yet due (> 24h away)
-    expect(callsFor(calls, p).map((c) => c.templateId)).toEqual(['appt_confirmation_v2', 'appt_reminder_24h_v2', 'appt_confirmation_v2']);
+    expect(callsFor(calls, p).map((c) => c.templateId)).toEqual(['appt_confirmation_v2', 'appt_reminder_24h_v3', 'appt_confirmation_v2']);
     expect(callsFor(calls, p)[2]!.variables.time).toBe('11:00 AM');
 
     await runAppointmentTexts({ messaging: m, now: slotAt('11:30', '2026-10-13') });   // now inside 24h of 11:00
     const sent = callsFor(calls, p);
     expect(sent).toHaveLength(4);
-    expect(sent[3]).toMatchObject({ templateId: 'appt_reminder_24h_v2', variables: { time: '11:00 AM' } });
+    expect(sent[3]).toMatchObject({ templateId: 'appt_reminder_24h_v3', variables: { time: '11:00 AM' } });
     expect(await prisma.messageLog.count({ where: { bookingId: id } })).toBe(4);   // 2 times × 2 kinds, none overwritten
     setClockForTests(null);
   });

@@ -64,7 +64,7 @@ const BATCH = 200;
 
 const TEMPLATE: Record<'CONFIRMATION' | 'REMINDER_24H', TemplateId> = {
   CONFIRMATION: 'appt_confirmation_v2',
-  REMINDER_24H: 'appt_reminder_24h_v2',
+  REMINDER_24H: 'appt_reminder_24h_v3',
 };
 
 export interface TextRunResult {

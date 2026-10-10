@@ -27,7 +27,6 @@ import { runAsSystem } from '../lib/audit.js';
 import { logger } from '../lib/logger.js';
 import { now } from '../lib/clock.js';
 import { staffTransaction } from '../lib/staffTx.js';
-import { formatApptDate, formatApptTime } from '../lib/format.js';
 import { phoneVariants, toE164 } from '../lib/phone.js';
 import { liftSuppression, suppressNumber } from '../lib/smsSuppression.js';
 import { KEYWORDS, renderTemplate, sanitizeFirstName } from '../integrations/templates.js';
@@ -64,7 +63,7 @@ function twiml(res: Response, reply: string | null) {
   res.status(200).type('text/xml').send(`<?xml version="1.0" encoding="UTF-8"?><Response>${reply ? `<Message>${xml(reply)}</Message>` : ''}</Response>`);
 }
 
-const clinicPhone = () => process.env.CLINIC_PHONE || '(clinic phone not set)';
+const clinicPhone = () => config.clinicPhone || '(clinic phone not set)';
 
 smsInboundRouter.post('/sms/inbound', urlencoded({ extended: false, limit: '8kb' }), async (req, res) => {
   const token = process.env.TWILIO_AUTH_TOKEN ?? '';
@@ -90,14 +89,14 @@ smsInboundRouter.post('/sms/inbound', urlencoded({ extended: false, limit: '8kb'
       case 'STOP': {
         const r = await staffTransaction((tx, rec) => suppressNumber(tx, rec, { phone: from, source: 'STOP', at }));
         // Confirm ONCE: only when this STOP changed the number from "may be texted" to "may not".
-        return r.changed ? renderTemplate('reply_stop_v1', {}) : null;
+        return r.changed ? renderTemplate('reply_stop_v2', {}) : null;
       }
       case 'START': {
         const lifted = await staffTransaction((tx, rec) => liftSuppression(tx, rec, from));
-        return lifted ? renderTemplate('reply_start_v1', {}) : null;
+        return lifted ? renderTemplate('reply_start_v2', {}) : null;
       }
       case 'HELP':
-        return renderTemplate('reply_help_v1', { phone: clinicPhone() });
+        return renderTemplate('reply_help_v2', { phone: clinicPhone() });
       case 'CONFIRM':
         return confirmNextAppointment(from, at);
       default:
@@ -119,7 +118,7 @@ async function confirmNextAppointment(from: string, at: Date): Promise<string> {
       AND (regexp_replace(u.phone, '\\D', '', 'g') = ANY(${variants}) OR p."phoneDigits" = ANY(${variants}))
     ORDER BY b."startTime" ASC LIMIT 1`;
   const id = ids[0]?.id;
-  if (!id) return renderTemplate('reply_help_v1', { phone: clinicPhone() });   // nothing upcoming: point them to the clinic
+  if (!id) return renderTemplate('reply_help_v2', { phone: clinicPhone() });   // nothing upcoming: point them to the clinic
 
   return staffTransaction(async (tx, rec) => {
     const b = await tx.booking.findUniqueOrThrow({ where: { id }, include: { patient: { select: { firstName: true, preferredName: true } }, user: { select: { name: true } } } });
@@ -128,6 +127,6 @@ async function confirmNextAppointment(from: string, at: Date): Promise<string> {
       await rec({ action: 'UPDATE', resourceType: 'appointment', resourceId: id, meta: { fields: ['patientConfirmedAt'], via: 'sms_reply' } });
     }
     const first = sanitizeFirstName(b.patient ? (b.patient.preferredName || b.patient.firstName) : (b.user.name.trim().split(/\s+/)[0] ?? ''));
-    return renderTemplate('reply_confirmed_v1', { first, day: formatApptDate(b.startTime), time: formatApptTime(b.startTime) });
+    return renderTemplate('reply_confirmed_v2', { first });
   });
 }

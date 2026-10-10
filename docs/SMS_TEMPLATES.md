@@ -40,66 +40,64 @@ Matched against the whole message, ignoring case and surrounding punctuation.
 
 **Size:** 143 characters · GSM-7 · 1 segment — longest realistic: 168 characters · 2 segments
 
-### `appt_reminder_24h_v2`
+### `appt_reminder_24h_v3`
 
 **When:** The day before the appointment (within 24 hours of it), to a patient who consented to texts
 
 **Text (exactly as stored):**
 
-    NextWave Wellness: Reminder — {first}, see you tomorrow at {time}. Reply STOP to opt out.
+    NextWave Wellness: Reminder for {first}: see you tomorrow at {time}. Reply STOP to opt out.
 
-**Example:** NextWave Wellness: Reminder — Ingrid, see you tomorrow at 9:00 AM. Reply STOP to opt out.
+**Example:** NextWave Wellness: Reminder for Ingrid: see you tomorrow at 9:00 AM. Reply STOP to opt out.
 
-**Size:** 89 characters · UCS-2 · 2 segments — longest realistic: 113 characters · 2 segments
-
-> ⚠ Contains `—`, which is not in the standard SMS (GSM-7) alphabet. That makes the **whole message Unicode**: 70 characters per segment instead of 160, so it costs more segments. Replacing it with a plain hyphen (`-`) keeps it GSM-7.
+**Size:** 91 characters · GSM-7 · 1 segment — longest realistic: 115 characters · 1 segment
 
 ## Automatic replies
 
-### `reply_stop_v1`
+### `reply_stop_v2`
 
 **When:** Once, when a patient texts STOP (not repeated if they text it again)
 
 **Text (exactly as stored):**
 
-    NextWave Wellness: You have been unsubscribed and will not receive any more text messages from us. Reply START to resubscribe.
+    NextWave Wellness: You're unsubscribed from appointment texts. Reply START to resubscribe.
 
-**Example:** NextWave Wellness: You have been unsubscribed and will not receive any more text messages from us. Reply START to resubscribe.
+**Example:** NextWave Wellness: You're unsubscribed from appointment texts. Reply START to resubscribe.
 
-**Size:** 126 characters · GSM-7 · 1 segment — longest realistic: 126 characters · 1 segment
+**Size:** 90 characters · GSM-7 · 1 segment — longest realistic: 90 characters · 1 segment
 
-### `reply_start_v1`
+### `reply_start_v2`
 
 **When:** When a patient who had opted out texts START
 
 **Text (exactly as stored):**
 
-    NextWave Wellness: You are resubscribed to appointment texts. Msg & data rates may apply. Reply STOP to opt out.
+    NextWave Wellness: You're resubscribed to appointment texts. Reply STOP to opt out.
 
-**Example:** NextWave Wellness: You are resubscribed to appointment texts. Msg & data rates may apply. Reply STOP to opt out.
+**Example:** NextWave Wellness: You're resubscribed to appointment texts. Reply STOP to opt out.
 
-**Size:** 112 characters · GSM-7 · 1 segment — longest realistic: 112 characters · 1 segment
+**Size:** 83 characters · GSM-7 · 1 segment — longest realistic: 83 characters · 1 segment
 
-### `reply_help_v1`
+### `reply_help_v2`
 
-**When:** When a patient texts HELP
+**When:** When a patient texts HELP (also the answer to "C" when the patient has no upcoming appointment)
 
 **Text (exactly as stored):**
 
-    NextWave Wellness: For help, call {phone}. Msg & data rates may apply. Reply STOP to opt out.
+    NextWave Wellness: This number sends appointment texts only. Call {phone} for help. Reply STOP to opt out.
 
-**Example:** NextWave Wellness: For help, call (612) 555-0100. Msg & data rates may apply. Reply STOP to opt out.
+**Example:** NextWave Wellness: This number sends appointment texts only. Call (XXX) XXX-XXXX for help. Reply STOP to opt out.
 
-**Size:** 100 characters · GSM-7 · 1 segment — longest realistic: 100 characters · 1 segment
+**Size:** 113 characters · GSM-7 · 1 segment — longest realistic: 113 characters · 1 segment
 
-### `reply_confirmed_v1`
+### `reply_confirmed_v2`
 
 **When:** When a patient replies C to a confirmation text
 
 **Text (exactly as stored):**
 
-    NextWave Wellness: Thanks {first}, you're all set for {day} at {time}.
+    NextWave Wellness: Thanks {first}, your appointment is confirmed.
 
-**Example:** NextWave Wellness: Thanks Ingrid, you're all set for Saturday, Oct 10 at 9:00 AM.
+**Example:** NextWave Wellness: Thanks Ingrid, your appointment is confirmed.
 
-**Size:** 81 characters · GSM-7 · 1 segment — longest realistic: 106 characters · 1 segment
+**Size:** 64 characters · GSM-7 · 1 segment — longest realistic: 87 characters · 1 segment

@@ -95,7 +95,8 @@ describe('STOP', () => {
 
     const first = await post(num.e164, 'STOP');
     expect(first.status).toBe(200);
-    expect(unxml(replyOf(first)!)).toBe(REPLIES.reply_stop_v1.text);
+    expect(unxml(replyOf(first)!)).toBe(REPLIES.reply_stop_v2.text);
+    expect(first.text).toContain('You&apos;re unsubscribed');                          // the apostrophe is escaped for XML
     expect(await prisma.smsSuppression.findUniqueOrThrow({ where: { phoneDigits: num.digits } })).toMatchObject({ source: 'STOP' });
     expect((await prisma.patient.findUniqueOrThrow({ where: { id: a.id } })).smsOptIn).toBe(false);
     expect((await prisma.patient.findUniqueOrThrow({ where: { id: b.id } })).smsOptIn).toBe(false);
@@ -118,7 +119,7 @@ describe('STOP', () => {
     await new Promise((r) => setTimeout(r, 20));
     await prisma.patient.update({ where: { id: p.id }, data: { smsOptIn: true, smsOptInAt: new Date() } });   // staff recorded fresh consent
     const again = await post(num.e164, 'STOP');
-    expect(unxml(replyOf(again)!)).toBe(REPLIES.reply_stop_v1.text);
+    expect(unxml(replyOf(again)!)).toBe(REPLIES.reply_stop_v2.text);
   });
 
   it('is not triggered by a sentence that merely contains the word', async () => {
@@ -135,15 +136,14 @@ describe('START and HELP', () => {
     const num = freshNumber();
     await post(num.e164, 'STOP');
     const r = await post(num.e164, 'START');
-    expect(unxml(replyOf(r)!)).toBe(REPLIES.reply_start_v1.text);
+    expect(unxml(replyOf(r)!)).toBe(REPLIES.reply_start_v2.text);
     expect(await prisma.smsSuppression.count({ where: { phoneDigits: num.digits } })).toBe(0);
     expect(replyOf(await post(freshNumber().e164, 'START'))).toBeNull();
   });
 
-  it('HELP replies with the clinic phone number, XML-escaped', async () => {
+  it('HELP replies with the clinic phone number', async () => {
     const r = await post(freshNumber().e164, 'HELP');
-    expect(r.text).toContain('Msg &amp; data rates may apply');
-    expect(unxml(replyOf(r)!)).toBe(renderTemplate('reply_help_v1', { phone: PHONE }));
+    expect(unxml(replyOf(r)!)).toBe(renderTemplate('reply_help_v2', { phone: PHONE }));
     expect(unxml(replyOf(r)!)).toContain(PHONE);
   });
 });
@@ -164,7 +164,7 @@ describe('C — the patient confirms', () => {
     const p = await makePatient({ phone: num.typed, firstName: 'Ingrid' });
     const b = await appointmentFor(p.id, '000');
     const r = await post(num.e164, 'C');
-    expect(unxml(replyOf(r)!)).toBe("NextWave Wellness: Thanks Ingrid, you're all set for Tuesday, Mar 5 at 10:00 AM.");
+    expect(unxml(replyOf(r)!)).toBe('NextWave Wellness: Thanks Ingrid, your appointment is confirmed.');
     const row = await prisma.booking.findUniqueOrThrow({ where: { id: b.id } });
     expect(row.patientConfirmedAt).not.toBeNull();
     const rows = await auditRows({ resourceType: 'appointment', resourceId: b.id, action: 'UPDATE' });
@@ -185,7 +185,7 @@ describe('C — the patient confirms', () => {
 
   it('with nothing upcoming, points the patient to the clinic and changes nothing', async () => {
     const r = await post(freshNumber().e164, 'C');
-    expect(unxml(replyOf(r)!)).toBe(renderTemplate('reply_help_v1', { phone: PHONE }));
+    expect(unxml(replyOf(r)!)).toBe(renderTemplate('reply_help_v2', { phone: PHONE }));
   });
 
   it('ignores a cancelled appointment', async () => {

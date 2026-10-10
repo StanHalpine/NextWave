@@ -273,7 +273,7 @@ describe('DST: the 24-hour reminder window', () => {
     });
   }
   const mine = (calls: ReturnType<typeof fakeMessaging>['calls'], phone: string) => calls.filter((c) => c.to === toE164(phone));
-  const remindersFor = (calls: ReturnType<typeof fakeMessaging>['calls'], phone: string) => mine(calls, phone).filter((c) => c.templateId === 'appt_reminder_24h_v2');
+  const remindersFor = (calls: ReturnType<typeof fakeMessaging>['calls'], phone: string) => mine(calls, phone).filter((c) => c.templateId === 'appt_reminder_24h_v3');
 
   it('Monday 07:00 CST: the window opens Sunday 07:00 CST, but nothing is sent before 08:00 — then it says "tomorrow"', async () => {
     const clinic = await makeClinic({ weekdays: sevenDays });

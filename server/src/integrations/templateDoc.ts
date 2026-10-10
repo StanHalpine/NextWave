@@ -6,9 +6,10 @@
 import { ACCEPTED_SMS_CONSENT_LABELS, KEYWORDS, SMS_CONSENT_LABEL, allMessages, renderTemplate } from './templates.js';
 import { smsInfo } from './smsEncoding.js';
 
-const SAMPLE = { first: 'Ingrid', day: 'Saturday, Oct 10', time: '9:00 AM', phone: '(612) 555-0100' };
+// The phone is shown as a visible placeholder: the real number is the clinic's (CLINIC_PHONE), not a sample.
+const SAMPLE = { first: 'Ingrid', day: 'Saturday, Oct 10', time: '9:00 AM', phone: '(XXX) XXX-XXXX' };
 /** Longest realistic values: a 30-character first name, the longest weekday + month, the widest time. */
-const WORST = { first: 'Wolfeschlegelsteinhausenberge', day: 'Wednesday, Sep 30', time: '12:45 PM', phone: '(612) 555-0100' };
+const WORST = { first: 'Wolfeschlegelsteinhausenberge', day: 'Wednesday, Sep 30', time: '12:45 PM', phone: '(XXX) XXX-XXXX' };
 
 function fill(vars: string[], from: Record<string, string>): Record<string, string> {
   return Object.fromEntries(vars.map((v) => [v, from[v]!]));
