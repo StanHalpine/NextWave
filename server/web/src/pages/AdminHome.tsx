@@ -17,11 +17,12 @@ export default function AdminHome() {
         <Link className="tile" to="/admin/accounts"><h2>Accounts</h2><p>Create logins, assign roles, reset passwords and authenticators.</p></Link>
         <Link className="tile" to="/admin/audit"><h2>Audit log</h2><p>Who accessed or changed what, and when. Append-only.</p></Link>
         <Link className="tile" to="/admin/membership"><h2>Memberships</h2><p>Tiers, monthly credits, rollover, and the perks each tier includes.</p></Link>
+        <Link className="tile" to="/admin/macros"><h2>Macro sets</h2><p>Shared text blocks providers insert into their notes, by section and role.</p></Link>
         <a className="tile" href="/admin.html"><h2>Catalogue &amp; staff</h2><p>Services, prices and credit costs, rooms, bookable staff and their shifts.</p></a>
       </div>
 
       <h2 className="section">Integrations</h2>
-      <p className="hint">Which implementation backs each external service. Phase 1 ships development stubs only — nothing is connected to AWS or Twilio, and no real credentials are used.</p>
+      <p className="hint">Which implementation backs each external service. While a service shows “Development stub” nothing is connected to AWS or Twilio and no real credentials are used. The AI scribe switches itself off in production until storage and transcription are real.</p>
       <table className="table">
         <thead><tr><th>Service</th><th>Provider</th><th>Status</th></tr></thead>
         <tbody>

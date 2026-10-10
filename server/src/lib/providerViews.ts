@@ -118,6 +118,8 @@ export async function loadWorkspace(a: { bookingId: string; role: ProviderRole |
   });
   if (!b) return null;
 
+  // The name a signature will carry: the provider RECORD the login is linked to, not the login's display name.
+  const signsAs = a.ownStaffId && a.role ? (await prisma.staff.findUnique({ where: { id: a.ownStaffId }, select: { name: true } }))?.name ?? null : null;
   const sig = b.noteSignature;
   const signer = sig ? await prisma.staff.findUnique({ where: { id: sig.signedByStaffId }, select: { name: true } }) : null;
   const d = b.documentationDraft;
@@ -146,7 +148,7 @@ export async function loadWorkspace(a: { bookingId: string; role: ProviderRole |
     encounter: b.encounter
       ? { status: b.encounter.status, checkedInAt: b.encounter.checkedInAt, startedAt: b.encounter.startedAt, seenAt: b.encounter.seenAt, scribeConsentAt: b.encounter.scribeConsentAt }
       : null,
-    access: { canWrite: readOnlyReason === null, role: a.role, readOnlyReason },
+    access: { canWrite: readOnlyReason === null, role: a.role, signsAs, readOnlyReason },
     documentation: { status: docStatus(b), type: b.service.documentationType },
     draft: d
       ? {

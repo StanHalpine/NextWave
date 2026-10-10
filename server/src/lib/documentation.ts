@@ -293,11 +293,13 @@ export async function signDocumentation(
 
   // ---- the record ---------------------------------------------------------------------------------
   const noteIds: string[] = [];
-  for (const s of sections) {
+  for (const [i, s] of sections.entries()) {
     const note = await tx.visitNote.create({
       data: {
         bookingId: v.id, authorId: who.staffId, authorAccountId: a.accountId, authorRole: a.role as AccountRole,
-        kind: s.kind, body: s.body, durationMin: s.durationMin, createdAt: a.now,
+        // One millisecond apart, in S, O, A, P order: notes are shown by when the ORIGINAL was written
+        // (lib/notes.ts), and four rows with the same instant would come back in no particular order.
+        kind: s.kind, body: s.body, durationMin: s.durationMin, createdAt: new Date(a.now.getTime() + i),
       },
     });
     noteIds.push(note.id);

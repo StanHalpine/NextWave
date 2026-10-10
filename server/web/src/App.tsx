@@ -12,6 +12,9 @@ import AdminHome from './pages/AdminHome';
 import AdminAccounts from './pages/AdminAccounts';
 import AuditLog from './pages/AuditLog';
 import AdminMemberships from './pages/AdminMemberships';
+import AdminMacros from './pages/AdminMacros';
+import Provider from './pages/Provider';
+import Documentation from './pages/Documentation';
 import FrontDesk from './pages/FrontDesk';
 import Patients from './pages/Patients';
 import PatientProfile from './pages/PatientProfile';
@@ -43,9 +46,8 @@ export default function App() {
           <Route path="/front-desk/patients" element={<Protected roles={['FRONT_DESK', 'ADMIN']}><Patients /></Protected>} />
           <Route path="/front-desk/patients/:id" element={<Protected roles={['FRONT_DESK', 'ADMIN']}><PatientProfile /></Protected>} />
           <Route path="/schedule" element={<Protected roles={['FRONT_DESK', 'ADMIN']}><Schedule /></Protected>} />
-          <Route path="/provider" element={<Protected roles={['PROVIDER_CHIRO', 'PROVIDER_NP', 'PROVIDER_NURSE', 'ADMIN']}>
-            <ModulePlaceholder moduleKey="provider" planned={['Your checked-in patients, filtered by specialty', 'SOAP note workspace with your own macro sets', 'AI scribe recording, reviewed and signed by you']} />
-          </Protected>} />
+          <Route path="/provider" element={<Protected roles={['PROVIDER_CHIRO', 'PROVIDER_NP', 'PROVIDER_NURSE', 'ADMIN']}><Provider /></Protected>} />
+          <Route path="/provider/visits/:id" element={<Protected roles={['PROVIDER_CHIRO', 'PROVIDER_NP', 'PROVIDER_NURSE', 'ADMIN']}><Documentation /></Protected>} />
           <Route path="/accounting" element={<Protected roles={['ADMIN']}>
             <ModulePlaceholder moduleKey="accounting" planned={['Monthly revenue by service', 'Daily revenue breakdown', 'Member vs. non-member revenue', 'Custom financial analytics']} />
           </Protected>} />
@@ -56,6 +58,7 @@ export default function App() {
           <Route path="/admin" element={<Protected roles={['ADMIN']}><AdminHome /></Protected>} />
           <Route path="/admin/accounts" element={<Protected roles={['ADMIN']}><AdminAccounts /></Protected>} />
           <Route path="/admin/membership" element={<Protected roles={['ADMIN']}><AdminMemberships /></Protected>} />
+          <Route path="/admin/macros" element={<Protected roles={['ADMIN']}><AdminMacros /></Protected>} />
           <Route path="/admin/audit" element={<Protected roles={['ADMIN']}><AuditLog /></Protected>} />
 
           <Route path="*" element={<Navigate to="/" replace />} />

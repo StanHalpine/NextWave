@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { api, ApiError } from '../api';
 import { useInterval, errorText, Modal, Notice, ServiceDot, sourceLabel } from '../ui';
 import { addDays, fmtDayLong, fmtInstantTime, fmtTime12, nowHHMM, serviceLabel, toMinutes } from '../lib';
+import { STATUS_LABEL, STATUS_PILL } from '../provider/docs';
 import type { Appt, Dashboard, ServiceLite } from '../types';
 import { PatientPicker } from '../patients/PatientPicker';
 import { AppointmentDialog, LinkPatientDialog } from '../schedule/dialogs';
@@ -152,6 +153,9 @@ function Card({ a, onOpen, children, extra, muted, error }: {
         <span className="appt-svc"><ServiceDot color={a.service.color} /> {a.service.name}{a.subOption ? ` · ${a.subOption}` : ''}</span>
         <span className="appt-meta">{a.staff?.name ?? 'No provider'} · {a.resource.name}{a.source !== 'ONLINE' ? ` · ${sourceLabel(a.source)}` : ''}</span>
         {extra}
+        {a.encounter && a.encounter.status !== 'SCHEDULED' && a.encounter.status !== 'NO_SHOW' && (
+          <span className={`pill ${STATUS_PILL[a.documentation.status]}`} title="Whether the provider's note exists and is signed. The note itself is not shown here.">{STATUS_LABEL[a.documentation.status]}</span>
+        )}
         {!a.patient.linked && <span className="pill warn">not linked to a patient record</span>}
       </button>
       {error && <p className="error small" role="alert">{error}</p>}

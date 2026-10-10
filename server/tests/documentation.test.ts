@@ -272,6 +272,8 @@ describe('signing a SOAP note', () => {
     const notes = await notesOf(v.booking.id);
     expect(notes.map((n) => n.kind)).toEqual(['SUBJECTIVE', 'OBJECTIVE', 'ASSESSMENT', 'PLAN']);
     expect(notes.map((n) => n.body)).toEqual([SOAP.subjective, SOAP.objective, SOAP.assessment, SOAP.plan]);
+    // Strictly increasing creation times, so the order survives an amendment of any section.
+    expect(notes.map((n) => n.createdAt.getTime())).toEqual([0, 1, 2, 3].map((i) => TUESDAY_1007.getTime() + i));
     for (const n of notes) {
       expect(n).toMatchObject({ authorId: p.staff.id, authorAccountId: p.accountId, authorRole: 'PROVIDER_NP', amendsId: null, durationMin: null });
     }
@@ -410,7 +412,10 @@ describe('amending after signing (the existing model, unchanged)', () => {
     expect(after.find((n) => n.id === r.body.id)).toMatchObject({ body: 'Corrected subjective.', amendsId: subjective.id, amendReason: 'Typo', authorAccountId: p.accountId, authorRole: 'PROVIDER_CHIRO' });
     expect((await prisma.noteSignature.findUniqueOrThrow({ where: { bookingId: v.booking.id } })).noteIds).toContain(subjective.id);
 
+    // Amending the FIRST section must not move it: notes keep their place in the record.
+    await post(p, `/api/visit-notes/${notes[3]!.id}/amend`, { body: 'Corrected plan.', amendReason: 'Wording' });
     const ws = (await p.agent.get(URL.ws(v.booking.id))).body;
+    expect(ws.notes.map((n: any) => n.kind)).toEqual(['SUBJECTIVE', 'OBJECTIVE', 'ASSESSMENT', 'PLAN']);
     expect(ws.signature.amended).toBe(true);
     const current = ws.notes.find((n: any) => n.kind === 'SUBJECTIVE');
     expect(current).toMatchObject({ body: 'Corrected subjective.', amended: true });
@@ -537,7 +542,7 @@ describe('the workspace read', () => {
     await saveSoap(p, v.booking.id);
     const ws = (await p.agent.get(URL.ws(v.booking.id))).body;
     expect(ws.booking).toMatchObject({ id: v.booking.id, patientNote: 'Knee surgery in March', patient: { id: patient.id, name: 'Ingrid Holloway' }, provider: { id: p.staff.id }, service: { documentationType: 'SOAP' } });
-    expect(ws.access).toEqual({ canWrite: true, role: 'PROVIDER_CHIRO', readOnlyReason: null });
+    expect(ws.access).toEqual({ canWrite: true, role: 'PROVIDER_CHIRO', signsAs: p.staff.name, readOnlyReason: null });
     expect(ws.encounter.status).toBe('IN_PROGRESS');
     expect(ws.documentation).toEqual({ status: 'DRAFT', type: 'SOAP' });
     expect(ws.draft).toMatchObject({ version: 1, subjective: SOAP.subjective, aiDrafted: false });

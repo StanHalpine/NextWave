@@ -21,6 +21,8 @@ export interface Appt {
   patient: { id: string | null; name: string; linked: boolean; smsOptIn: boolean; /** where consent to texts comes from */ texts: 'patient' | 'online' | null };
   patientConfirmedAt: string | null;
   encounter: { id: string; status: EncounterStatus; checkedInAt: string | null; checkedOutAt: string | null } | null;
+  /** Whether the provider's note exists and is signed — never its text. */
+  documentation: { status: DocStatus; signedAt: string | null };
 }
 
 export interface Dashboard {
@@ -126,3 +128,53 @@ export const ADJUSTMENT_REASON_LABEL: Record<string, string> = {
   lost_credits: 'Credits lost in error',
   other: 'Other',
 };
+
+
+// ---- Phase 4: provider queue, documentation, scribe, macros --------------------------------------------
+
+export type DocStatus = 'NONE' | 'DRAFT' | 'SIGNED';
+export type DocType = 'SOAP' | 'SESSION_LOG';
+export type ProviderRole = 'PROVIDER_CHIRO' | 'PROVIDER_NP' | 'PROVIDER_NURSE';
+export type Section = 'subjective' | 'objective' | 'assessment' | 'plan';
+export type NoteSection = 'SUBJECTIVE' | 'OBJECTIVE' | 'ASSESSMENT' | 'PLAN' | 'GENERAL';
+
+export interface QueueRow {
+  bookingId: string; start: string; localDate: string; localStart: string; localEnd: string;
+  service: { id: string; name: string; color: string; documentationType: DocType };
+  subOption: string | null;
+  patient: { id: string | null; name: string };
+  staff: { id: string; name: string } | null;
+  isMine: boolean; unassigned: boolean; mayDocument: boolean;
+  encounter: { status: EncounterStatus; checkedInAt: string | null; startedAt: string | null; seenAt: string | null; checkedOutAt: string | null };
+  documentation: { status: DocStatus; type: DocType; signedAt: string | null; signedBy: string | null; draftUpdatedAt: string | null };
+  waitingMinutes: number | null;
+}
+export interface ProviderQueue {
+  role: ProviderRole; roleLabel: string; today: string; rows: QueueRow[]; backlog: QueueRow[]; pending: number;
+  roles: Array<{ role: ProviderRole; own: boolean }>;
+}
+
+export interface NoteVersion { id: string; body: string; durationMin: number | null; author: { id: string; name: string; role: string }; createdAt: string; amendReason: string | null }
+export interface SignedNote {
+  id: string; kind: NoteSection; body: string; durationMin: number | null; author: { id: string; name: string; role: string };
+  createdAt: string; amended: boolean; history: NoteVersion[];
+}
+export interface ScribeSessionView { id: string; status: 'RECORDING' | 'UPLOADED' | 'TRANSCRIBING' | 'DRAFTING' | 'READY' | 'FAILED'; failureCode: string | null; createdAt: string; applied: boolean; hasDraft: boolean }
+export interface Workspace {
+  booking: {
+    id: string; localDate: string; localStart: string; localEnd: string;
+    service: { id: string; name: string; documentationType: DocType }; subOption: string | null; patientNote: string | null;
+    patient: { id: string | null; name: string }; provider: { id: string; name: string } | null;
+  };
+  encounter: { status: EncounterStatus; checkedInAt: string | null; startedAt: string | null; seenAt: string | null; scribeConsentAt: string | null } | null;
+  access: { canWrite: boolean; role: ProviderRole | null; /** The provider record a signature will carry. */ signsAs: string | null; readOnlyReason: string | null };
+  documentation: { status: DocStatus; type: DocType };
+  draft: { version: number; subjective: string; objective: string; assessment: string; plan: string; notes: string; durationMin: number | null; aiDrafted: boolean; aiAppliedAt: string | null; updatedAt: string } | null;
+  signature: { signedAt: string; signedBy: string | null; signedRole: string; aiAssisted: boolean; aiDraftUnchanged: boolean | null; amended: boolean } | null;
+  notes: SignedNote[];
+  scribe: { applicable: boolean; available: boolean; unavailableReason: string | null; consentAt: string | null; sessions: ScribeSessionView[] };
+}
+
+export interface MacroLite { id: string; section: NoteSection; title: string; body: string; sortOrder: number }
+export interface MacroLibrary { personal: { macros: MacroLite[] }; shared: Array<{ id: string; name: string; macros: MacroLite[] }> }
+export interface MacroSetAdmin { id: string; name: string; roles: ProviderRole[]; active: boolean; macros: MacroLite[] }

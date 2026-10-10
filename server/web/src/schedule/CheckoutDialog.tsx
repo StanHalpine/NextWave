@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { api } from '../api';
 import { errorText, Modal, Notice } from '../ui';
 import { credits as creditsLabel, fmtMoney, fmtTime12, memberDiscount, parseDollars } from '../lib';
+import { STATUS_LABEL } from '../provider/docs';
 import type { Appt, CheckoutPreview, CheckoutResult } from '../types';
 
 type Choice = { kind: 'CREDITS' } | { kind: 'PERK'; perkId: string } | { kind: 'CASH' };
@@ -57,6 +58,9 @@ export function CheckoutDialog({ appt, onClose, onDone }: { appt: Appt; onClose:
       {!pv && !error && <p className="muted">Loading…</p>}
       {error && <Notice kind="error">{error}</Notice>}
       {pv?.alreadyCheckedOut && <Notice>This visit has already been checked out.</Notice>}
+      {pv && !pv.alreadyCheckedOut && appt.documentation.status !== 'SIGNED' && (
+        <Notice kind="warn">The provider’s note for this visit is not signed yet ({STATUS_LABEL[appt.documentation.status].toLowerCase()}). You can still check the patient out.</Notice>
+      )}
       {pv && !pv.alreadyCheckedOut && (
         <form className="stack" onSubmit={(e) => void submit(e)}>
           <div className="checkout-head">

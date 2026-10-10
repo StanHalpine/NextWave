@@ -15,7 +15,7 @@ export default function Home() {
             <>
               <h2>{m.label}</h2>
               <p>{m.blurb}</p>
-              {m.phase > 1 && <span className="tag">Coming in Phase {m.phase}</span>}
+              {!m.built && <span className="tag">Coming in Phase {m.phase}</span>}
             </>
           );
           return m.href
