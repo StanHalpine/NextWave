@@ -114,11 +114,19 @@
       </label>
       <!-- Text-message consent. Unchecked by default. The words come from the server
            (GET /api/sms/consent-label) and are sent back with the tick, so what is stored is
-           exactly what was on screen. Hidden until the wording has loaded: no wording, no checkbox. -->
-      <label class="consent" id="sms-consent-row" hidden>
-        <input type="checkbox" name="smsConsent" id="sms-consent">
-        <span id="sms-consent-label"></span>
-      </label>
+           exactly what was on screen. Hidden until the wording has loaded: no wording, no checkbox.
+           The title and the links line are fixed text around the stored wording; the marketing
+           site's sms-opt-in.png (the image given to the A2P registration) shows this card. -->
+      <div class="consent-card" id="sms-consent-row" hidden>
+        <h3 class="consent-title">Appointment notifications</h3>
+        <label class="consent">
+          <input type="checkbox" name="smsConsent" id="sms-consent">
+          <span id="sms-consent-label"></span>
+        </label>
+        <p class="consent-links">See our
+          <a href="https://nextwave-wellness.com/sms-terms.html" target="_blank" rel="noopener">SMS Terms</a> and
+          <a href="https://nextwave-wellness.com/privacy.html" target="_blank" rel="noopener">Privacy Policy</a>.</p>
+      </div>
       <p class="form-err" id="form-err" hidden></p>
       <div class="form-actions">
         <button type="submit" class="btn btn-primary" id="submit-btn">Request appointment</button>

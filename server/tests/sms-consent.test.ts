@@ -56,6 +56,20 @@ describe('the consent wording', () => {
     expect(js).toContain('/api/sms/consent-label');
     expect(js).toContain("/sms-consent'");                          // and sent back with the tick
   });
+
+  it('sits in a card titled "Appointment notifications" that links to the SMS terms and the privacy policy', () => {
+    const html = readFileSync(path.resolve('public', 'index.html'), 'utf8');
+    const card = html.match(/<div class="consent-card"[\s\S]*?<\/div>/)![0];
+    expect(card).toContain('id="sms-consent-row"');
+    expect(card).toContain('hidden');                                                       // hidden until the wording has loaded
+    expect(card).toMatch(/<h3[^>]*>Appointment notifications<\/h3>/);
+    expect(card).toContain('href="https://nextwave-wellness.com/sms-terms.html"');
+    expect(card).toContain('href="https://nextwave-wellness.com/privacy.html"');
+    // The links are OUTSIDE the label that is stored with the tick, so they cannot change what was consented to.
+    const label = card.match(/<label class="consent">[\s\S]*?<\/label>/)![0];
+    expect(label).not.toContain('href');
+    expect(html.indexOf('consent-card')).toBeLessThan(html.indexOf('id="submit-btn"'));
+  });
 });
 
 describe('recording consent on a public booking', () => {

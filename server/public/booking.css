@@ -362,10 +362,14 @@ form textarea { resize: vertical; }
 form .opt { font-size: 11px; opacity: 0.6; }
 
 .form-err { color: #b4746a; font-size: 13px; margin: 0 0 12px; }
-/* Text-message consent: a checkbox beside its words, not a full-width input. */
-form label.consent { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; line-height: 1.45; color: var(--ink); margin-bottom: 16px; cursor: pointer; }
-form label.consent[hidden] { display: none; }
+/* Text-message consent: a titled card holding a checkbox beside its words (not a full-width input). */
+.consent-card { border: 1px solid var(--line); border-radius: 9px; background: var(--sand); padding: 12px 14px 11px; margin: 4px 0 16px; }
+.consent-card[hidden] { display: none; }
+.consent-title { margin: 0 0 7px; font-size: 13px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--lake-deep); }
+form label.consent { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; line-height: 1.45; color: var(--ink); margin: 0 0 8px; cursor: pointer; }
 form label.consent input[type=checkbox] { width: 18px; height: 18px; margin: 1px 0 0; flex: none; padding: 0; accent-color: var(--lake, #4c6b72); }
+.consent-links { margin: 0; font-size: 12px; color: var(--ink-soft); }
+.consent-links a { color: var(--lake-deep); text-decoration: underline; }
 .form-actions { display: flex; gap: 9px; flex-wrap: wrap; margin-top: 6px; }
 
 .btn {
