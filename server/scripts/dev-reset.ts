@@ -45,30 +45,36 @@ async function main(): Promise<number> {
     memberships: await basePrisma.membership.count(),
     creditLedgerRows: await basePrisma.creditLedger.count(),
     revenueEvents: await basePrisma.revenueEvent.count(),
+    noteSignatures: await basePrisma.noteSignature.count(),
+    documentationDrafts: await basePrisma.documentationDraft.count(),
+    scribeSessions: await basePrisma.scribeSession.count(),
   };
 
   // Order matters: MessageLog, Encounter and VisitNote RESTRICT deletion of their
   // Booking, and amendments reference the note they supersede — break that chain first.
   //
-  // The credit tables are APPEND-ONLY (database triggers reject DELETE), which is the point of them
+  // The credit tables, signatures and clinical notes are APPEND-ONLY (database triggers reject DELETE), which is the point of them
   // — so a development reset has to switch those triggers off for the length of this one
   // transaction (it needs to own the tables, which a dev database does) and back on after. If
   // anything fails the whole transaction rolls back, triggers included.
-  const APPEND_ONLY = ['CreditAllocation', 'CreditLedger', 'PerkUsage', 'RevenueEvent'];
+  const APPEND_ONLY = ['CreditAllocation', 'CreditLedger', 'PerkUsage', 'RevenueEvent', 'NoteSignature', 'VisitNote'];
   await basePrisma.$transaction(async (tx) => {
     for (const t of APPEND_ONLY) await tx.$executeRawUnsafe(`ALTER TABLE "${t}" DISABLE TRIGGER USER`);
     await tx.$executeRawUnsafe('DELETE FROM "CreditAllocation"');
     await tx.$executeRawUnsafe('DELETE FROM "CreditLedger"');
     await tx.$executeRawUnsafe('DELETE FROM "PerkUsage"');
     await tx.$executeRawUnsafe('DELETE FROM "RevenueEvent"');
+    await tx.$executeRawUnsafe('DELETE FROM "NoteSignature"');
+    await tx.$executeRawUnsafe('UPDATE "VisitNote" SET "amendsId" = NULL');     // break the amendment chain, then
+    await tx.$executeRawUnsafe('DELETE FROM "VisitNote"');
     for (const t of APPEND_ONLY) await tx.$executeRawUnsafe(`ALTER TABLE "${t}" ENABLE TRIGGER USER`);
 
     await tx.membership.deleteMany({});
     await tx.smsSuppression.deleteMany({});
     await tx.messageLog.deleteMany({});
+    await tx.documentationDraft.deleteMany({});
+    await tx.scribeSession.deleteMany({});
     await tx.encounter.deleteMany({});
-    await tx.visitNote.updateMany({ data: { amendsId: null } });
-    await tx.visitNote.deleteMany({});
     await tx.booking.deleteMany({});
     await tx.patient.deleteMany({});
     await tx.user.deleteMany({});

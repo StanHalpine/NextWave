@@ -220,14 +220,18 @@ model Booking {
   /// Set when the patient replied C to the confirmation text.
   patientConfirmedAt DateTime?
 
-  user       User         @relation(fields: [userId], references: [id])
-  service    Service      @relation(fields: [serviceId], references: [id])
-  resource   Resource     @relation(fields: [resourceId], references: [id])
-  staff      Staff?       @relation(fields: [staffId], references: [id])
-  visitNotes VisitNote[]
-  encounter  Encounter?
-  patient    Patient?     @relation(fields: [patientId], references: [id])
-  messages   MessageLog[]
+  user               User                @relation(fields: [userId], references: [id])
+  service            Service             @relation(fields: [serviceId], references: [id])
+  resource           Resource            @relation(fields: [resourceId], references: [id])
+  staff              Staff?              @relation(fields: [staffId], references: [id])
+  visitNotes         VisitNote[]
+  encounter          Encounter?
+  patient            Patient?            @relation(fields: [patientId], references: [id])
+  messages           MessageLog[]
+  // Phase 4: the provider's working draft, and the signature that closes it.
+  documentationDraft DocumentationDraft?
+  noteSignature      NoteSignature?
+  scribeSessions     ScribeSession[]
 
   // The availability engine scans by resource/time and by staff/time; the
   // front desk queue scans by status.
@@ -285,6 +289,10 @@ model VisitNote {
   amendsId    String? @unique
   /// Why this amendment was made — required when amending, for the audit trail.
   amendReason String?
+
+  /// A session log's duration in minutes (GENERAL notes only). Carried on the row, so a correction
+  /// is an amendment like any other: a new row with the new figure, the old one kept in the chain.
+  durationMin Int?
 
   /// Which login wrote this, taken from the SESSION — never from the request
   /// body. Null only on rows written before accounts existed, when authorship
@@ -863,4 +871,155 @@ model RevenueEvent {
   @@index([occurredAt])
   @@index([serviceId, occurredAt])
   @@index([patientId])
+}
+
+// =============================================================================
+// Phase 4 — Provider + SOAP: documentation drafts, signatures, the AI scribe, macros
+// =============================================================================
+
+/// The provider's WORKING COPY of a visit's documentation. It is a scratchpad, not the clinical
+/// record: nothing here is a VisitNote, so editing it never touches the amend-only chain. Signing
+/// copies it into VisitNote rows (the record) and deletes this row in the same transaction; after
+/// that the only way to change what was written is the existing amendment.
+///
+/// `version` is optimistic concurrency: every save names the version it read, so two open tabs
+/// (or the scribe's draft arriving) cannot silently overwrite each other.
+model DocumentationDraft {
+  id          String            @id @default(uuid())
+  bookingId   String            @unique
+  /// Copied from the service when the draft is created; decides which fields apply.
+  type        DocumentationType
+  subjective  String            @default("")
+  objective   String            @default("")
+  assessment  String            @default("")
+  plan        String            @default("")
+  /// Session-log fields.
+  notes       String            @default("")
+  durationMin Int?
+  version     Int               @default(1)
+
+  /// Set when the AI scribe's draft was put into this draft. Such a draft cannot be signed unless
+  /// the sign request carries the provider's explicit "I have reviewed this" (audited with it).
+  scribeSessionId String?
+  aiAppliedAt     DateTime?
+
+  createdByAccountId String
+  createdByRole      AccountRole
+  updatedByAccountId String
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+}
+
+/// APPEND-ONLY (triggers). Who signed a visit's documentation, in which provider role, and when —
+/// and which VisitNote rows (the originals) they signed. Amendments after signing are new VisitNote
+/// rows through the existing model; they do not touch this row, so what was FIRST signed is always
+/// recoverable. One signature per booking.
+model NoteSignature {
+  id                String            @id @default(uuid())
+  bookingId         String            @unique
+  type              DocumentationType
+  /// The original VisitNote ids, in S, O, A, P order (or the one GENERAL note of a session log).
+  noteIds           String[]
+  signedAt          DateTime
+  signedByAccountId String
+  signedByStaffId   String
+  /// The provider role used, which matters when a person holds more than one hat.
+  signedRole        AccountRole
+  /// Provenance: the scribe session whose draft was the starting point, whether the provider changed
+  /// anything before signing, and the model that wrote it.
+  scribeSessionId   String?
+  aiAssisted        Boolean           @default(false)
+  aiDraftUnchanged  Boolean?
+  createdAt         DateTime          @default(now())
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+}
+
+enum ScribeStatus {
+  /// An upload target has been issued; the browser is recording or uploading.
+  RECORDING
+  UPLOADED
+  TRANSCRIBING
+  DRAFTING
+  /// Transcript and draft exist; waiting for the provider to review them.
+  READY
+  FAILED
+  /// The provider threw the recording away (audio and transcript deleted from storage).
+  DISCARDED
+}
+
+/// One recording of one visit and what became of it. Audio and transcript live in FileStorage;
+/// this row holds only their opaque KEYS (never the contents, never in logs). The AI's draft is
+/// kept as the model wrote it, so a signed note can be compared with its starting point.
+model ScribeSession {
+  id                 String       @id @default(uuid())
+  bookingId          String
+  encounterId        String
+  status             ScribeStatus @default(RECORDING)
+  startedByAccountId String
+  startedRole        AccountRole
+  audioKey           String       @unique
+  audioContentType   String
+  audioBytes         Int?
+  transcriptKey      String?      @unique
+  /// {subjective, objective, assessment, plan, modelId} exactly as the AiScribe returned it.
+  draft              Json?
+  draftModelId       String?
+  /// A category (upload_missing, transcribe_failed, draft_failed, timed_out) — never a provider's message.
+  failureCode        String?
+  appliedAt          DateTime?
+  discardedAt        DateTime?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+
+  @@index([bookingId])
+  @@index([status, updatedAt])
+}
+
+enum MacroScope {
+  /// One per provider: their own saved text blocks.
+  PERSONAL
+  /// Defined by an administrator and offered to providers (all, or the listed roles).
+  SHARED
+}
+
+/// A set of macros. Personal: owned by one provider account (exactly one set each). Shared:
+/// admin-defined, visible to every provider role or only to `roles`.
+model MacroSet {
+  id                 String        @id @default(uuid())
+  scope              MacroScope
+  name               String
+  ownerAccountId     String?
+  /// Shared sets only. Empty = every provider role.
+  roles              AccountRole[]
+  active             Boolean       @default(true)
+  createdByAccountId String
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  macros Macro[]
+  // + migration SQL: one PERSONAL set per owner (partial unique index) and
+  //   (scope = PERSONAL) = (ownerAccountId IS NOT NULL).
+}
+
+/// A saved text block for one note section. Not clinical data — it is a template — but providers
+/// are told not to put patient details in one, and it is audited when changed.
+model Macro {
+  id        String   @id @default(uuid())
+  setId     String
+  /// Which section it is offered in. GENERAL = the session-log notes field.
+  section   NoteKind
+  title     String
+  body      String
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  set MacroSet @relation(fields: [setId], references: [id], onDelete: Cascade)
+
+  @@index([setId, section, sortOrder])
 }
