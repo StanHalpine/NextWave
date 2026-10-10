@@ -25,7 +25,8 @@ services:
     # A PAID plan, for two reasons. (1) `preDeployCommand` below is not available on the free
     # plan. (2) The web service now also answers the text-message provider's STOP / HELP webhook
     # (POST /api/sms/inbound); a free service that has gone to sleep takes ~30 s to wake, longer
-    # than the provider waits. 0.5c-512mb is Render's entry paid size.
+    # than the provider waits. 0.5c-512mb is Render's entry paid size (the tier the dashboard calls
+    # Starter; the blueprint spec takes the size name, not "starter"). APPROVED by the owner.
     plan: 0.5c-512mb
     rootDir: server
     # --include=dev is required. NODE_ENV=production (set below, correctly, for
@@ -125,7 +126,8 @@ services:
 
   # Scheduled jobs: appointment confirmation and reminder texts, and (Phase 3) the monthly credit
   # grant and credit expiry. One short process every five minutes; every job is idempotent, so an
-  # overlapping or repeated run does no harm. Cron jobs have no free plan.
+  # overlapping or repeated run does no harm. Cron jobs have no free plan; the entry paid size below
+  # is APPROVED by the owner (as is the web service's).
   #
   # sync:false values cannot live in an environment group, so the secrets are declared on each
   # service and must be entered for BOTH — the same values as the web service above.
