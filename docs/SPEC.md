@@ -1,6 +1,6 @@
 # NextWave Wellness — Clinic System Specification
 
-Version 1.4 · 2026-10-09 · Status: **Phases 1 and 2 approved. Phase 3 (Patient Profile + Credits) built — awaiting review; see `docs/PHASE3_NOTES.md`.** Phases 4–5 not started.
+Version 1.5 · 2026-10-10 · Status: **Phases 1, 2 and 3 approved. Phase 4 (Provider + SOAP) built — awaiting review; see `docs/PHASE4_NOTES.md`.** Phase 5 not started.
 
 > **Revision 1.1 — decisions recorded after approval** (the body below is otherwise
 > unchanged from the approved v1; sections touched are marked *[rev 1.1]*):
@@ -55,6 +55,35 @@ Version 1.4 · 2026-10-09 · Status: **Phases 1 and 2 approved. Phase 3 (Patient
 > | Jobs | `membership grants` and `credit expiry` run inside `npm run jobs:run` (not separate `credits:*` commands) |
 > | Admin | Tiers and perks are edited on **Admin → Memberships**; price and credit cost per service on the legacy **Catalogue** Services card (`Service.creditCost`, audited before → after) |
 > | Not in this phase | Payment processing of any kind (cash is *recorded*); membership dues (collected outside the system, not recorded as revenue); member-savings discounts; void |
+
+> **Revision 1.5 — decisions recorded at Phase 3 approval, and Phase 4 as built.**
+>
+> *Decisions at Phase 3 approval:*
+>
+> | Item | Decision |
+> |---|---|
+> | Member discounts | **`MembershipPlan.discountPercent`**, applied at check-out to **cash** payments by **active** members, editable on Admin → Memberships. `RevenueEvent` records **list price, discount and net price as separate columns** (`priceCents` / `cashDueCents` became `listPriceCents` / `netPriceCents`, plus `discountPercent` and `discountCents`). The owner left the tier mapping blank, so every tier starts at **0%**. This **supersedes** the "member savings cannot be applied" limitation in rev 1.4 |
+> | Perks | Quantities left blank by the owner → counters stay **off** |
+> | `membership.html` | Cherry-picked onto `main` (only that commit). It conflicted with an unpushed local commit on `main`; the owner's copy replaced it |
+> | Render | Paid plans approved: the entry size (`0.5c-512mb`) for the web service and the cron job |
+> | Texts | Reminder is now `appt_reminder_24h_v3`: *"NextWave Wellness: Reminder for {first}: see you tomorrow at {time}. Reply STOP to opt out."* The STOP / START / HELP / C replies are the owner's exact wording (`reply_*_v2`). `CLINIC_PHONE` keeps its environment override and defaults to the number published on `contact.html` — which publishes none yet |
+> | Marketing site | `privacy.html`, `sms-terms.html`, Privacy / SMS Terms footer links on every page, and `sms-opt-in.png` + `sms-opt-in.html`, on a **separate branch off `main`** from the booking app |
+> | Staging | `docs/STAGING_CHECKLIST.md`: verify the Twilio signature with a real inbound message (not blocking) |
+>
+> *Phase 4 as built* (where it differs from §4.4 / §5.4 / §7, which are kept as the original design):
+>
+> | Item | As built |
+> |---|---|
+> | Notes | **No `SoapNote` / `SoapNoteRevision`.** The owner's instruction was to build on the existing amend-only `VisitNote` model **without changing its amendment semantics**, so: a mutable **`DocumentationDraft`** (the scratchpad), **signing copies it into `VisitNote` rows** (S, O, A, P — or one GENERAL note for a session log) and writes an append-only **`NoteSignature`** (account, provider role used, time, which notes). Corrections after signing are the existing amendment. `VisitNote` gains a nullable `durationMin` (session logs) so a duration correction is an ordinary amendment. The database now **rejects UPDATE/DELETE/TRUNCATE on `VisitNote` and `NoteSignature`** |
+> | Legacy `VisitNote` endpoints "made read-only" | **Not done.** They are the existing model the owner told me not to change; the amend route still lets any provider amend any note (§7 of the notes) |
+> | Queue | `GET /api/provider/queue?role=` — by **provider role** (not `scope=mine\|specialty`): today's checked-in patients for the role plus visits with **no provider assigned**, with each visit's documentation status, and earlier unsigned visits (30 days). Role switching for multi-role accounts; an admin may view any role read-only |
+> | Workspace | `/api/provider/visits/:id/{documentation,start,draft,sign}` (the spec's `/encounters/:id/soap…` paths). Optimistic `version` on the draft. A SOAP note needs all four sections (write N/A where one does not apply); a session log needs duration and notes |
+> | Macros | **One-click insertion by section**, not typed `trigger` expansion (the owner's wording). `MacroSet` is `PERSONAL` (one per provider) or `SHARED` (admin-defined, all provider roles or the listed ones); `Macro` has a title, a section and a body of at most 4,000 characters |
+> | Scribe | `ScribeSession` holds **keys only**. Patient consent is recorded on the existing **`Encounter.scribeConsentAt`** by the provider before any audio can start (not a column on the session). Upload is a **signed URL** (the stub's stand-in for a presigned S3 PUT; the browser sends no cookie). Processing runs in the background and the browser polls. A draft is **never inserted or signed on its own**; signing one needs `reviewedAiDraft: true`; the signature records `aiAssisted` and whether the provider changed anything. Stub text is marked `[DEMO …]` and **cannot be signed** |
+> | Integrations in production | While FileStorage or AiScribe is a stub, the scribe is **off** in production (`ALLOW_STUB_INTEGRATIONS` lifts that for a fake-patient staging deployment). This replaces the Phase 1 plan to refuse to start |
+> | MFA | `MFA_REQUIRED_ROLES` now defaults to `ADMIN` + the three provider roles, and every clinical route checks the authenticator itself regardless of that setting |
+> | Front desk | `Appointment.documentation = { status: NONE \| DRAFT \| SIGNED, signedAt }` — never text |
+> | Not built | The audio **purge job** (retention is the owner's decision, §9 of the notes); a typed-trigger macro manager; a provider-only "Mine" scope beyond an "Only mine" filter |
 
 Companion to `docs/CURRENT_STATE.md` (what exists today). This document turns
 the approved flowchart into pages, schema, API, and a five-phase plan.

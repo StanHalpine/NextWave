@@ -68,10 +68,12 @@ something — a ping from real input events, or any non-GET request. Background
 polling (the grid refreshes every 30 s) deliberately does *not* count, or an
 unattended screen would never time out. Clients warn at 14 minutes.
 
-**MFA.** TOTP (RFC 6238) is mandatory for `ADMIN`. Seeds are AES-256-GCM
+**MFA.** TOTP (RFC 6238) is mandatory for `ADMIN` and, since Phase 4, for every provider role
+(`MFA_REQUIRED_ROLES`, default `ADMIN` plus the three provider roles). Seeds are AES-256-GCM
 encrypted with `MFA_ENCRYPTION_KEY`; a used code cannot be replayed; ten
-single-use recovery codes are shown once at enrolment (only hashes stored).
-Providers are added at the Phase 4 gate via `MFA_REQUIRED_ROLES`.
+single-use recovery codes are shown once at enrolment (only hashes stored). Clinical documentation
+checks the authenticator **itself** on every route (enrolled, and used in this session), whatever
+`MFA_REQUIRED_ROLES` says, so a mis-set variable cannot open the clinical record.
 
 **Passwords.** Argon2id; ≥12 characters; common passwords and anything
 containing the email are refused. Five bad attempts lock the account for 15
@@ -100,7 +102,7 @@ and `APP_BASE_URL` is an `https://` origin.
 | Page | Path | What it does |
 |---|---|---|
 | Front Desk | `/app/front-desk` | Three columns from the `Encounter` table: today's appointments, checked in, seen/checked out. Check in, undo, check out, no-show, walk-in. The page asks for an online booking to be linked to a patient record before check-in (the API itself does not require it) |
-| Patients | `/app/front-desk/patients` | Directory (search is a `POST` — a name or number never goes in a URL), profile, visit history, text-consent control, a *Credit tracker* tab that is a placeholder until Phase 3 |
+| Patients | `/app/front-desk/patients` | Directory (search is a `POST` — a name or number never goes in a URL), profile, visit history, text-consent control, and the *Credit tracker* tab (Phase 3) |
 | Schedule | `/app/schedule` | Day / week calendar with a provider filter. Click an empty time to book it; click an appointment to move, cancel, check in, approve or decline it |
 
 **The booking engine is untouched.** Creating, moving and walk-ins call the engine's own
@@ -180,6 +182,43 @@ memberships. A plan change applies from the next grant; nothing is prorated or c
 the perk, or record the cash price), write exactly **one `RevenueEvent`** (service, price, member /
 cash, encounter — the data Accounting reads from day one), and check the patient out. It is
 idempotent: a repeat or a double-click returns what was recorded and changes nothing.
+
+**Member discount.** Each tier has a `discountPercent` (0 until the owner sets it; edited on Admin →
+Memberships). It comes off the **list price** when an **active** member pays **cash**, in whole cents with
+halves rounding up. Credits and perks are not priced in money and are never discounted; a paused member, a
+non-member and a visit with no patient record pay list. The desk is shown list, discount and net, and the
+server refuses the check-out if the net the desk saw differs from what it computes (`price_changed`).
+`RevenueEvent` records `listPriceCents`, `discountPercent`, `discountCents` and `netPriceCents`; a database
+CHECK enforces `net = list − discount`.
+
+### Provider, documentation and the AI scribe (Phase 4)
+
+| Where | What |
+|---|---|
+| **Provider** (`/app/provider`) | Today's checked-in patients for your provider role (plus visits with no provider assigned), longest-waiting first, each with *No note yet / Note in progress / Note signed*; earlier unsigned visits (30 days) apart. A person holding more than one role, or an admin, can switch roles (a role that is not theirs is read-only) |
+| **Workspace** (`/app/provider/visits/:id`) | A SOAP editor (S / O / A / P) or, for a session-log service, duration + notes. Autosaves to a **draft**; one-click **macros**; **Review and sign**; after signing, **Amend** (reason required, every earlier version kept) |
+| **AI scribe** | Provider confirms the patient agreed → the browser records → uploads to a signed address → the server transcribes and drafts S/O/A/P. The draft is **offered**, never inserted or signed on its own; signing it needs an explicit "I have reviewed it" |
+| Admin → **Macro sets** | Shared macro sets by section and provider role. Providers keep personal macros too |
+| Front Desk | Sees only whether a note exists and is signed on each appointment, never what it says |
+
+**Two stores, on purpose.** `DocumentationDraft` is a mutable scratchpad (optimistic `version`, so two tabs
+cannot silently overwrite each other). `VisitNote` is the record and its amendment model is unchanged
+(insert-only, `amendsId` chain). **Signing** copies the draft into VisitNote rows (S, O, A, P, or one GENERAL note
+carrying the session's duration), writes an append-only `NoteSignature` (account, **provider role used**, time,
+which notes, whether an AI draft was the starting point), deletes the draft and marks the visit `SEEN` — all in
+one transaction under the Booking row lock. The database now rejects UPDATE/DELETE/TRUNCATE on `VisitNote` and
+`NoteSignature`.
+
+**Who may do what.** Front desk: nothing clinical. Provider: read anything, write visits booked with their own
+role. Admin: read only (an admin who also holds a provider role writes as that role). Every clinical route
+needs the authenticator first.
+
+**The scribe never runs on stubs in production.** FileStorage and AiScribe are local stubs until real adapters
+exist; in production, while either is a stub, the scribe switches itself off (`503 scribe_unavailable`, and the
+workspace says why) and the rest of documentation keeps working. `ALLOW_STUB_INTEGRATIONS=true` lifts that for a
+**staging deployment that holds only fake patients**. Audio, transcript and draft are audited on every read and
+write and are never logged — nor are adapter error messages, which can quote their input.
+`docs/PHASE4_NOTES.md` lists the AWS resources and variables the real adapters need.
 
 ### Scheduled jobs
 
@@ -432,18 +471,19 @@ row that `POST /api/bookings` fills in and the sweeper removes if the hold
 lapses. Making `userId` nullable would remove this wart.
 
 **Authentication is per-person, but not yet reviewed.** Staff accounts, sessions,
-TOTP for admins and an audit trail exist (see *Staff accounts and security*).
+TOTP for admins and providers and an audit trail exist (see *Staff accounts and security*).
 They have been tested but not independently reviewed, and a HIPAA review is still
-needed before real patient data lands in this database. Providers do not yet
-require MFA (Phase 4 gate). See `docs/PHASE1_NOTES.md` for the list of things to
-verify by hand.
+needed before real patient data lands in this database. See `docs/PHASE1_NOTES.md`
+for the list of things to verify by hand.
 
 **Clinical notes are medical records.** `VisitNote` is amend-only — correcting a
 note inserts a new row and preserves the original verbatim; there is no PATCH and
 no DELETE. The author and the provider role used are taken from the signed-in
-session, never the request body. Until the Phase 4 provider module, the only UI
-for writing a note is the legacy dashboard, available to an account that holds
-both `ADMIN` and a provider role.
+session, never the request body. Phase 4 adds the provider workspace (draft →
+sign, with the amendment model unchanged) and the database now refuses to edit or
+delete a note or a signature. The older `POST /api/visit-notes/:id/amend` still lets
+**any provider** amend **any** note (the workspace only offers it for the booked
+role) — see `docs/PHASE4_NOTES.md` §7.
 
 **No EHR export exists.** `GET /api/patients/:id/history` returns the compiled
 record in the shape an export would be built from, but there is no FHIR or HL7
@@ -452,7 +492,7 @@ mapping. Spec §8.5.
 **Not built** (nobody specified them): patient-facing booking UI, recurring
 appointment expansion (`isRecurring` is stored but never acted on), a real SMS provider
 (texts go to a local stub until Twilio is wired in), cancellation or reschedule texts, email
-confirmations, payment processing, member-savings discounts, void of a check-out, cancellation windows, provider
+confirmations, payment processing, void of a check-out, cancellation windows, provider
 time-off/blackout dates. (Automated tests now exist — `npm test` — covering auth, access control, audit and start-up guards; the booking engine itself is still verified by `scripts/race-test.sh` rather than unit tests.)
 
 ## Scripts

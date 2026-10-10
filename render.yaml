@@ -115,6 +115,12 @@ services:
       #   - key: TWILIO_AUTH_TOKEN
       #     sync: false
 
+      # Staging with FAKE patients only: lets the AI scribe run on the local stub storage and scribe
+      # (it is switched off in production while either is a stub). Never set where real patients are
+      # seen; real S3 / Transcribe Medical / Bedrock adapters replace the need for it (docs/PHASE4_NOTES.md §6).
+      #   - key: ALLOW_STUB_INTEGRATIONS
+      #     value: "true"
+
       # Encrypts authenticator secrets. Generate locally with `npm run gen-secrets`
       # and paste it in. Never commit it; losing it invalidates every enrolment.
       - key: MFA_ENCRYPTION_KEY

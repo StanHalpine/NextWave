@@ -200,6 +200,11 @@ your text preference". The failure mode is "no texts", never "texts without cons
 
 ## 7. Known limitations and open risks
 
+> **Update (Phase 4):** the first bullet — member savings at check-out — is superseded: tiers now carry a discount
+> percentage and every check-out records list price, discount and net (see `docs/PHASE4_NOTES.md` §1.1; the
+> percentages start at 0% until you set them). The em-dash bullet no longer applies: the reminder wording changed
+> and is plain GSM-7.
+
 - **Member savings cannot be applied at check-out.** Your tiers promise 20% off X-rays, 20% off extra credits,
   10% / 15% / 20% off supplements, etc. Nothing applies them: the cash price must equal the list price, so the desk
   has **no way to record a discounted sale**. This is the spec's `PlanDiscount`, which was not in your list. It needs
