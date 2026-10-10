@@ -1066,6 +1066,9 @@ textarea { resize: vertical; min-height: 110px; }
   flex-wrap: wrap;
   gap: 12px;
 }
+.footer-legal { display: inline-flex; gap: 20px; flex-wrap: wrap; }
+.footer-legal a { color: rgba(237,231,221,0.72); text-decoration: none; }
+.footer-legal a:hover { color: var(--sand); text-decoration: underline; }
 @media (max-width: 760px) {
   .footer-grid { grid-template-columns: 1fr 1fr; }
 }
