@@ -4,10 +4,10 @@ import { basePrisma } from '../src/lib/prismaBase.js';
 import { staffTransaction } from '../src/lib/staffTx.js';
 import { grantMonthly, toDateOnly, getLots, spendable, addDaysISO } from '../src/lib/credits.js';
 
-export const planByCode = (code: 'PREVENT' | 'RESTORE' | 'OPTIMIZE') => prisma.membershipPlan.findUniqueOrThrow({ where: { code } });
+export const planByCode = (code: string) => prisma.membershipPlan.findUniqueOrThrow({ where: { code } });
 
 /** A membership created directly (no grant), for tests that control the ledger themselves. */
-export async function makeMembership(patientId: string, code: 'PREVENT' | 'RESTORE' | 'OPTIMIZE' = 'PREVENT', startedOn = '2026-10-13', over: { status?: 'ACTIVE' | 'PAUSED' | 'CANCELLED'; nextGrantOn?: string } = {}) {
+export async function makeMembership(patientId: string, code: string = 'PREVENT', startedOn = '2026-10-13', over: { status?: 'ACTIVE' | 'PAUSED' | 'CANCELLED'; nextGrantOn?: string } = {}) {
   const plan = await planByCode(code);
   const acct = await prisma.account.findFirst({ select: { id: true } });
   return prisma.membership.create({
@@ -64,14 +64,14 @@ export async function checkedInVisit(clinic: Awaited<ReturnType<typeof creditSer
 /** A private plan (and perks) for a test, so editing it cannot disturb the seeded tiers other tests read. */
 let planN = 0;
 export async function makePlan(opts: {
-  credits?: number; rolloverDays?: number; priceCents?: number; active?: boolean;
+  credits?: number; rolloverDays?: number; priceCents?: number; active?: boolean; discountPercent?: number;
   perks?: Array<{ key: string; label?: string; period?: 'MONTHLY' | 'QUARTERLY' | 'ANNUAL'; quantity: number; active?: boolean; serviceIds?: string[] }>;
 } = {}) {
   const code = `T${Date.now().toString(36).toUpperCase()}${++planN}`;
   const plan = await prisma.membershipPlan.create({
     data: {
       code, name: `Test plan ${code}`, priceCents: opts.priceCents ?? 12300, creditsPerMonth: opts.credits ?? 5, rolloverDays: opts.rolloverDays ?? 90,
-      active: opts.active ?? true, sortOrder: 99,
+      discountPercent: opts.discountPercent ?? 0, active: opts.active ?? true, sortOrder: 99,
     },
   });
   const perks = [];

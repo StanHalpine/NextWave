@@ -149,7 +149,7 @@ fdRouter.post('/fd/walk-ins', requireFrontDesk, async (req, res) => {
 const checkoutBody = z.discriminatedUnion('payment', [
   z.object({ payment: z.literal('CREDITS') }).strict(),
   z.object({ payment: z.literal('PERK'), perkId: z.string().min(1).max(64) }).strict(),
-  z.object({ payment: z.literal('CASH'), priceCents: z.number().int().positive().max(100_000_00).optional() }).strict(),
+  z.object({ payment: z.literal('CASH'), priceCents: z.number().int().positive().max(100_000_00).optional(), expectedNetCents: z.number().int().min(0).max(100_000_00).optional() }).strict(),
 ]);
 
 /** What the check-out screen shows: price, balance before and after, and every way this visit can be paid. */

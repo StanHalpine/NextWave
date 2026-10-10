@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { api } from '../api';
 import { errorText, Modal, Notice } from '../ui';
-import { credits as creditsLabel, fmtMoney, fmtTime12, parseDollars } from '../lib';
+import { credits as creditsLabel, fmtMoney, fmtTime12, memberDiscount, parseDollars } from '../lib';
 import type { Appt, CheckoutPreview, CheckoutResult } from '../types';
 
 type Choice = { kind: 'CREDITS' } | { kind: 'PERK'; perkId: string } | { kind: 'CASH' };
@@ -31,6 +31,10 @@ export function CheckoutDialog({ appt, onClose, onDone }: { appt: Appt; onClose:
 
   const typed = parseDollars(amount);
   const cashNeedsAmount = pv ? !pv.cash.priceKnown : false;
+  // What a cash payment comes to: the list price (set, or as typed), less the member discount if one applies.
+  const cashList = pv ? (pv.cash.priceKnown ? pv.cash.priceCents : typed) : null;
+  const cashPct = pv?.cash.discountPercent ?? 0;
+  const cashSplit = cashList != null ? memberDiscount(cashList, cashPct) : null;
   const ready = !!choice && (choice.kind !== 'CASH' || !cashNeedsAmount || typed !== null);
 
   async function submit(e: FormEvent) {
@@ -39,7 +43,7 @@ export function CheckoutDialog({ appt, onClose, onDone }: { appt: Appt; onClose:
     setBusy(true); setError(null);
     try {
       const body = choice.kind === 'CREDITS' ? { payment: 'CREDITS' } : choice.kind === 'PERK' ? { payment: 'PERK', perkId: choice.perkId }
-        : { payment: 'CASH', ...(cashNeedsAmount && typed ? { priceCents: typed } : {}) };
+        : { payment: 'CASH', ...(cashNeedsAmount && typed ? { priceCents: typed } : {}), ...(cashSplit ? { expectedNetCents: cashSplit.netCents } : {}) };
       const r = await api<{ checkout: CheckoutResult }>(`/api/fd/appointments/${appt.id}/check-out`, { method: 'POST', body });
       setResult(r.checkout);
     } catch (err) { setError(errorText(err)); }
@@ -91,16 +95,19 @@ export function CheckoutDialog({ appt, onClose, onDone }: { appt: Appt; onClose:
             <label className={`pay-option${choice?.kind === 'CASH' ? ' on' : ''}`}>
               <input type="radio" name="pay" checked={choice?.kind === 'CASH'} onChange={() => setChoice({ kind: 'CASH' })} />
               <span>
-                <strong>Paid at the desk</strong>{pv.cash.priceKnown && <> — {fmtMoney(pv.cash.priceCents)}</>}
+                <strong>Paid at the desk</strong>{cashSplit && <> — {fmtMoney(cashSplit.netCents)}</>}
+                {cashSplit && cashPct > 0 && (
+                  <><br /><span className="small">{fmtMoney(cashList)} list − {cashPct}% {pv.membership?.planName} member discount ({fmtMoney(cashSplit.discountCents)}) = <strong>{fmtMoney(cashSplit.netCents)}</strong></span></>
+                )}
                 <br /><span className="muted small">Recorded only — nothing is charged from here.</span>
               </span>
             </label>
           </div>
 
           {choice?.kind === 'CASH' && cashNeedsAmount && (
-            <label>Amount collected ($)
+            <label>Price before any member discount ($)
               <input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="e.g. 75.00" autoFocus />
-              <span className="hint">{pv.priceNote ?? 'This service has no set price'} — enter what was collected.</span>
+              <span className="hint">{pv.priceNote ?? 'This service has no set price'} — enter the full price; a member discount, if any, is taken off for you.</span>
             </label>
           )}
 
@@ -123,10 +130,11 @@ function Receipt({ appt, r, onClose }: { appt: Appt; r: CheckoutResult; onClose:
         <dl className="facts">
           <dt>Paid with</dt>
           <dd>
-            {r.paymentType === 'CASH' ? <>At the desk — <strong>{fmtMoney(r.cashDueCents)}</strong></>
+            {r.paymentType === 'CASH' ? <>At the desk — <strong>{fmtMoney(r.netPriceCents)}</strong></>
               : r.memberBenefit === 'PERK' ? <>Included perk{r.perkLabel ? `: ${r.perkLabel}` : ''}</>
               : <><strong>{creditsLabel(r.creditsRedeemed)}</strong></>}
           </dd>
+          {r.paymentType === 'CASH' && r.discountPercent > 0 && (<><dt>Member discount</dt><dd>{r.discountPercent}% off {fmtMoney(r.listPriceCents)} = −{fmtMoney(r.discountCents)}</dd></>)}
           {r.balanceBefore != null && r.balanceAfter != null && (<><dt>Balance</dt><dd>{r.balanceBefore} → <strong>{r.balanceAfter}</strong> {r.balanceAfter === 1 ? 'credit' : 'credits'}</dd></>)}
           {r.alreadyCheckedOut && (<><dt /><dd className="muted">Already checked out — nothing changed.</dd></>)}
         </dl>

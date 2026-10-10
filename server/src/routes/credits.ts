@@ -70,7 +70,7 @@ creditsRouter.get('/fd/patients/:id/credits', requireFrontDesk, async (req, res)
   res.json({
     membership: m && {
       id: m.id, status: m.status, startedOn: fromDateOnly(m.startedOn), nextGrantOn: fromDateOnly(m.nextGrantOn),
-      plan: { code: m.plan.code, name: m.plan.name, priceCents: m.plan.priceCents, creditsPerMonth: m.plan.creditsPerMonth, rolloverDays: m.plan.rolloverDays },
+      plan: { code: m.plan.code, name: m.plan.name, priceCents: m.plan.priceCents, creditsPerMonth: m.plan.creditsPerMonth, rolloverDays: m.plan.rolloverDays, discountPercent: m.plan.discountPercent },
     },
     balance: spendable(lots),
     expiringSoon: expiringSoon(lots, today),
@@ -180,6 +180,6 @@ creditsRouter.post('/fd/patients/:id/perks/:perkId/use', requireFrontDesk, async
 
 creditsRouter.get('/membership-plans', requireRole(), async (_req, res) => {
   const plans = await prisma.membershipPlan.findMany({ where: { active: true }, orderBy: { sortOrder: 'asc' } });
-  res.json({ plans: plans.map((p) => ({ code: p.code, name: p.name, priceCents: p.priceCents, creditsPerMonth: p.creditsPerMonth, rolloverDays: p.rolloverDays })) });
+  res.json({ plans: plans.map((p) => ({ code: p.code, name: p.name, priceCents: p.priceCents, creditsPerMonth: p.creditsPerMonth, rolloverDays: p.rolloverDays, discountPercent: p.discountPercent })) });
 });
 

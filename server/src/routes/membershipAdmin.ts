@@ -2,7 +2,7 @@
  * Admin: the membership tiers as DATA.
  *
  *   GET   /api/admin/membership-plans                       every tier, its perks, and how many members
- *   PATCH /api/admin/membership-plans/:id                   name, dues, credits per month, rollover days, active
+ *   PATCH /api/admin/membership-plans/:id                   name, dues, credits per month, rollover days, member discount %, active
  *   PATCH /api/admin/membership-plans/:id/perks/:perkId     label, quantity, active, which services redeem it
  *
  * A change applies from the next grant / the next check-out: credits already granted are never
@@ -31,7 +31,7 @@ membershipAdminRouter.get('/admin/membership-plans', requireRole('ADMIN'), async
   audit.read('membership_plan', null, { scope: 'admin' }, 'membership-plans');
   res.json({
     plans: plans.map((p) => ({
-      id: p.id, code: p.code, name: p.name, priceCents: p.priceCents, creditsPerMonth: p.creditsPerMonth, rolloverDays: p.rolloverDays,
+      id: p.id, code: p.code, name: p.name, priceCents: p.priceCents, creditsPerMonth: p.creditsPerMonth, rolloverDays: p.rolloverDays, discountPercent: p.discountPercent,
       active: p.active, members: p._count.memberships,
       perks: p.perks.map((k) => ({ id: k.id, key: k.key, label: k.label, period: k.period, quantity: k.quantity, active: k.active, serviceIds: k.services.map((s) => s.serviceId) })),
     })),
@@ -44,6 +44,8 @@ const planPatch = z.object({
   priceCents: z.number().int().min(0).max(1_000_000).optional(),
   creditsPerMonth: z.number().int().min(0).max(100).optional(),
   rolloverDays: z.number().int().min(1).max(730).optional(),
+  /** Whole percent off the list price when an active member of this tier pays cash. */
+  discountPercent: z.number().int().min(0).max(100).optional(),
   active: z.boolean().optional(),
 }).strict();
 

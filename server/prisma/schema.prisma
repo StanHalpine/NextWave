@@ -692,6 +692,10 @@ model MembershipPlan {
   creditsPerMonth Int
   /// A monthly grant is usable for this many days from the grant date.
   rolloverDays    Int     @default(90)
+  /// Whole percent taken off the LIST price when an ACTIVE member of this tier pays cash for a
+  /// visit. Credits and perks are not discounted (they are not priced in money). 0 = no discount,
+  /// which is how it starts: the owner has not yet said what each tier gets.
+  discountPercent Int     @default(0)
   active          Boolean @default(true)
   sortOrder       Int     @default(0)
 
@@ -823,8 +827,8 @@ model PerkUsage {
 }
 
 /// APPEND-ONLY. One row per check-out: what the visit was, what it was worth, and how it was
-/// paid — the data Accounting and Reports (Phases 4–5) read, from day one. No payment is
-/// processed here: `cashDueCents` is what the desk recorded collecting.
+/// paid — the data Accounting and Reports (Phase 5) read, from day one. No payment is processed
+/// here: `netPriceCents` is what the desk recorded collecting. list − discount = net, enforced.
 model RevenueEvent {
   id              String         @id @default(uuid())
   encounterId     String         @unique
@@ -836,13 +840,19 @@ model RevenueEvent {
   serviceCategory String
   subOption       String?
   /// What the visit is worth at list price. NULL only when it has none and was paid with credits.
-  priceCents      Int?
+  listPriceCents  Int?
   /// MEMBER = covered by the membership (credits or a perk); CASH = paid at the desk.
   paymentType     PaymentType
   memberBenefit   MemberBenefit?
   creditsRedeemed Int            @default(0)
-  cashDueCents    Int            @default(0)
-  /// The member's tier at the time (code), for member events.
+  /// The tier's discount in force at check-out, and the cents it took off the list price. Both 0
+  /// unless an ACTIVE member paid cash and their tier has a discount.
+  discountPercent Int            @default(0)
+  discountCents   Int            @default(0)
+  /// What the patient owes in money: listPrice − discount for a cash payment, 0 for a visit the
+  /// membership covered. Recorded only — nothing is charged from here.
+  netPriceCents   Int            @default(0)
+  /// The member's tier at the time (code): set for a member event and for a discounted cash one.
   planCode        String?
   occurredAt      DateTime
   recordedById    String

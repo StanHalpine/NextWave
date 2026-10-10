@@ -75,7 +75,7 @@ export const CANCEL_REASON_LABEL: Record<string, string> = {
 
 // ---- Phase 3: credits, memberships, check-out ----------------------------------------------------
 
-export interface PlanLite { code: string; name: string; priceCents: number; creditsPerMonth: number; rolloverDays: number }
+export interface PlanLite { code: string; name: string; priceCents: number; creditsPerMonth: number; rolloverDays: number; discountPercent: number }
 export interface MembershipView {
   id: string; status: 'ACTIVE' | 'PAUSED' | 'CANCELLED'; startedOn: string; nextGrantOn: string; plan: PlanLite;
 }
@@ -105,11 +105,17 @@ export interface CheckoutPreview {
   balance: number | null;
   credits: { available: boolean; cost: number | null; balanceAfter: number | null; reason: string | null };
   perks: Array<{ perkId: string; label: string; remaining: number; period: string }>;
-  cash: { priceCents: number | null; priceKnown: boolean };
+  cash: {
+    /** The list price. */
+    priceCents: number | null; priceKnown: boolean;
+    /** The member discount that applies to a cash payment (0 for a non-member or a paused membership). */
+    discountPercent: number; discountCents: number | null; netPriceCents: number | null;
+  };
 }
 export interface CheckoutResult {
-  paymentType: 'MEMBER' | 'CASH'; memberBenefit: 'CREDITS' | 'PERK' | null; priceCents: number | null; creditsRedeemed: number;
-  cashDueCents: number; balanceBefore: number | null; balanceAfter: number | null; perkLabel: string | null; planName: string | null;
+  paymentType: 'MEMBER' | 'CASH'; memberBenefit: 'CREDITS' | 'PERK' | null; creditsRedeemed: number;
+  listPriceCents: number | null; discountPercent: number; discountCents: number; netPriceCents: number;
+  balanceBefore: number | null; balanceAfter: number | null; perkLabel: string | null; planName: string | null;
   alreadyCheckedOut: boolean;
 }
 

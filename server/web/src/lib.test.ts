@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { credits, fmtMoney, parseDollars, addDays, ageOn, fmtDay, fmtInstantTime, fmtPhone, fmtRange, fmtTime12, isoWeekday, layoutLanes, nowHHMM, serviceLabel, toMinutes, weekStart } from './lib';
+import { credits, fmtMoney, memberDiscount, parseDollars, addDays, ageOn, fmtDay, fmtInstantTime, fmtPhone, fmtRange, fmtTime12, isoWeekday, layoutLanes, nowHHMM, serviceLabel, toMinutes, weekStart } from './lib';
 
 describe('times', () => {
   it('formats 24h clinic times as 12h', () => {
@@ -113,5 +113,15 @@ describe('money', () => {
     expect(credits(1)).toBe('1 credit');
     expect(credits(0)).toBe('0 credits');
     expect(credits(6)).toBe('6 credits');
+  });
+});
+
+describe('memberDiscount', () => {
+  // The same table as server/tests/checkout.test.ts: the browser shows a figure the server will recompute.
+  it.each([
+    [5500, 10, 550, 4950], [5500, 0, 0, 5500], [5500, 100, 5500, 0], [1999, 15, 300, 1699], [1999, 20, 400, 1599],
+    [5, 10, 1, 4], [4, 10, 0, 4], [1, 49, 0, 1], [1, 50, 1, 0], [18500, 20, 3700, 14800], [0, 20, 0, 0],
+  ])('%i cents at %i%% takes off %i, leaving %i', (list, pct, off, net) => {
+    expect(memberDiscount(list, pct)).toEqual({ discountCents: off, netCents: net });
   });
 });

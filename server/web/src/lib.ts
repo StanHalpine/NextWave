@@ -129,5 +129,16 @@ export function parseDollars(raw: string): number | null {
   return cents > 0 ? cents : null;
 }
 
+/**
+ * The member discount on a list price, in whole cents, halves rounding up. A COPY of
+ * server/src/lib/pricing.ts memberDiscount — used only to show the figure while an amount is
+ * being typed. The server recomputes it and refuses a check-out whose displayed net differs, and
+ * lib.test.ts runs the same cases the server's tests do.
+ */
+export function memberDiscount(listCents: number, percent: number): { discountCents: number; netCents: number } {
+  const discountCents = Math.floor((listCents * percent + 50) / 100);
+  return { discountCents, netCents: listCents - discountCents };
+}
+
 /** "1 credit" / "2 credits". */
 export const credits = (n: number): string => `${n} credit${n === 1 ? '' : 's'}`;
