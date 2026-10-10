@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1200">
+<meta name="robots" content="noindex">
+<title>SMS opt-in — NextWave Wellness</title>
+<!--
+  SOURCE for sms-opt-in.png (1200 x 600): the text-message opt-in shown on the online booking page.
+  It restates the booking widget's consent card (server/public/index.html + booking.css, same colours,
+  title, wording, unchecked box and links), larger so it reads at a glance. It is a picture of that
+  card, not a working form. If the widget's card or its wording changes, change this and re-render:
+
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --hide-scrollbars \
+      --window-size=1200,600 --screenshot=assets/img/sms-opt-in.png assets/img/sms-opt-in.html
+
+  The consent wording is the exact string in server/src/integrations/templates.ts (SMS_CONSENT_LABEL).
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #1c2b2e; --ink-soft: #33454a; --sand: #ede7dd; --paper: #f7f4ee;
+    --sage-deep: #5c6e5a; --lake: #4c6b72; --lake-deep: #354f55;
+    --line: rgba(28, 43, 46, 0.14);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; width: 1200px; height: 600px; overflow: hidden; }
+  body {
+    background: var(--paper); color: var(--ink);
+    font-family: "Quicksand", -apple-system, BlinkMacSystemFont, sans-serif; line-height: 1.5;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .frame { width: 940px; }
+  .frame-head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    font-size: 15px; letter-spacing: 0.02em; color: var(--ink-soft); margin: 0 4px 14px;
+  }
+  .frame-head strong { font-size: 17px; color: var(--ink); }
+
+  .field-ghost {
+    height: 44px; border: 1px solid var(--line); border-radius: 9px; background: #fff; opacity: 0.55; margin-bottom: 14px;
+    padding: 10px 14px; font-size: 16px; color: var(--ink-soft);
+  }
+
+  /* The card itself — the widget's .consent-card, scaled up by 1.45. */
+  .consent-card { border: 1px solid var(--line); border-radius: 13px; background: var(--sand); padding: 22px 26px 20px; margin: 4px 0 20px; }
+  .consent-title { margin: 0 0 14px; font-size: 19px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--lake-deep); }
+  .consent { display: flex; gap: 16px; align-items: flex-start; font-size: 22px; line-height: 1.45; color: var(--ink); margin: 0 0 14px; }
+  .consent input[type=checkbox] { width: 28px; height: 28px; margin: 3px 0 0; flex: none; padding: 0; accent-color: var(--lake); }
+  .consent-links { margin: 0; font-size: 18px; color: var(--ink-soft); }
+  .consent-links a { color: var(--lake-deep); text-decoration: underline; }
+
+  .actions { display: flex; gap: 12px; }
+  .btn { font-family: inherit; font-size: 18px; padding: 13px 26px; border-radius: 10px; border: 1px solid transparent; }
+  .btn-primary { background: var(--sage-deep); color: #fff; }
+  .btn-ghost { background: transparent; border-color: var(--line); color: var(--ink); }
+  .note { margin: 14px 4px 0; font-size: 15px; color: var(--ink-soft); }
+</style>
+</head>
+<body>
+  <div class="frame">
+    <div class="frame-head"><strong>Book an appointment — your details</strong><span>nextwave-wellness.com</span></div>
+    <div class="field-ghost">Phone</div>
+
+    <div class="consent-card">
+      <h3 class="consent-title">Appointment notifications</h3>
+      <label class="consent">
+        <input type="checkbox" tabindex="-1">
+        <span>Text me appointment confirmations and reminders. Msg &amp; data rates may apply. Reply STOP to opt out.</span>
+      </label>
+      <p class="consent-links">See our
+        <a href="https://nextwave-wellness.com/sms-terms.html">SMS Terms</a> and
+        <a href="https://nextwave-wellness.com/privacy.html">Privacy Policy</a>.</p>
+    </div>
+
+    <div class="actions">
+      <span class="btn btn-primary">Request appointment</span>
+      <span class="btn btn-ghost">Cancel</span>
+    </div>
+    <p class="note">The box is unchecked by default and optional. Appointments can be booked without it.</p>
+  </div>
+</body>
+</html>

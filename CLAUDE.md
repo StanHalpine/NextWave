@@ -5,6 +5,7 @@ Static marketing site. Plain HTML/CSS/JS, no build step, no framework. Open any
 
 ```
 index.html  about.html  contact.html  membership.html  services.html
+privacy.html  sms-terms.html     legal pages (linked from every footer)
 services/          14 service detail pages
 assets/style.css   single stylesheet, all pages
 assets/script.js   nav, scroll-reveal, dialogs
@@ -19,8 +20,8 @@ and color throughout.
 
 ### Every page shares a header/footer
 
-The nav, submenu, and footer are duplicated in all 19 HTML files. There is no
-templating. **Any nav or footer change touches all 19 files** — write a Python
+The nav, submenu, and footer are duplicated in all 21 HTML files. There is no
+templating. **Any nav or footer change touches all 21 files** — write a Python
 script with a regex rather than editing by hand, then verify with a `grep -c`
 that every file was hit. A silent partial match is the main failure mode here.
 
@@ -134,6 +135,24 @@ not derived from the service pages, so do not "re-derive" them. The credit costs
 shown in the `credit-table` are the same numbers seeded as `Service.creditCost`
 in the booking app (`server/prisma/seed.ts`) — change them in both places.
 
+### Legal pages and the SMS opt-in image
+
+`privacy.html` and `sms-terms.html` use the standard banner → horizon → `.learn-more-body` pattern and
+carry the same nav/footer as every other page (they were built from `contact.html`'s head, nav and
+footer). Every page's footer has **Privacy** and **SMS Terms** links in `.footer-bottom`
+(`.footer-legal`; `../` prefix on service pages) — added by script, so a new page needs the same span.
+
+- `contact.html` publishes **no phone number and no street address**. Both legal pages therefore show
+  highlighted `[clinic phone number]` / `[street address]` placeholders (`data-fill` attributes —
+  `grep -rn data-fill *.html`). Replace them (and add the number to `contact.html`) before publishing.
+- The SMS terms quote the opt-in wording **verbatim**; it is `SMS_CONSENT_LABEL` in the booking app
+  (`server/src/integrations/templates.ts`). Change all three places together: that string, the
+  booking widget's consent card, and `assets/img/sms-opt-in.html`.
+- `assets/img/sms-opt-in.html` is the source of `assets/img/sms-opt-in.png` (1200×600, the picture of
+  the booking page's consent card given to the carrier registration). Re-render command is in the
+  comment at the top of the HTML (headless Chrome, `--window-size=1200,600`).
+- The effective date on both pages is set by hand.
+
 ### Logo usage
 
 Three logo assets, each for a different context:
@@ -158,7 +177,7 @@ Three logo assets, each for a different context:
 ### PWA / app icon
 
 `manifest.json` (root) + `<link rel="apple-touch-icon" href=".../AppIcon_180.png">`
-plus `apple-mobile-web-app-*` meta tags are on all 19 pages, so any new page
+plus `apple-mobile-web-app-*` meta tags are on all 21 pages, so any new page
 needs the same block copied from an existing `<head>` (mind the `../` prefix
 on service pages).
 
