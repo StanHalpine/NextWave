@@ -142,9 +142,10 @@ carry the same nav/footer as every other page (they were built from `contact.htm
 footer). Every page's footer has **Privacy** and **SMS Terms** links in `.footer-bottom`
 (`.footer-legal`; `../` prefix on service pages) — added by script, so a new page needs the same span.
 
-- `contact.html` publishes **no phone number and no street address**. Both legal pages therefore show
-  highlighted `[clinic phone number]` / `[street address]` placeholders (`data-fill` attributes —
-  `grep -rn data-fill *.html`). Replace them (and add the number to `contact.html`) before publishing.
+- **Clinic phone and address** — (308) 830-1951 and 110 S. 243rd St., Waterloo, NE 68069 — appear in
+  `contact.html`, `privacy.html` and `sms-terms.html`. If either changes, change all three, and the copy
+  of the phone in the booking app (`server/src/clinicContact.ts`, with a test that compares it to
+  `contact.html`). The SMS terms' HELP line ("call …") uses the same number.
 - The SMS terms quote the opt-in wording **verbatim**; it is `SMS_CONSENT_LABEL` in the booking app
   (`server/src/integrations/templates.ts`). Change all three places together: that string, the
   booking widget's consent card, and `assets/img/sms-opt-in.html`.
