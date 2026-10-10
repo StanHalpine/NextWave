@@ -24,6 +24,9 @@ import { smsPublicRouter } from './routes/smsPublic.js';
 import { creditsRouter } from './routes/credits.js';
 import { membershipAdminRouter } from './routes/membershipAdmin.js';
 import { smsInboundRouter } from './routes/smsInbound.js';
+import { providerRouter } from './routes/provider.js';
+import { macrosRouter } from './routes/macros.js';
+import { devStorageRouter } from './routes/devStorage.js';
 import { startInProcessScheduler } from './jobs/scheduler.js';
 import { demoGate } from './middleware/demoGate.js';
 import { requestContext } from './middleware/requestContext.js';
@@ -125,6 +128,10 @@ export function buildApp() {
   app.use('/api', fdRouter);
   app.use('/api', creditsRouter);
   app.use('/api', membershipAdminRouter);
+  // Phase 4: provider queue + documentation workspace + AI scribe, macros, and the stub's upload target.
+  app.use('/api', providerRouter);
+  app.use('/api', macrosRouter);
+  app.use('/api', devStorageRouter);
 
   // The staff app (React + Vite), built to public/app. index.html must never be
   // cached so a deploy takes effect at once; its hashed assets can be.

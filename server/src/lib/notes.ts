@@ -21,6 +21,8 @@ export interface RawNote {
   createdAt: Date;
   amendsId: string | null;
   amendReason: string | null;
+  /** A session log's duration in minutes (GENERAL notes only); carried through amendments. */
+  durationMin?: number | null;
   author: { id: string; name: string; role: string };
 }
 
@@ -28,6 +30,7 @@ export interface ResolvedNote {
   id: string;
   kind: NoteKind;
   body: string;
+  durationMin: number | null;
   author: { id: string; name: string; role: string };
   createdAt: string;
   /** True when this row replaced an earlier one. */
@@ -36,6 +39,7 @@ export interface ResolvedNote {
   history: Array<{
     id: string;
     body: string;
+    durationMin: number | null;
     author: { id: string; name: string; role: string };
     createdAt: string;
     amendReason: string | null;
@@ -65,6 +69,7 @@ export function resolveNoteChains(rows: RawNote[]): ResolvedNote[] {
       history.push({
         id: cursor.id,
         body: cursor.body,
+        durationMin: cursor.durationMin ?? null,
         author: cursor.author,
         createdAt: cursor.createdAt.toISOString(),
         // The reason lives on the row that DID the amending, so read it from
@@ -86,6 +91,7 @@ export function resolveNoteChains(rows: RawNote[]): ResolvedNote[] {
       id: tail.id,
       kind: tail.kind,
       body: tail.body,
+      durationMin: tail.durationMin ?? null,
       author: tail.author,
       createdAt: tail.createdAt.toISOString(),
       amended: history.length > 0,

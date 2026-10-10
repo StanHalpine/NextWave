@@ -148,8 +148,12 @@ export const config = {
     'https://www.nextwave-wellness.com',
   ]),
 
-  /** Roles for which TOTP is mandatory. Providers are added at the Phase 4 gate. */
-  mfaRequiredRoles: list('MFA_REQUIRED_ROLES', ['ADMIN']),
+  /**
+   * Roles for which TOTP is mandatory at sign-in. Providers joined admins at the Phase 4 gate, since
+   * they now read and write clinical notes. (Clinical documentation additionally checks the
+   * authenticator itself, whatever this says — see middleware/clinical.ts.)
+   */
+  mfaRequiredRoles: list('MFA_REQUIRED_ROLES', ['ADMIN', 'PROVIDER_CHIRO', 'PROVIDER_NP', 'PROVIDER_NURSE']),
   mfaKey: mfaKey(),
 
   /**
@@ -166,6 +170,14 @@ export const config = {
    * seen without a restart — which is what lets tests set it.
    */
   get clinicPhone(): string { return (process.env.CLINIC_PHONE ?? '').trim() || PUBLISHED_CLINIC_PHONE || ''; },
+
+  /**
+   * The AI scribe records visits and sends the audio and transcripts through FileStorage and AiScribe.
+   * While either is the local STUB (which writes to the server's own unencrypted disk) the scribe is
+   * switched OFF in production, so real patient audio can never land there. This lifts that, for a
+   * staging deployment that holds only fake patients. Never set it where real patients are seen.
+   */
+  allowStubIntegrations: flag('ALLOW_STUB_INTEGRATIONS', false),
 
   /** Booking grid granularity. Slots start on multiples of this. */
   slotGranularityMin: 15,

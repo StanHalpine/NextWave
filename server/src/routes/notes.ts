@@ -15,6 +15,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { logger } from '../lib/logger.js';
+import { audit } from '../lib/audit.js';
 import { hasRole, requireRole } from '../middleware/session.js';
 import { PROVIDER_ROLES } from '../lib/sessions.js';
 import { resolveNoteChains, type RawNote } from '../lib/notes.js';
@@ -91,6 +92,8 @@ notesRouter.post('/bookings/:id/notes', requireRole(...PROVIDER_ROLES), async (r
 const amendBody = z.object({
   body: z.string().trim().min(1, 'An amended note cannot be empty.').max(20000),
   amendReason: z.string().trim().min(1, 'An amendment must say why.').max(500),
+  /** A session log's duration. Omit to keep the amended note's; send to correct it (the old figure stays in the chain). */
+  durationMin: z.number().int().min(1).max(1440).optional(),
 }).strict();
 
 /**
@@ -104,7 +107,7 @@ notesRouter.post('/visit-notes/:id/amend', requireRole(...PROVIDER_ROLES), async
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Invalid body.' });
   }
-  const { body, amendReason } = parsed.data;
+  const { body, amendReason, durationMin } = parsed.data;
 
   const author = await sessionAuthor(req);
   if ('error' in author) return res.status(403).json({ error: author.error, code: 'no_provider_identity' });
@@ -134,6 +137,7 @@ notesRouter.post('/visit-notes/:id/amend', requireRole(...PROVIDER_ROLES), async
           authorRole: author.role,
           kind: target.kind,
           body,
+          durationMin: target.kind === 'GENERAL' ? (durationMin ?? target.durationMin) : null,
           amendsId: target.id,
           amendReason,
         },
@@ -148,6 +152,7 @@ notesRouter.post('/visit-notes/:id/amend', requireRole(...PROVIDER_ROLES), async
       amends: req.params.id,
       kind: result.note.kind,
       body: result.note.body,
+      durationMin: result.note.durationMin,
       author: result.note.author,
       createdAt: result.note.createdAt.toISOString(),
     });
@@ -213,6 +218,9 @@ notesRouter.get('/patients/:id/history', requireRole(), async (req, res) => {
     orderBy: { startTime: 'asc' },
   });
 
+  // This response carries clinical note text for providers and admins, so it is a read of clinical
+  // notes as well as of the contact record the route's access audit covers.
+  if (canReadNotes(req)) audit.read('visit_note', patient.id, { scope: 'patient_history', visits: bookings.length });
   res.json({
     patient,
     visitCount: bookings.length,

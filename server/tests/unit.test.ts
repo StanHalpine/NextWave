@@ -105,9 +105,15 @@ describe('sign-in steps', () => {
     expect(computeNeeds(acct, session(false))).toEqual(['mfa_verify']);
     expect(computeNeeds(acct, session(true))).toEqual([]);
   });
-  it('does not require MFA of providers yet (Phase 4 gate), but honours it if they enrol', () => {
-    expect(computeNeeds({ roles: ['PROVIDER_CHIRO'], mustChangePassword: false, mfaEnabledAt: null }, session(false))).toEqual([]);
-    expect(computeNeeds({ roles: ['PROVIDER_CHIRO'], mustChangePassword: false, mfaEnabledAt: new Date() }, session(false))).toEqual(['mfa_verify']);
+  it('requires MFA enrolment of every provider role (the Phase 4 gate), and a code each session once enrolled', () => {
+    for (const role of ['PROVIDER_CHIRO', 'PROVIDER_NP', 'PROVIDER_NURSE'] as const) {
+      expect(computeNeeds({ roles: [role], mustChangePassword: false, mfaEnabledAt: null }, session(false)), role).toEqual(['mfa_enroll']);
+      expect(computeNeeds({ roles: [role], mustChangePassword: false, mfaEnabledAt: new Date() }, session(false)), role).toEqual(['mfa_verify']);
+      expect(computeNeeds({ roles: [role], mustChangePassword: false, mfaEnabledAt: new Date() }, session(true)), role).toEqual([]);
+    }
+  });
+  it('still lets the front desk sign in without it', () => {
+    expect(computeNeeds({ roles: ['FRONT_DESK'], mustChangePassword: false, mfaEnabledAt: null }, session(false))).toEqual([]);
   });
   it('puts the password change first', () => {
     expect(computeNeeds({ roles: ['ADMIN'], mustChangePassword: true, mfaEnabledAt: null }, session(false))).toEqual(['change_password', 'mfa_enroll']);

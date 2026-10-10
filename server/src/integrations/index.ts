@@ -56,10 +56,12 @@ export async function loadIntegrations(): Promise<Integrations> {
   }));
 
   if (config.isProduction && statuses.some((s) => s.isStub)) {
-    // Phase 1 has no feature that routes PHI through these, so this is a
-    // warning, not a refusal. It becomes a refusal in Phase 4, the first phase
-    // that sends audio and transcripts through them.
-    logger.warn('stub_integrations_in_production', { kinds: statuses.filter((s) => s.isStub).map((s) => s.kind) });
+    // The app still starts (the rest of it holds no stub-backed PHI), but the one feature that sends
+    // audio and transcripts through these — the AI scribe — switches itself off; see scribeAvailability().
+    logger.warn('stub_integrations_in_production', {
+      kinds: statuses.filter((s) => s.isStub).map((s) => s.kind),
+      scribeAvailable: scribeAvailability().available,
+    });
   }
   return cached;
 }
@@ -71,4 +73,18 @@ export function getIntegrations(): Integrations {
 
 export function integrationStatuses(): IntegrationStatus[] {
   return statuses;
+}
+
+export type ScribeUnavailable = 'integration_disabled' | 'stub_in_production';
+
+/**
+ * Whether the AI scribe may be used right now. It needs both FileStorage and AiScribe enabled; and in
+ * production it needs both to be REAL adapters (the stubs keep audio on the server's own disk), unless
+ * ALLOW_STUB_INTEGRATIONS says this is a staging deployment with fake patients.
+ */
+export function scribeAvailability(): { available: boolean; reason: ScribeUnavailable | null } {
+  const need = statuses.filter((s) => s.kind === 'FILE_STORAGE' || s.kind === 'AI_SCRIBE');
+  if (need.length < 2 || need.some((s) => !s.enabled)) return { available: false, reason: 'integration_disabled' };
+  if (config.isProduction && !config.allowStubIntegrations && need.some((s) => s.isStub)) return { available: false, reason: 'stub_in_production' };
+  return { available: true, reason: null };
 }

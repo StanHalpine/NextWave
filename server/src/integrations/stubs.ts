@@ -14,6 +14,7 @@ import { randomUUID } from 'node:crypto';
 import { logger } from '../lib/logger.js';
 import type { AiScribe, FileStorage, Messaging, SoapDraft, UploadTarget } from './types.js';
 import { renderTemplate } from './templates.js';
+import { signUpload } from './uploadToken.js';
 
 // Overridable so the test run writes its fake texts and files to a throwaway folder
 // instead of the developer's real local outbox.
@@ -50,16 +51,41 @@ export class StubFileStorage implements FileStorage {
   }
   async getUploadTarget(key: string, opts: { contentType: string; ttlSeconds: number }): Promise<UploadTarget> {
     resolveKey(this.root, key); // validate now rather than at upload time
+    const expiresAt = new Date(Date.now() + opts.ttlSeconds * 1000);
+    const { exp, sig } = signUpload(key, opts.contentType, expiresAt);
     return {
-      // A real adapter returns a presigned S3 URL. The stub points at a route
-      // that will be added with the first feature that uploads (Phase 4).
-      url: `/api/dev-storage/${key}`,
+      // A real adapter returns a presigned S3 URL; this is its stand-in (src/routes/devStorage.ts). It is
+      // signed, so the browser sends no cookie and no extra header — exactly as it would to S3.
+      url: `/api/dev-storage/${key}?exp=${exp}&sig=${sig}`,
       method: 'PUT',
       headers: { 'content-type': opts.contentType },
-      expiresAt: new Date(Date.now() + opts.ttlSeconds * 1000),
+      expiresAt,
     };
   }
 }
+
+/**
+ * The demonstration scribe. Everything it returns is plainly marked [DEMO …] and invented: it
+ * exists so the whole record → transcribe → draft → review → sign flow can be exercised with no
+ * cloud account. lib/documentation.ts refuses to sign a note that still contains the marker, so
+ * demonstration text can never become part of a signed record.
+ */
+export const DEMO_TRANSCRIPT = [
+  '[DEMO TRANSCRIPT] This is invented sample text, not a real visit.',
+  'Provider: What brings you in today?',
+  'Patient: My lower back has been stiff in the mornings for about two weeks, worse after sitting.',
+  'Provider: Any numbness, tingling or leg pain?',
+  'Patient: No, just the stiffness. Walking helps.',
+  'Provider: On exam there is mild tenderness over the lumbar paraspinals and reduced forward flexion.',
+  'Provider: We will start with a gentle adjustment and stretching, and I would like to see you again in a week.',
+].join('\n');
+
+export const DEMO_SOAP: Omit<SoapDraft, 'modelId'> = {
+  subjective: '[DEMO DRAFT] Two weeks of morning low back stiffness, worse after prolonged sitting, eased by walking. Denies numbness, tingling or leg pain.',
+  objective: '[DEMO DRAFT] Mild tenderness over the lumbar paraspinals. Forward flexion reduced.',
+  assessment: '[DEMO DRAFT] Low back stiffness consistent with mechanical strain.',
+  plan: '[DEMO DRAFT] Gentle adjustment today, home stretching, follow up in one week.',
+};
 
 export class StubAiScribe implements AiScribe {
   constructor(private readonly storage: FileStorage) {}
@@ -67,7 +93,7 @@ export class StubAiScribe implements AiScribe {
   async transcribe({ audioKey }: { audioKey: string }): Promise<{ transcriptKey: string }> {
     if (!(await this.storage.exists(audioKey))) throw new Error('Audio not found.');
     const transcriptKey = `transcripts/${randomUUID()}.txt`;
-    await this.storage.put(transcriptKey, Buffer.from('[STUB TRANSCRIPT] This is placeholder text, not a real transcription.'));
+    await this.storage.put(transcriptKey, Buffer.from(DEMO_TRANSCRIPT, 'utf8'));
     logger.info('stub_transcribe');
     return { transcriptKey };
   }
@@ -75,13 +101,7 @@ export class StubAiScribe implements AiScribe {
   async draftSoap({ transcriptKey }: { transcriptKey: string }): Promise<SoapDraft> {
     await this.storage.get(transcriptKey);
     logger.info('stub_draft_soap');
-    return {
-      subjective: '[STUB DRAFT] Patient-reported history would appear here.',
-      objective: '[STUB DRAFT] Examination findings would appear here.',
-      assessment: '[STUB DRAFT] Clinical impression would appear here.',
-      plan: '[STUB DRAFT] Treatment plan would appear here.',
-      modelId: 'stub',
-    };
+    return { ...DEMO_SOAP, modelId: 'stub' };
   }
 }
 
