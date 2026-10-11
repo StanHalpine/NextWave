@@ -2,6 +2,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { prisma } from '../src/lib/prisma.js';
 import { basePrisma } from '../src/lib/prismaBase.js';
 import { staffTransaction } from '../src/lib/staffTx.js';
+import { billDues } from '../src/lib/dues.js';
 import { enroll, grantDue, updateMembership } from '../src/lib/membership.js';
 import { runMembershipGrants } from '../src/jobs/credits.js';
 import { setClockForTests } from '../src/lib/clock.js';
@@ -61,6 +62,19 @@ describe('billing dues with the month\'s credits', () => {
 
     await Promise.all(Array.from({ length: 6 }, () => grant(membership.id, CDT('2036-07-10T09:00:00'))));
     expect(await periods(membership.id)).toEqual(['2036-06-10', '2036-07-10']);
+  });
+
+  it('a repeat bill for the same period is a quiet no-op — not an error, and not a second audit row — even inside one transaction', async () => {
+    const { plan } = await makePlan({ credits: 4, priceCents: 7700 });
+    const p = await makePatient();
+    const m = await makeMembership(p.id, plan.code, '2036-11-03');
+    const bill = (tx: Parameters<Parameters<typeof staffTransaction>[0]>[0], rec: Parameters<Parameters<typeof staffTransaction>[0]>[1]) =>
+      billDues(tx, rec, { membership: { id: m.id, patientId: p.id }, plan, periodStart: '2036-11-03', actorAccountId: null });
+    const results = await staffTransaction(async (tx, rec) => [await bill(tx, rec), await bill(tx, rec)]);   // a unique violation would abort this transaction
+    expect(results).toEqual([true, false]);
+    expect(await duesOf(m.id)).toHaveLength(1);
+    expect((await duesOf(m.id))[0]!.recordedById).toBe('system:membership-grant');
+    expect(await auditRows({ resourceType: 'revenue_event', resourceId: (await duesOf(m.id))[0]!.id, action: 'CREATE' })).toHaveLength(1);
   });
 
   it('bills each month on its grant day — a 31st clamps to the short month, including a leap February', async () => {

@@ -6,9 +6,12 @@
  *   GET /api/reports/:view               signups | walkins-day | walkins-hour | weekend | demand   ?from=&to=[&format=csv]
  *
  * `from` and `to` are clinic-local calendar days (YYYY-MM-DD), both inclusive; give both or neither, and neither
- * means the current month. The custom view also takes serviceId, paymentType (CASH | MEMBER), providerId and
+ * means the current month. The custom view also takes serviceId, paymentType (CASH | MEMBER | DUES), providerId and
  * `group` (how to total it). Every other parameter is refused rather than ignored, so a typo cannot quietly
  * return an unfiltered number.
+ *
+ * Every Accounting view carries two tables: service revenue, and the membership dues billed, kept apart (a CSV has both, a blank line
+ * between). A Report has one.
  *
  * Everything returned — JSON or CSV — is an aggregate: counts and sums grouped by a service, day, hour, month, tier,
  * payment type or provider. No patient, booking or encounter is named or identified (lib/reports.ts).

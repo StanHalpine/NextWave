@@ -9,7 +9,7 @@ import { pathToFileURL } from 'node:url';
 import { Prisma } from '@prisma/client';
 import { basePrisma as db } from '../src/lib/prismaBase.js';
 import {
-  attendedVisitsSql, demandSql, dimension, memberSplit, revenueSql, revenueTable, serviceDemand, signupsByMonth, signupsSql,
+  attendedVisitsSql, demandSql, dimension, duesSql, duesTable, memberSplit, revenueSql, revenueTable, serviceDemand, signupsByMonth, signupsSql,
   walkIns, walkInsByDaySql, walkInsByHourSql, weekendSql, weekendVisits, type RevenueFilter,
 } from '../src/lib/reports.js';
 import type { DateRange } from '../src/lib/reportFormat.js';
@@ -88,6 +88,15 @@ export async function load(n: number = N) {
     LEFT JOIN "Membership" m ON m."patientId" = v.patient_id AND m.status = 'ACTIVE'
     LEFT JOIN "MembershipPlan" pl ON pl.id = m."planId"
     WHERE v.enc_status = 'CHECKED_OUT'`);
+  // Dues: one event per membership per month since it started, as the monthly grant writes them (about 12,000 rows).
+  await exec(`
+    INSERT INTO "RevenueEvent" (id, "patientId", "membershipId", "periodStart", "serviceName", "serviceCategory", "listPriceCents", "paymentType", "billingStatus",
+                                "netPriceCents", "planCode", "occurredAt", "recordedById")
+    SELECT gen_random_uuid()::text, m."patientId", m.id, d.period, 'Membership dues', 'Membership', pl."priceCents", 'DUES'::"PaymentType", 'BILLED'::"BillingStatus",
+           pl."priceCents", pl.code, ((d.period::timestamp AT TIME ZONE 'America/Chicago') AT TIME ZONE 'UTC'), 'perf'
+    FROM "Membership" m JOIN "MembershipPlan" pl ON pl.id = m."planId"
+    CROSS JOIN LATERAL (SELECT (m."startedOn" + (k || ' months')::interval)::date AS period FROM generate_series(0, 40) k) d
+    WHERE d.period <= DATE '2026-10-31' AND pl."priceCents" > 0`);
   await exec(`DROP TABLE perf_visit`);
   for (const t of ['User', 'Patient', 'Membership', 'Booking', 'Encounter', 'RevenueEvent', 'Service', 'MembershipPlan']) await exec(`ANALYZE "${t}"`);
   return (performance.now() - t0) / 1000;
@@ -109,10 +118,11 @@ async function time(fn: () => Promise<unknown>) {
   return { median: median(ms), max: Math.max(...ms) };
 }
 
+// Each Accounting view is two queries, as the route runs them: the service revenue and the dues beside it.
 const VIEWS: Array<[string, (r: DateRange) => Promise<unknown>]> = [
-  ['Accounting — monthly by service', (range) => revenueTable({ range }, 'serviceMonth')],
-  ['Accounting — daily', (range) => revenueTable({ range }, 'day')],
-  ['Accounting — member vs non-member', (range) => memberSplit({ range })],
+  ['Accounting — monthly by service (+ dues)', async (range) => [await revenueTable({ range }, 'serviceMonth'), await duesTable({ range }, 'serviceMonth')]],
+  ['Accounting — daily (+ dues)', async (range) => [await revenueTable({ range }, 'day'), await duesTable({ range }, 'day')]],
+  ['Accounting — member vs non-member (+ dues)', async (range) => [await memberSplit({ range }), await duesTable({ range }, 'bucket')]],
   ['Accounting — custom (service+payment+provider, by day)', async (range) => {
     const [svc] = await db.$queryRaw<Array<{ id: string }>>`SELECT id FROM "Service" ORDER BY id LIMIT 1`;
     const [stf] = await db.$queryRaw<Array<{ id: string }>>`SELECT id FROM "Staff" WHERE role <> 'FRONT_DESK' ORDER BY id LIMIT 1`;
@@ -134,6 +144,7 @@ const STATEMENTS: Stmt[] = [
   ['revenue by day', (r) => revenueSql(f(r), dimension('day')), ['RevenueEvent']],
   ['revenue by service+month', (r) => revenueSql(f(r), dimension('serviceMonth')), ['RevenueEvent']],
   ['revenue, provider filter', (r) => revenueSql({ range: r, providerId }, dimension('day')), ['RevenueEvent']],
+  ['dues by month', (r) => duesSql(f(r), dimension('month')), ['RevenueEvent']],
   ['sign-ups', signupsSql, ['Membership']],
   ['walk-ins by day', walkInsByDaySql, ['Booking']],
   ['walk-ins by hour', walkInsByHourSql, ['Booking']],
