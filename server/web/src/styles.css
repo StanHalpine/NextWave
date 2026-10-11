@@ -294,3 +294,15 @@ textarea[readonly] { background: #f3f1ec; }
 .category-row.off { opacity: .65; }
 .percent-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px 14px; }
 .new-category { display: flex; gap: 12px; align-items: end; flex-wrap: wrap; } .new-category label { min-width: 260px; }
+
+/* Accounting and Reports */
+.report-range { align-items: end; } .report-range input[type="date"] { min-width: 150px; }
+.report-table th.num, .report-table td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.report-table .nowrap { white-space: nowrap; }
+.report-table tr.report-sub td { font-style: italic; background: #faf8f3; }
+.report-table tfoot td { font-weight: 700; background: var(--sand); border-top: 2px solid var(--ink); }
+.report-body.stale { opacity: .55; transition: opacity .15s; }
+.report-notes { margin: 12px 0 0; } .report-notes summary { cursor: pointer; font-size: 13px; color: var(--ink-soft); }
+.stat-row { display: flex; gap: 12px; flex-wrap: wrap; margin: 0 0 14px; }
+.stat { background: #fff; border: 1px solid var(--line); border-left: 4px solid var(--brass); border-radius: 0 10px 10px 0; padding: 10px 16px; min-width: 130px; display: grid; gap: 2px; }
+.stat strong { font-size: 22px; font-variant-numeric: tabular-nums; } .stat span { font-size: 12px; color: var(--ink-soft); }

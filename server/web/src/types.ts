@@ -183,3 +183,27 @@ export interface Workspace {
 export interface MacroLite { id: string; section: NoteSection; title: string; body: string; sortOrder: number }
 export interface MacroLibrary { personal: { macros: MacroLite[] }; shared: Array<{ id: string; name: string; macros: MacroLite[] }> }
 export interface MacroSetAdmin { id: string; name: string; roles: ProviderRole[]; active: boolean; macros: MacroLite[] }
+
+// ---- Accounting and Reports (Phase 5) ------------------------------------------------------------------------------
+export interface ReportColumn { key: string; label: string; kind: 'text' | 'int' | 'money' | 'percent' }
+export type ReportRow = Record<string, string | number>;
+export interface ReportData {
+  view: string;
+  title: string;
+  range: { from: string; to: string };
+  filters: Record<string, string>;
+  columns: ReportColumn[];
+  rows: ReportRow[];
+  /** Rows between the body and the totals (e.g. all members / non-members). */
+  subtotals: ReportRow[];
+  totals: ReportRow;
+  summary: Record<string, number> | null;
+  notes: string[];
+}
+export interface AccountingOptions {
+  services: Array<{ id: string; name: string }>;
+  providers: Array<{ id: string; name: string }>;
+  paymentTypes: Array<{ value: 'CASH' | 'MEMBER'; label: string }>;
+  groups: string[];
+  views: Array<{ key: string; title: string }>;
+}

@@ -23,9 +23,9 @@ export const MODULES: Module[] = [
     blurb: 'Day and week calendar by provider: book, move and cancel appointments, and approve online requests.' },
   { key: 'provider', label: 'Provider', to: '/provider', roles: [...PROVIDERS, 'ADMIN'], phase: 4, built: true,
     blurb: 'Your checked-in patients, SOAP notes and session logs, macros, and the AI scribe.' },
-  { key: 'accounting', label: 'Accounting', to: '/accounting', roles: ['ADMIN'], phase: 5, built: false,
+  { key: 'accounting', label: 'Accounting', to: '/accounting', roles: ['ADMIN'], phase: 5, built: true,
     blurb: 'Revenue by service, by day, and members versus non-members.' },
-  { key: 'reports', label: 'Reports', to: '/reports', roles: ['FRONT_DESK', 'ADMIN'], phase: 5, built: false,
+  { key: 'reports', label: 'Reports', to: '/reports', roles: ['FRONT_DESK', 'ADMIN'], phase: 5, built: true,
     blurb: 'Memberships, walk-ins, weekend visits, and service demand.' },
 ];
 

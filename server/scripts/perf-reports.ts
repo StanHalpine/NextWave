@@ -5,6 +5,7 @@
  */
 import 'dotenv/config';
 import { performance } from 'node:perf_hooks';
+import { pathToFileURL } from 'node:url';
 import { Prisma } from '@prisma/client';
 import { basePrisma as db } from '../src/lib/prismaBase.js';
 import {
@@ -16,14 +17,14 @@ import type { DateRange } from '../src/lib/reportFormat.js';
 const N = Number(process.env.PERF_ENCOUNTERS ?? 50_000);
 const exec = (sql: string) => db.$executeRawUnsafe(sql);
 
-async function assertScratch() {
+export async function assertScratch() {
   const rows = await db.$queryRaw<Array<{ s: string }>>`SELECT current_schema() AS s`;
   const s = rows[0]?.s ?? '';
   if (!/^nw_/.test(s)) throw new Error('Refusing to load test data outside a scratch schema (nw_*).');
   return s;
 }
 
-async function load() {
+export async function load(n: number = N) {
   const t0 = performance.now();
   await exec(`INSERT INTO "User" (id, name, email, phone) SELECT gen_random_uuid()::text, 'Perf ' || i, 'perf' || i || '@example.test', '6125550000' FROM generate_series(1, 2000) i`);
   await exec(`INSERT INTO "Patient" (id, "firstName", "lastName", phone, "phoneDigits", "createdById", "updatedAt")
@@ -43,7 +44,7 @@ async function load() {
              (SELECT array_agg(id ORDER BY id) FROM "Staff" WHERE role <> 'FRONT_DESK') AS stf,
              (SELECT array_agg(id ORDER BY id) FROM "User") AS usr, (SELECT array_agg(id ORDER BY id) FROM "Patient") AS pat
     ), g AS (
-      SELECT i, DATE '2023-11-01' + floor(random() * 1096)::int AS d0, random() AS r_src, random() AS r_enc, random() AS r_pay, random() AS r_pat, random() AS r_stf FROM generate_series(1, ${N}) i
+      SELECT i, DATE '2023-11-01' + floor(random() * 1096)::int AS d0, random() AS r_src, random() AS r_enc, random() AS r_pay, random() AS r_pat, random() AS r_stf FROM generate_series(1, ${n}) i
     ), g2 AS (
       -- mostly weekdays, some Saturdays, hardly any Sundays
       SELECT g.*, CASE WHEN extract(dow FROM d0) = 0 AND random() < 0.92 THEN d0 + 1 WHEN extract(dow FROM d0) = 6 AND random() < 0.5 THEN d0 - 1 ELSE d0 END AS d FROM g
@@ -182,4 +183,7 @@ async function main() {
   if (seqScansOnMonth) process.exitCode = 1;
 }
 
-main().catch((e) => { console.error('perf failed:', e?.code ?? e?.constructor?.name, String(e?.message ?? e).split('\n')[0]); process.exitCode = 1; }).finally(() => db.$disconnect());
+// Run directly (scripts/perf-reports.mjs does), not when another script imports load().
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((e) => { console.error('perf failed:', e?.code ?? e?.constructor?.name, String(e?.message ?? e).split('\n')[0]); process.exitCode = 1; }).finally(() => db.$disconnect());
+}

@@ -19,6 +19,8 @@ import FrontDesk from './pages/FrontDesk';
 import Patients from './pages/Patients';
 import PatientProfile from './pages/PatientProfile';
 import Schedule from './pages/Schedule';
+import Accounting from './pages/Accounting';
+import Reports from './pages/Reports';
 
 /** Brand header for the pages shown before sign-in completes (no module nav yet). */
 function AuthFrame({ children }: { children: ReactNode }) {
@@ -48,12 +50,8 @@ export default function App() {
           <Route path="/schedule" element={<Protected roles={['FRONT_DESK', 'ADMIN']}><Schedule /></Protected>} />
           <Route path="/provider" element={<Protected roles={['PROVIDER_CHIRO', 'PROVIDER_NP', 'PROVIDER_NURSE', 'ADMIN']}><Provider /></Protected>} />
           <Route path="/provider/visits/:id" element={<Protected roles={['PROVIDER_CHIRO', 'PROVIDER_NP', 'PROVIDER_NURSE', 'ADMIN']}><Documentation /></Protected>} />
-          <Route path="/accounting" element={<Protected roles={['ADMIN']}>
-            <ModulePlaceholder moduleKey="accounting" planned={['Monthly revenue by service', 'Daily revenue breakdown', 'Member vs. non-member revenue', 'Custom financial analytics']} />
-          </Protected>} />
-          <Route path="/reports" element={<Protected roles={['FRONT_DESK', 'ADMIN']}>
-            <ModulePlaceholder moduleKey="reports" planned={['New membership sign-ups per month', 'Walk-in volume', 'Weekend visit metrics', 'Service demand: chiropractic, HBOT, red light, IV, consults, bloodwork']} />
-          </Protected>} />
+          <Route path="/accounting" element={<Protected roles={['ADMIN']}><Accounting /></Protected>} />
+          <Route path="/reports" element={<Protected roles={['FRONT_DESK', 'ADMIN']}><Reports /></Protected>} />
 
           <Route path="/admin" element={<Protected roles={['ADMIN']}><AdminHome /></Protected>} />
           <Route path="/admin/accounts" element={<Protected roles={['ADMIN']}><AdminAccounts /></Protected>} />
