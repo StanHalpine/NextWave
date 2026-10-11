@@ -76,7 +76,7 @@ throughout); no other service is named that. Peptide therapy stays in **Consults
 only seeded service in Other.** If you meant another service to join, it is a one-line change in `lib/reportFormat.ts`.
 
 ### Tests
-**581 server tests** (up from 525) and 47 web tests, all passing at the default settings, with the pool capped at 3, and under UTC. New:
+**582 server tests** (up from 525) and 47 web tests, all passing at the default settings, with the pool capped at 3, and under UTC. New:
 `dues.test.ts` (13), `twilio.test.ts` (35), and the dues and category cases in `reports.test.ts`. I broke the dues code 14 ways and the Twilio
 code 21 ways; one mutant of each survived at first (a repeat bill inside one transaction; the desk's delivery status), each exposed a missing
 test, and each is now killed.
