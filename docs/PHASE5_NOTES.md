@@ -9,9 +9,85 @@ Written 2026-10-11 on branch `scheduling-engine`.
 phases. The discount migration refuses to run if any tier already has a percentage; it ran, so none did.
 The marketing site is not touched by this phase (`main` is level with `origin/main`).
 
+## Update — Phase 5 approved, with six follow-ups (2026-10-11)
+
+**The first one is not done, on purpose.** Item 1 of the approval read *"Discount table: [approved as written / or list corrections].
+Enable discounts per that table."* The choice between the two options was left in the brackets, so I do not know which you meant,
+and the table has five internal conflicts you have not settled (X-rays 20% or 25% is the first). Enabling a discount changes what a
+member is charged, so I left everything **off**: no category, no percentage, perks off. Say **"approved as written"** or send the
+corrections and I will enter them (Admin → Memberships → *Member discounts by service category*, audited). See
+[DISCOUNT_MAPPING.md](DISCOUNT_MAPPING.md).
+
+| # | You asked | Status |
+|---|---|---|
+| 1 | Enable the discount table | **Not done — your choice was unfilled** (above) |
+| 2 | Twilio sending adapter | **Built** (below) |
+| 3 | Dues as a separate revenue line | **Built** (below) |
+| 4 | Vitamin shots and injections get their own category | **Done** (below) |
+| 5 | Push `scheduling-engine` to origin, no merge to `main` | **Pushed** — see the end of this section |
+| 6 | Staging checklist, and the webhook paths | **Done** — [STAGING_CHECKLIST.md](STAGING_CHECKLIST.md) |
+
+### The Twilio adapter (2)
+`src/integrations/twilio.ts`, behind the existing `Messaging` interface. **Used only when both `TWILIO_ACCOUNT_SID` and
+`TWILIO_AUTH_TOKEN` are set and `NODE_ENV` is not `test`**; otherwise the stub, which sends nothing. One alone stays on the stub and
+logs a warning naming the missing variable. A malformed SID, or a callback address Twilio would refuse (not `https` in production, an
+underscore in the host name), stops the app at start-up. It sends `To`, `From` (`TWILIO_FROM_NUMBER`, default `+18665241007`), `Body`
+(the rendered template, so still first name, day and time only) and `StatusCallback`. **21610 (recipient opted out)** turns the patient's
+consent off, puts the number on the do-not-text list, and writes audit rows — both when Twilio refuses the send and when it reports
+the failure later. Invalid numbers do not retry; network errors, timeouts, 429, 5xx and refused credentials do (the last with an ERROR in
+the log). **Logged: message SIDs, statuses and numeric error codes. Never a body, a number, or Twilio's error text.**
+
+**The status-callback webhook** is `POST /api/sms/status`, verified with exactly the same function as inbound (`lib/twilioWebhook.ts`;
+production with no token answers 503). It records `deliveryStatus` and the numeric `providerErrorCode` on the message, moves only
+forward (Twilio does not promise order and repeats itself: a compare-and-swap, so a late or duplicate callback writes nothing and no
+audit row), audits each change, and shows it on the appointment ("sent 10:05 AM · delivered", or "not delivered").
+
+**The webhook paths for the Twilio console** (with `APP_BASE_URL` = your public `https://` address, no trailing slash):
+
+| What | Where in Twilio | Value | Method |
+|---|---|---|---|
+| Inbound messages (STOP, START, HELP, C) | the number's **A message comes in** webhook | `{APP_BASE_URL}/api/sms/inbound` | `HTTP POST` |
+| Status callbacks | **nothing to enter** — every message is sent with its own `StatusCallback` | `{APP_BASE_URL}/api/sms/status` | `HTTP POST` |
+
+Twilio signs the exact URL it calls, so what you type for the inbound webhook must match `APP_BASE_URL` + `/api/sms/inbound` character for
+character. If you later put the number in a **Messaging Service**, its *Delivery Status Callback URL* may be set to the status address too;
+the per-message address takes priority either way. **Honest limits:** this is tested against a local fake of Twilio's API (the real
+request encoding, auth and error shapes, no network), never against Twilio itself — the staging checklist has the real-phone checks. And if
+Twilio accepts a message but the reply is lost to a timeout, the retry sends it again; the Messages API has no idempotency key.
+
+### Dues (3)
+A `RevenueEvent` of payment type **`DUES`**, status **`BILLED`**, is written by `grantDue` for every period it grants — at enrolment, on
+resume, and from the monthly job — for the tier's price **at the time**, **dated the first day of the period in the clinic's calendar**
+(so a job that was down over a month end still files it in the right month), one per (membership, period). It has no visit, which the
+database enforces (`RevenueEvent_kind`: a row is a dues event or a visit event, never both; `RevenueEvent_consistent`: dues are a positive
+amount billed in full with no discount, credits or benefit). A $0 tier bills nothing; a paused or cancelled membership is not billed, and
+months missed while paused are not made up (the same rule as the credits). **Billed is not paid:** nothing records collecting the money.
+
+**Every Accounting view shows dues apart from service revenue:** a second table beneath (screen), a `dues` object (JSON) and a second
+section (CSV), totalled by month, day or tier where that means something for dues and as one "Membership dues (billed)" line otherwise.
+Every service-revenue query excludes `DUES`, so dues never add into service totals or count as visits. A service, provider or cash/credit
+filter leaves dues out (and says so); the new `DUES` payment-type filter leaves only dues. The earlier "dues are not in Accounting" gap
+is closed. At 50,000 encounters plus ~13,000 dues events the slowest view is 171 ms; the dues query uses the `occurredAt` index.
+
+### Service demand (4)
+**Vitamin shots & injections** is its own category, holding the `vitamin-shots` service. **Premise checked:** you said "vitamin shots and
+injections", but the only service the site describes as an injection is vitamin shots (`services/vitamin-shots.html` says "injection"
+throughout); no other service is named that. Peptide therapy stays in **Consults**, where SPEC A-6 puts it, and **body composition is now the
+only seeded service in Other.** If you meant another service to join, it is a one-line change in `lib/reportFormat.ts`.
+
+### Tests
+**581 server tests** (up from 525) and 47 web tests, all passing at the default settings, with the pool capped at 3, and under UTC. New:
+`dues.test.ts` (13), `twilio.test.ts` (35), and the dues and category cases in `reports.test.ts`. I broke the dues code 14 ways and the Twilio
+code 21 ways; one mutant of each survived at first (a repeat bill inside one transaction; the desk's delivery status), each exposed a missing
+test, and each is now killed.
+
+---
+
 ## Read this first — five things that are not what you might assume
 
-1. **The app does not send texts through Twilio yet.** There is no Twilio sending adapter: `integrations/index.ts` selects
+*(Written before the approval. Items 1, 3 and 5 are resolved by the Update above; item 2 is unchanged.)*
+
+1. *[Resolved — the adapter is built; see the Update.]* **The app did not send texts through Twilio.** There is no Twilio sending adapter: `integrations/index.ts` selects
    `StubMessaging`, which records the text and sends nothing. The Twilio variables below only (a) let the app **verify the
    signature of Twilio's inbound webhook** (STOP / START / HELP / C) and (b) put the right sender number and clinic phone
    into the wording. Verification approval does not change this: confirmations and reminders will not reach a phone until
@@ -20,7 +96,7 @@ The marketing site is not touched by this phase (`main` is level with `origin/ma
 2. **No discount is enabled, and none will be until you approve `docs/DISCOUNT_MAPPING.md`.** The model is now a percentage
    per tier per service category, admin-editable (decision 2 below). The table I derived from `membership.html` is written
    up with the five places the site contradicts itself. Perks stay off.
-3. **Accounting does not include membership dues.** Nothing in the system records a member's monthly payment (Phase 3 never
+3. *[Resolved — dues are now a separate line; see the Update.]* **Accounting did not include membership dues.** Nothing in the system records a member's monthly payment (Phase 3 never
    built one; SPEC A-13 assumed "dues recorded when collected"). Revenue here is what the desk **recorded at check-out**.
    A member's $0 visit shows its list value in its own column, so the arithmetic still closes (§3.1), but a month's real
    income = this + dues collected elsewhere. Every Accounting screen says so under "How these numbers are made".
@@ -29,7 +105,7 @@ The marketing site is not touched by this phase (`main` is level with `origin/ma
    staging checklist has the one command that does (`SHOW timezone`).
 5. **The demand categories follow SPEC assumption A-6, not "existing service categories".** The booking app's `Service.category` has
    three values (Chiropractic, Functional Medicine, Longevity), too coarse for your six. A-6 already lists which services go in
-   which, so I used it (§3.4). Vitamin shots and body composition fall in **Other**, as A-6 says.
+   which, so I used it (§3.4). Vitamin shots and body composition fell in **Other**, as A-6 says *[vitamin shots have since moved out; see the Update]*.
 
 ---
 
@@ -142,14 +218,14 @@ and a $0 net with nothing to reconcile them, and A-13 asks for exactly that valu
 A paused or cancelled member who pays cash is a non-member in these numbers, because they paid and were priced as one.
 The four buckets: *Non-member — cash*, *Member — cash*, *Member — credits*, *Member — included perk*.
 
-### 3.3 Membership dues are not in Accounting
-See "Read this first", 3. Adding them needs a place to record a payment (amount, date, member) — a Phase 3 feature
-that does not exist. If you want them here, that is the next thing to build, and the "members" view is where they would go.
+### 3.3 Membership dues *(superseded — they are now billed and shown separately; see the Update)*
+As first built, dues were not in Accounting, because nothing recorded them. They are now: billed with each month's credits, as their own line in every
+view. **Collecting** the money is still not recorded — a dues line means *billed*.
 
 ### 3.4 Service demand uses A-6, by service slug, in code
 Chiropractic = adjustment, spinal & postural exam, X-rays · HBOT (both durations) · Red light · IV · Consult = FM consult,
 personal wellness planning, hormone optimization, peptide therapy, supplementation · Bloodwork = biomarker testing ·
-**Other** = vitamin shots, body composition, and any service added later. SPEC A-6's build plan mentions a
+**Other** = body composition, and any service added later *(vitamin shots moved to their own category at approval; see the Update)*. SPEC A-6's build plan mentions a
 `Service.reportGroup` column; I did not add one because it is 14 services and a code list is simpler and tested. The cost is
 that a new service shows up under **Other** until someone adds it to `lib/reportFormat.ts` — a test pins exactly which
 seeded services are in Other, so adding one fails the suite until it is decided. Say if you would rather have an admin-editable column.
@@ -272,13 +348,13 @@ once per run across all files. I reproduced the failure by forcing the order (`-
 
 ## 7. Known limitations
 
-1. **No dues** (§3.3) and **no void/refund**: a mistaken cash check-out cannot be reversed in revenue (a Phase 3 limitation); an admin can only correct credits.
+1. **Dues are billed, not collected** (§3.3), and **no void/refund**: a mistaken cash check-out cannot be reversed in revenue (a Phase 3 limitation); an admin can only correct credits.
 2. **The custom view is filters × one grouping**, not a free-form measure/dimension builder (the SPEC's "analytics builder"). The measures are fixed.
 3. **The provider is the one the visit was booked with**, snapshotted at check-out (§3.6). Visits checked out before Phase 5 take the booking's *current* provider.
 4. **Reports read the live tables**, with no summary tables. Fine at this size (§4); the next step is a stored clinic-local date.
 5. **No print or PDF**; CSV only.
 6. **A new service lands in "Other"** until it is added to the demand list (§3.4).
-7. **No Twilio sending adapter**, and **no real AWS adapters** (Phase 4 §6) — both are stubs.
+7. *(Twilio is now built; see the Update.)* **No real AWS adapters** (Phase 4 §6) — they are stubs. A text that fails for good (a refused number, rejected credentials after the retries) cannot be re-sent: its `MessageLog` row is final.
 8. Not independently reviewed for HIPAA; not run on real devices (see `docs/STAGING_CHECKLIST.md`).
 9. Dependency advisories: unchanged from Phase 1.
 
@@ -292,11 +368,10 @@ once per run across all files. I reproduced the failure by forcing the order (`-
 
 ## 9. What I need from you
 
-1. **Review and approve Phase 5** — or tell me what to change.
-2. **`docs/DISCOUNT_MAPPING.md`**: approve or correct the table (X-rays 20 or 25 %?) and say which of the site's other claims are real. I enter nothing until you do.
-3. **Twilio sending:** do you want the `TwilioMessaging` adapter built next? It needs the account SID and auth token set (in Render only), and your A2P/toll-free approval to arrive.
-4. **Dues:** should Accounting include membership dues? That needs a way to record a payment (§3.3).
-5. **Vitamin shots and body composition** are in *Other* per A-6. Fine, or should they join IV / consults?
-6. **The production database's time zone:** run `SHOW timezone` (staging checklist, step 3). I fixed the code either way.
-7. **Push:** when you want `scheduling-engine` pushed. Nothing is deployed, and I will not do either without you.
-8. **Staging:** work through `docs/STAGING_CHECKLIST.md` top to bottom.
+1. **The discount table:** say **"approved as written"** or send the corrections, and settle X-rays at **20% or 25%** (and the other conflicts in
+   [DISCOUNT_MAPPING.md](DISCOUNT_MAPPING.md) §C if they matter now). Nothing is enabled until then.
+2. **Twilio, for the real check:** your account SID and auth token, set **in Render only** (never in a file or a message to me), on **both** services; the
+   toll-free verification approved; then the real-phone checks in the staging checklist (stage 7). I cannot test against Twilio from here.
+3. **The production database's time zone:** run `SHOW timezone` (staging checklist, stage 1). I fixed the code either way.
+4. **Staging:** work through [STAGING_CHECKLIST.md](STAGING_CHECKLIST.md) top to bottom.
+5. **Merging to `main`:** not done and not requested. The branch is on `origin/scheduling-engine`.

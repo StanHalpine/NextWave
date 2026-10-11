@@ -1,5 +1,10 @@
 # Member discounts — proposed mapping (awaiting your approval)
 
+> **Status (2026-10-11): still awaiting your approval; nothing is enabled.** The Phase 5 approval message said *"Discount table:
+> [approved as written / or list corrections]. Enable discounts per that table"* — the choice between the two was left in the
+> brackets, so I did not guess one. Tell me **"approved as written"** or give the corrections (and settle X-rays at 20% or 25%, §C1),
+> and I will enter the categories and percentages. Until then every member pays list price in cash, and perks stay off.
+
 **Nothing is enabled.** The system now stores a discount as **a percentage per tier per service category**,
 editable by an admin (Admin → Memberships → *Member discounts by service category*), but **there are no
 categories, no service is in one, and no tier has a percentage** until you approve this table. Until then every

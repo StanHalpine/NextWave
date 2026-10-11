@@ -109,9 +109,12 @@ services:
       #   - key: CLINIC_PHONE
       #     sync: false
 
-      # Add when the Twilio account exists. It both enables real messaging and is the key the
-      # inbound webhook's signature is checked against; with NODE_ENV=production and no token
-      # the webhook refuses every request. Set the SAME value on the cron job below.
+      # Twilio. Texts are sent through Twilio only when BOTH of these are set; with one alone, or neither, they
+      # go to the local stub and nothing is sent. The token is also the key the two webhooks
+      # (/api/sms/inbound and /api/sms/status) are verified against; with NODE_ENV=production and no token they
+      # refuse every request. Set the SAME values on the cron job below, which is what sends the texts.
+      #   - key: TWILIO_ACCOUNT_SID
+      #     sync: false
       #   - key: TWILIO_AUTH_TOKEN
       #     sync: false
 
@@ -160,7 +163,9 @@ services:
         sync: false
       #   - key: CLINIC_PHONE      # optional override; defaults to the published number
       #     sync: false
-      #   - key: TWILIO_AUTH_TOKEN   # with the web service's, once Twilio exists
+      #   - key: TWILIO_ACCOUNT_SID    # both of these, the same as the web service's: this job sends the texts
+      #     sync: false
+      #   - key: TWILIO_AUTH_TOKEN
       #     sync: false
       # Optional: days after a note is signed that raw visit audio is deleted (this job does it). Default 30.
       #   - key: AUDIO_RETENTION_DAYS

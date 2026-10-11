@@ -126,8 +126,21 @@ openings.
 ### Appointment texts
 
 A confirmation when an appointment is confirmed and a reminder the day before, sent through
-the `Messaging` interface (a local stub until a real provider exists — the stub writes to
-`.devdata/sms-outbox.jsonl`, never to the log).
+the `Messaging` interface. **Two implementations:** the local stub, which sends nothing (it writes to
+`.devdata/sms-outbox.jsonl`, never to the log), and **Twilio**, used **only when both `TWILIO_ACCOUNT_SID` and
+`TWILIO_AUTH_TOKEN` are set and `NODE_ENV` is not `test`**. One alone stays on the stub and logs a warning naming the
+missing variable. Set both on the web service **and** the cron job — the cron job is what sends.
+
+- **Twilio** (`src/integrations/twilio.ts`): `POST` to the account's Messages endpoint with `To`, `From`
+  (`TWILIO_FROM_NUMBER`, default `+18665241007`), `Body` (the rendered template) and `StatusCallback`
+  (`{APP_BASE_URL}/api/sms/status`). A failure becomes a *category* plus Twilio's **numeric** code (21610 …); Twilio's
+  message text, which can echo the recipient, is never kept. **21610 (recipient opted out)** turns consent off, puts the number
+  on the do-not-text list and writes audit rows. Log lines carry the message SID, the status and the numeric code — never a
+  body or a number. `APP_BASE_URL` must be `https://` with no underscore in the host name, or the app refuses to start.
+- **Status callbacks** (`POST /api/sms/status`, signed exactly like inbound): record `delivered` / `undelivered` / `failed` and
+  the error code on the message (forward only — they arrive out of order and repeat), audit each change, and show it on the
+  appointment ("sent 10:05 AM · delivered"). Nothing to configure in the Twilio console for them: every message carries its
+  own callback address.
 
 - **Wording lives in one file**, `src/integrations/templates.ts` — the two texts, the STOP / START /
   HELP / C replies, the opt-in label and the keywords. `npm run sms:templates` writes
@@ -144,7 +157,7 @@ the `Messaging` interface (a local stub until a real provider exists — the stu
 - **When:** never outside 08:00–21:00 clinic time; a text that comes due overnight waits for
   the morning. The reminder says "see you tomorrow", so it is sent only when the appointment IS
   tomorrow by the clinic's calendar, and never to a patient who was only told less than a day before.
-- **Inbound** (`POST /api/sms/inbound`, signed by the provider; set `TWILIO_AUTH_TOKEN`): STOP puts the
+- **Inbound** (`POST /api/sms/inbound`, signed by the provider; point the number's "A message comes in" webhook at it): STOP puts the
   number on the list, turns off consent on every patient record with it, and is confirmed once; START
   lifts it; HELP replies with `CLINIC_PHONE`; **C** marks the next appointment confirmed by the
   patient. Anything else is neither stored nor answered, and neither the number nor the words reach a log.
@@ -152,8 +165,9 @@ the `Messaging` interface (a local stub until a real provider exists — the stu
   the row is the claim, so overlapping runs, re-runs and restarts do not double-send. A move
   changes the appointment time, so the new time is confirmed and reminded afresh.
 - **Failures:** transient errors retry (5, 15, 60 minutes, four attempts). A provider "opted out"
-  puts the number on the do-not-text list. Only a failure *category* is stored — never a provider
-  message, which can echo the phone number.
+  puts the number on the do-not-text list. Only a failure *category* and the provider's numeric code are stored — never a
+  provider message, which can echo the phone number. One limit: if Twilio accepts a message but the reply is lost to a
+  timeout, the retry sends it a second time (the API has no idempotency key for messages).
 
 ### Credits, memberships and check-out (Phase 3)
 
@@ -245,12 +259,16 @@ administrator has no write path to either.
 type or provider. No patient, booking or encounter is named or identified. Every view is audited as `READ` and every export as
 `EXPORT` (`accounting_report` / `clinic_report`), with the range and filters it was asked with.
 
-**Where the numbers come from.** Revenue is `RevenueEvent`: what the front desk recorded at check-out (net = list − member
-discount; $0 for a visit a membership covered, which shows its list value under *Covered by membership*). **Membership dues are not in
-it** — nothing records them. Visit counts come from `Booking` and `Encounter`; sign-ups from `Membership.startedOn`. Days and
+**Where the numbers come from.** Service revenue is `RevenueEvent` of the visits: what the front desk recorded at check-out (net =
+list − member discount; $0 for a visit a membership covered, which shows its list value under *Covered by membership*).
+**Membership dues are a separate line, in every Accounting view:** a `RevenueEvent` of payment type `DUES`, status `BILLED`, written
+with each month's credits (at enrolment, on resume, and by the monthly job) for the tier's price at the time and dated the first day
+of the period. They are never added into service revenue, never counted as visits, and shown as their own table (and a second
+section of the CSV); a service, provider or cash/credit filter leaves them out. *Billed* is not *paid*: collection is outside this
+system. Visit counts come from `Booking` and `Encounter`; sign-ups from `Membership.startedOn`. Days and
 months are the **clinic's** (`CLINIC_TIMEZONE`), so a sale at 11:59 p.m. on the last day of a month belongs to that month. The
-service-demand categories are SPEC assumption A-6 by service, in `src/lib/reportFormat.ts`; a service not listed there, such as a
-new one, shows as **Other**.
+service-demand categories are SPEC assumption A-6 by service, in `src/lib/reportFormat.ts`, plus *Vitamin shots & injections*; a
+service not listed there, such as a new one, shows as **Other** (today that is body composition only).
 
 **Time zones in raw SQL.** Every `DateTime` column is a UTC `timestamp`. A hand-written query must bind an instant with
 `utcTimestamp()` (`src/lib/sqlTime.ts`), never a bare `Date`: Postgres reads a bare `Date` against a `timestamp` column in the
@@ -417,6 +435,7 @@ allowed. Every non-GET staff request also needs the `x-csrf-token` header.
 | GET | `/api/sms/consent-label` | — | The exact words for the booking widget's text-consent checkbox |
 | POST | `/api/bookings/:id/sms-consent` | — (booking id; ≤ 30 min old; rate limited) | Record the tick and the words shown |
 | POST | `/api/sms/inbound` | provider signature | STOP / START / HELP / C |
+| POST | `/api/sms/status` | provider signature | Delivery status callbacks: delivered / undelivered / failed, with the numeric error code (21610 = opted out) |
 
 Removed: `POST /api/admin/purge` (bulk-delete of patient data over HTTP) and
 `GET /api/patients?email=` (an email address in a URL).
@@ -534,7 +553,7 @@ mapping. Spec §8.5.
 
 **Not built** (nobody specified them): patient-facing booking UI, recurring
 appointment expansion (`isRecurring` is stored but never acted on), a real SMS provider
-(texts go to a local stub: there is no Twilio sending adapter, only the inbound webhook), membership dues, accounting print/PDF, cancellation or reschedule texts, email
+(texts go to the local stub unless both Twilio credentials are set), collecting membership dues (they are billed, not collected), accounting print/PDF, cancellation or reschedule texts, email
 confirmations, payment processing, void of a check-out, cancellation windows, provider
 time-off/blackout dates. (Automated tests now exist — `npm test` — covering auth, access control, audit and start-up guards; the booking engine itself is still verified by `scripts/race-test.sh` rather than unit tests.)
 
