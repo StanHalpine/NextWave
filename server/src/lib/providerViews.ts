@@ -11,6 +11,7 @@ import type { AccountRole, Prisma } from '@prisma/client';
 import { scribeAvailability } from '../integrations/index.js';
 import { colorHexFor } from './serviceColors.js';
 import { docStatus, type DocStatus } from './documentation.js';
+import { loadAddenda, withAddenda } from './addenda.js';
 import { resolveNoteChains, type RawNote } from './notes.js';
 import { PROVIDER_ROLE_LABEL, STAFF_ROLE_FOR, roleMayDocument, type ProviderRole } from './providerRoles.js';
 import { prisma } from './prisma.js';
@@ -101,7 +102,7 @@ export async function providerQueue(a: { role: ProviderRole; ownStaffId: string 
 }
 
 /** The workspace for one visit. `canWrite` is false for an administrator and for the wrong provider role. */
-export async function loadWorkspace(a: { bookingId: string; role: ProviderRole | null; ownStaffId: string | null }) {
+export async function loadWorkspace(a: { bookingId: string; role: ProviderRole | null; ownStaffId: string | null; ownAccountId: string | null; canAddend: boolean }) {
   const b = await prisma.booking.findUnique({
     where: { id: a.bookingId },
     include: {
@@ -148,7 +149,7 @@ export async function loadWorkspace(a: { bookingId: string; role: ProviderRole |
     encounter: b.encounter
       ? { status: b.encounter.status, checkedInAt: b.encounter.checkedInAt, startedAt: b.encounter.startedAt, seenAt: b.encounter.seenAt, scribeConsentAt: b.encounter.scribeConsentAt }
       : null,
-    access: { canWrite: readOnlyReason === null, role: a.role, signsAs, readOnlyReason },
+    access: { canWrite: readOnlyReason === null, role: a.role, signsAs, readOnlyReason, canAddend: a.canAddend },
     documentation: { status: docStatus(b), type: b.service.documentationType },
     draft: d
       ? {
@@ -164,7 +165,8 @@ export async function loadWorkspace(a: { bookingId: string; role: ProviderRole |
         amended: b.visitNotes.some((n) => n.amendsId !== null),
       }
       : null,
-    notes: resolveNoteChains(b.visitNotes as RawNote[]),
+    // Each note: may THIS viewer amend it (only its signer), and the addenda other providers have added to it.
+    notes: withAddenda(resolveNoteChains(b.visitNotes as RawNote[]), b.visitNotes, await loadAddenda(b.id), a.ownAccountId ? { id: a.ownAccountId, staffId: a.ownStaffId } : null),
     scribe: {
       applicable: soap,
       available: scribe.available,

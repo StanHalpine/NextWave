@@ -155,9 +155,14 @@ export interface ProviderQueue {
 }
 
 export interface NoteVersion { id: string; body: string; durationMin: number | null; author: { id: string; name: string; role: string }; createdAt: string; amendReason: string | null }
+export interface Addendum { id: string; noteId: string; body: string; author: { name: string; role: string }; createdAt: string }
 export interface SignedNote {
   id: string; kind: NoteSection; body: string; durationMin: number | null; author: { id: string; name: string; role: string };
   createdAt: string; amended: boolean; history: NoteVersion[];
+  /** The viewer is the provider who signed it: only they may amend. */
+  canAmend: boolean;
+  /** Notes other providers have added to it. They never change. */
+  addenda: Addendum[];
 }
 export interface ScribeSessionView { id: string; status: 'RECORDING' | 'UPLOADED' | 'TRANSCRIBING' | 'DRAFTING' | 'READY' | 'FAILED'; failureCode: string | null; createdAt: string; applied: boolean; hasDraft: boolean }
 export interface Workspace {
@@ -167,7 +172,7 @@ export interface Workspace {
     patient: { id: string | null; name: string }; provider: { id: string; name: string } | null;
   };
   encounter: { status: EncounterStatus; checkedInAt: string | null; startedAt: string | null; seenAt: string | null; scribeConsentAt: string | null } | null;
-  access: { canWrite: boolean; role: ProviderRole | null; /** The provider record a signature will carry. */ signsAs: string | null; readOnlyReason: string | null };
+  access: { canWrite: boolean; role: ProviderRole | null; /** The provider record a signature will carry. */ signsAs: string | null; readOnlyReason: string | null; /** Holds a provider role, so may add an addendum to any signed note. */ canAddend: boolean };
   documentation: { status: DocStatus; type: DocType };
   draft: { version: number; subjective: string; objective: string; assessment: string; plan: string; notes: string; durationMin: number | null; aiDrafted: boolean; aiAppliedAt: string | null; updatedAt: string } | null;
   signature: { signedAt: string; signedBy: string | null; signedRole: string; aiAssisted: boolean; aiDraftUnchanged: boolean | null; amended: boolean } | null;

@@ -209,7 +209,7 @@ export default function Documentation() {
             <span>by <strong>{ws.signature.signedBy ?? 'a provider'}</strong> ({roleName(ws.signature.signedRole)}) · {fmtInstantTime(ws.signature.signedAt, tz)}</span>
             {ws.signature.aiAssisted && <span className="pill off" title="The note began as an AI-generated draft that the provider reviewed.">Began as an AI draft{ws.signature.aiDraftUnchanged ? ' · signed unchanged' : ' · edited'}</span>}
           </div>
-          <SignedNotes notes={ws.notes} canAmend={ws.access.canWrite} tz={tz} onAmended={async () => { await load(); }} />
+          <SignedNotes notes={ws.notes} canAddend={ws.access.canAddend} tz={tz} onAmended={async () => { await load(); }} />
         </section>
       )}
 

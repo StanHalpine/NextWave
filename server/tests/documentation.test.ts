@@ -542,7 +542,7 @@ describe('the workspace read', () => {
     await saveSoap(p, v.booking.id);
     const ws = (await p.agent.get(URL.ws(v.booking.id))).body;
     expect(ws.booking).toMatchObject({ id: v.booking.id, patientNote: 'Knee surgery in March', patient: { id: patient.id, name: 'Ingrid Holloway' }, provider: { id: p.staff.id }, service: { documentationType: 'SOAP' } });
-    expect(ws.access).toEqual({ canWrite: true, role: 'PROVIDER_CHIRO', signsAs: p.staff.name, readOnlyReason: null });
+    expect(ws.access).toEqual({ canWrite: true, role: 'PROVIDER_CHIRO', signsAs: p.staff.name, readOnlyReason: null, canAddend: true });
     expect(ws.encounter.status).toBe('IN_PROGRESS');
     expect(ws.documentation).toEqual({ status: 'DRAFT', type: 'SOAP' });
     expect(ws.draft).toMatchObject({ version: 1, subjective: SOAP.subjective, aiDrafted: false });

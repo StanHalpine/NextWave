@@ -103,3 +103,20 @@ export function resolveNoteChains(rows: RawNote[]): ResolvedNote[] {
   resolved.sort((a, b) => a._sortKey.localeCompare(b._sortKey));
   return resolved.map(({ _sortKey, ...n }) => n);
 }
+
+// ---- who may amend -----------------------------------------------------------------------------------
+
+/**
+ * Is this account the provider who SIGNED the note? The signer is the author of the chain's ORIGINAL
+ * (what a provider wrote and signed); the author is taken from the session when it is written, so it is
+ * proven rather than claimed. A row written before accounts existed has no account, so it falls back to
+ * the provider record the login is linked to.
+ *
+ * This is access control only. It does not touch how an amendment is stored or versioned.
+ */
+export function isSigner(
+  original: { authorAccountId: string | null; authorId: string },
+  account: { id: string; staffId: string | null },
+): boolean {
+  return original.authorAccountId ? original.authorAccountId === account.id : !!account.staffId && original.authorId === account.staffId;
+}

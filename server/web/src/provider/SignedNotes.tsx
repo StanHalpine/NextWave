@@ -11,15 +11,16 @@ const KIND_LABEL: Record<string, string> = { ...Object.fromEntries(SECTIONS.map(
  * The signed record. Nothing here edits a note: correcting one is an AMENDMENT, which adds a new version
  * beside the old one (with the reason) and keeps both. Every earlier version stays readable below.
  */
-export function SignedNotes({ notes, canAmend, tz, onAmended }: { notes: SignedNote[]; canAmend: boolean; tz: string; onAmended: () => Promise<void> }) {
+export function SignedNotes({ notes, canAddend, tz, onAmended }: { notes: SignedNote[]; canAddend: boolean; tz: string; onAmended: () => Promise<void> }) {
   return (
     <div className="stack">
-      {inNoteOrder(notes).map((n) => <NoteBlock key={n.id} note={n} canAmend={canAmend} tz={tz} onAmended={onAmended} />)}
+      {inNoteOrder(notes).map((n) => <NoteBlock key={n.id} note={n} canAddend={canAddend} tz={tz} onAmended={onAmended} />)}
     </div>
   );
 }
 
-function NoteBlock({ note, canAmend, tz, onAmended }: { note: SignedNote; canAmend: boolean; tz: string; onAmended: () => Promise<void> }) {
+function NoteBlock({ note, canAddend, tz, onAmended }: { note: SignedNote; canAddend: boolean; tz: string; onAmended: () => Promise<void> }) {
+  const canAmend = note.canAmend;                       // only the provider who signed it
   const [editing, setEditing] = useState(false);
   const [body, setBody] = useState(note.body);
   const [duration, setDuration] = useState(note.durationMin != null ? String(note.durationMin) : '');
@@ -60,7 +61,23 @@ function NoteBlock({ note, canAmend, tz, onAmended }: { note: SignedNote; canAme
           </div>
         </form>
       )}
-      {!editing && canAmend && <div><button className="btn small" onClick={() => setEditing(true)}>Amend…</button></div>}
+      {!editing && (
+        <div className="note-actions">
+          {canAmend && <button className="btn small" onClick={() => setEditing(true)}>Amend…</button>}
+          {canAddend && <AddendumButton noteId={note.id} onAdded={onAmended} />}
+          {!canAmend && canAddend && <span className="hint">Only {note.author.name} can amend this note; add an addendum instead.</span>}
+        </div>
+      )}
+      {note.addenda.length > 0 && (
+        <ul className="addenda" aria-label="Addenda">
+          {note.addenda.map((a) => (
+            <li key={a.id}>
+              <div className="muted small">Addendum · {a.author.name} ({roleName(a.author.role)}) · {fmtInstantTime(a.createdAt, tz)}</div>
+              <p className="note-text">{a.body}</p>
+            </li>
+          ))}
+        </ul>
+      )}
       {note.history.length > 0 && (
         <details className="note-history">
           <summary>{note.history.length} earlier {note.history.length === 1 ? 'version' : 'versions'}</summary>
@@ -78,5 +95,37 @@ function NoteBlock({ note, canAmend, tz, onAmended }: { note: SignedNote; canAme
         </details>
       )}
     </article>
+  );
+}
+
+/** Add an addendum: new text, linked to this note, which can never be edited or removed. */
+function AddendumButton({ noteId, onAdded }: { noteId: string; onAdded: () => Promise<void> }) {
+  const [open, setOpen] = useState(false);
+  const [body, setBody] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    if (body.trim() === '') return;
+    setBusy(true); setError(null);
+    try {
+      await api(`/api/visit-notes/${noteId}/addendum`, { method: 'POST', body: { body } });
+      setOpen(false); setBody('');
+      await onAdded();
+    } catch (err) { setError(errorText(err)); } finally { setBusy(false); }
+  }
+
+  if (!open) return <button className="btn small" onClick={() => setOpen(true)}>Add addendum…</button>;
+  return (
+    <form className="stack addendum-form" onSubmit={(e) => void submit(e)}>
+      <label>Addendum<textarea rows={4} value={body} onChange={(e) => setBody(e.target.value)} maxLength={20000} autoFocus /></label>
+      <p className="hint">This is added to the record under your name and role. <strong>It cannot be edited or removed</strong>, and it does not change the note.</p>
+      {error && <p className="error" role="alert">{error}</p>}
+      <div className="sheet-actions">
+        <button className="btn primary" disabled={busy || body.trim() === ''}>{busy ? 'Adding…' : 'Add addendum'}</button>
+        <button type="button" className="btn ghost" onClick={() => { setOpen(false); setBody(''); setError(null); }}>Cancel</button>
+      </div>
+    </form>
   );
 }

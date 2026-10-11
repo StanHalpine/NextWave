@@ -16,9 +16,13 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { logger } from '../lib/logger.js';
 import { audit } from '../lib/audit.js';
+import { now } from '../lib/clock.js';
+import { staffTransaction } from '../lib/staffTx.js';
+import { loadAddenda } from '../lib/addenda.js';
+import { requireClinicalWrite } from '../middleware/clinical.js';
 import { hasRole, requireRole } from '../middleware/session.js';
 import { PROVIDER_ROLES } from '../lib/sessions.js';
-import { resolveNoteChains, type RawNote } from '../lib/notes.js';
+import { isSigner, resolveNoteChains, type RawNote } from '../lib/notes.js';
 import type { Request } from 'express';
 import type { AccountRole } from '@prisma/client';
 
@@ -101,8 +105,12 @@ const amendBody = z.object({
  *
  * Deliberately POST-and-insert rather than PATCH-and-update: the original text
  * is preserved verbatim. There is no endpoint that mutates or deletes a note.
+ *
+ * ONLY THE PROVIDER WHO SIGNED a note may amend it. Anyone else with a provider role adds an ADDENDUM
+ * instead (POST /visit-notes/:id/addendum, below); an administrator has no write path at all. This is
+ * access control only — how an amendment is stored and versioned is unchanged.
  */
-notesRouter.post('/visit-notes/:id/amend', requireRole(...PROVIDER_ROLES), async (req, res) => {
+notesRouter.post('/visit-notes/:id/amend', ...requireClinicalWrite, async (req, res) => {
   const parsed = amendBody.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Invalid body.' });
@@ -119,6 +127,17 @@ notesRouter.post('/visit-notes/:id/amend', requireRole(...PROVIDER_ROLES), async
         include: { amendedBy: { select: { id: true } } },
       });
       if (!target) return { status: 404 as const, error: 'Unknown note.' };
+
+      // The signer is the author of the chain's ORIGINAL — what was first written and signed.
+      let original = target;
+      for (let hops = 0; original.amendsId && hops < 500; hops++) {
+        const prev = await tx.visitNote.findUnique({ where: { id: original.amendsId }, include: { amendedBy: { select: { id: true } } } });
+        if (!prev) break;
+        original = prev;
+      }
+      if (!isSigner(original, { id: req.auth!.account.id, staffId: req.auth!.account.staffId })) {
+        return { status: 403 as const, error: 'Only the provider who signed this note can amend it. You can add an addendum to it instead.' };
+      }
 
       // amendsId is @unique, so this would fail at the database anyway — catch
       // it here to explain rather than surface a constraint violation.
@@ -146,6 +165,10 @@ notesRouter.post('/visit-notes/:id/amend', requireRole(...PROVIDER_ROLES), async
       return { status: 201 as const, note };
     });
 
+    if ('error' in result && result.status === 403) {
+      audit.record({ action: 'ACCESS_DENIED', resourceType: 'visit_note', resourceId: req.params.id ?? null, success: false, meta: { code: 'not_author', method: 'POST' } });
+      return res.status(403).json({ error: result.error, code: 'not_author', canAddend: true });
+    }
     if ('error' in result) return res.status(result.status).json({ error: result.error });
     return res.status(201).json({
       id: result.note.id,
@@ -160,6 +183,40 @@ notesRouter.post('/visit-notes/:id/amend', requireRole(...PROVIDER_ROLES), async
     logger.error('notes_amend_failed', err);
     return res.status(500).json({ error: 'Could not amend that note.' });
   }
+});
+
+const addendumBody = z.object({
+  body: z.string().trim().min(1, 'An addendum cannot be empty.').max(20000),
+}).strict();
+
+/**
+ * POST /api/visit-notes/:id/addendum — add to a note that is not yours to amend.
+ *
+ * Any account with a provider role (the signer included) may add one; an administrator may not. The addendum
+ * is a new entry attributed to the signed-in provider and the role they used, linked to the note, and it
+ * never changes: nothing edits or deletes one, and the database refuses to. The note it is linked to is not
+ * touched at all.
+ */
+notesRouter.post('/visit-notes/:id/addendum', ...requireClinicalWrite, async (req, res) => {
+  const parsed = addendumBody.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Invalid body.', code: 'bad_request' });
+  const author = await sessionAuthor(req);
+  if ('error' in author) return res.status(403).json({ error: author.error, code: 'no_provider_identity' });
+
+  const row = await staffTransaction(async (tx, rec) => {
+    const target = await tx.visitNote.findUnique({ where: { id: req.params.id ?? '' }, select: { id: true, bookingId: true } });
+    if (!target) return null;
+    const made = await tx.noteAddendum.create({
+      data: {
+        bookingId: target.bookingId, noteId: target.id, body: parsed.data.body,
+        authorAccountId: req.auth!.account.id, authorStaffId: author.staffId, authorRole: author.role, createdAt: now(),
+      },
+    });
+    await rec({ action: 'CREATE', resourceType: 'note_addendum', resourceId: made.id, meta: { note: target.id, role: author.role } });
+    return made;
+  });
+  if (!row) return res.status(404).json({ error: 'Unknown note.', code: 'not_found' });
+  res.status(201).json({ addendum: { id: row.id, noteId: row.noteId, createdAt: row.createdAt.toISOString() } });
 });
 
 /** GET /api/bookings/:id/notes — current notes for one visit, with history. */
@@ -185,6 +242,7 @@ notesRouter.get('/bookings/:id/notes', requireRole(), async (req, res) => {
     bookingId: booking.id,
     patientNote: booking.patientNote,
     notes: resolveNoteChains(rows as RawNote[]),
+    addenda: await loadAddenda(booking.id),
   });
 });
 

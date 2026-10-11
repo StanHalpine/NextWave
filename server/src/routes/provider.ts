@@ -89,7 +89,10 @@ providerRouter.get('/provider/visits/:id/documentation', ...requireClinicalRead,
   const pending = await prisma.scribeSession.findMany({ where: { bookingId: id(req), status: { in: ['UPLOADED', 'TRANSCRIBING', 'DRAFTING'] } }, select: { id: true } });
   for (const p of pending) await healStale(p.id);
 
-  const ws = await loadWorkspace({ bookingId: id(req), role, ownStaffId: req.auth!.account.staffId });
+  const ws = await loadWorkspace({
+    bookingId: id(req), role, ownStaffId: req.auth!.account.staffId, ownAccountId: req.auth!.account.id,
+    canAddend: providerRolesOf(req.auth!.account.roles).length > 0,
+  });
   if (!ws) return res.status(404).json({ error: 'Unknown appointment.', code: 'not_found' });
 
   audit.read('encounter', id(req), { scope: 'documentation_workspace' });

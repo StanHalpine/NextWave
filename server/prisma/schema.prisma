@@ -232,6 +232,7 @@ model Booking {
   documentationDraft DocumentationDraft?
   noteSignature      NoteSignature?
   scribeSessions     ScribeSession[]
+  addenda            NoteAddendum[]
 
   // The availability engine scans by resource/time and by staff/time; the
   // front desk queue scans by status.
@@ -302,10 +303,12 @@ model VisitNote {
   /// a provider role leaves an unambiguous record of which hat they wore.
   authorRole      AccountRole?
 
-  booking   Booking    @relation(fields: [bookingId], references: [id], onDelete: Restrict)
-  author    Staff      @relation(fields: [authorId], references: [id], onDelete: Restrict)
-  amends    VisitNote? @relation("NoteAmendment", fields: [amendsId], references: [id], onDelete: Restrict)
-  amendedBy VisitNote? @relation("NoteAmendment")
+  booking   Booking        @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  author    Staff          @relation(fields: [authorId], references: [id], onDelete: Restrict)
+  amends    VisitNote?     @relation("NoteAmendment", fields: [amendsId], references: [id], onDelete: Restrict)
+  amendedBy VisitNote?     @relation("NoteAmendment")
+  /// Notes other providers have added to this one (Phase 5 round). A relation only: it adds no column here.
+  addenda   NoteAddendum[]
 
   @@index([bookingId, createdAt])
   @@index([authorId])
@@ -1022,4 +1025,27 @@ model Macro {
   set MacroSet @relation(fields: [setId], references: [id], onDelete: Cascade)
 
   @@index([setId, section, sortOrder])
+}
+
+/// APPEND-ONLY (triggers). An ADDENDUM is what a provider other than a note's signer adds to it: a new signed
+/// entry linked to the note, which never changes and changes nothing it is linked to. (Only the signer may
+/// AMEND — the existing model, untouched: a new VisitNote row pointing at the one it replaces.) It belongs to
+/// the chain of the version it names, so it follows that note through later amendments.
+model NoteAddendum {
+  id              String      @id @default(uuid())
+  bookingId       String
+  /// The note version it was written against (any version in the chain).
+  noteId          String
+  body            String
+  /// From the SESSION, never the request body — and the provider role used.
+  authorAccountId String
+  authorStaffId   String
+  authorRole      AccountRole
+  createdAt       DateTime    @default(now())
+
+  booking Booking   @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  note    VisitNote @relation(fields: [noteId], references: [id], onDelete: Restrict)
+
+  @@index([bookingId, createdAt])
+  @@index([noteId])
 }

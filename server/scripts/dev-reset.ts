@@ -57,7 +57,7 @@ async function main(): Promise<number> {
   // — so a development reset has to switch those triggers off for the length of this one
   // transaction (it needs to own the tables, which a dev database does) and back on after. If
   // anything fails the whole transaction rolls back, triggers included.
-  const APPEND_ONLY = ['CreditAllocation', 'CreditLedger', 'PerkUsage', 'RevenueEvent', 'NoteSignature', 'VisitNote'];
+  const APPEND_ONLY = ['CreditAllocation', 'CreditLedger', 'PerkUsage', 'RevenueEvent', 'NoteSignature', 'NoteAddendum', 'VisitNote'];
   await basePrisma.$transaction(async (tx) => {
     for (const t of APPEND_ONLY) await tx.$executeRawUnsafe(`ALTER TABLE "${t}" DISABLE TRIGGER USER`);
     await tx.$executeRawUnsafe('DELETE FROM "CreditAllocation"');
@@ -65,6 +65,7 @@ async function main(): Promise<number> {
     await tx.$executeRawUnsafe('DELETE FROM "PerkUsage"');
     await tx.$executeRawUnsafe('DELETE FROM "RevenueEvent"');
     await tx.$executeRawUnsafe('DELETE FROM "NoteSignature"');
+    await tx.$executeRawUnsafe('DELETE FROM "NoteAddendum"');
     await tx.$executeRawUnsafe('UPDATE "VisitNote" SET "amendsId" = NULL');     // break the amendment chain, then
     await tx.$executeRawUnsafe('DELETE FROM "VisitNote"');
     for (const t of APPEND_ONLY) await tx.$executeRawUnsafe(`ALTER TABLE "${t}" ENABLE TRIGGER USER`);
