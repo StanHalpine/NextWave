@@ -12,7 +12,7 @@ import { MessagingError } from '../src/integrations/types.js';
 import { renderTemplate } from '../src/integrations/templates.js';
 import { toE164 } from '../src/lib/phone.js';
 import { twilioSignature } from '../src/routes/smsInbound.js';
-import { app, auditRows, blob } from './helpers.js';
+import { app, auditRows, blob, makeAccount, signInFully } from './helpers.js';
 import { makeClinic, makePatient } from './phase2.js';
 
 /**
@@ -332,6 +332,17 @@ describe('the status-callback webhook', () => {
     const audits = await deliveryAudits(m.row.id);
     expect(audits.map((a) => (a.meta as { to: string }).to)).toEqual(['sent', 'delivered']);
     expect(blob(audits)).not.toContain(m.num.last4);
+  });
+
+  it('shows the front desk what the provider reported — the status, never a number or the words', async () => {
+    const m = await sentMessage();
+    const fd = await signInFully((await makeAccount({ roles: ['FRONT_DESK'] })).email);
+    const detail = async () => (await fd.agent.get(`/api/schedule/appointments/${m.booking.id}`)).body.messages as Array<Record<string, unknown>>;
+    expect((await detail())[0]).toMatchObject({ status: 'SENT', deliveryStatus: null });
+    await post({ MessageSid: m.sid, MessageStatus: 'delivered' });
+    const [msg] = await detail();
+    expect(msg).toMatchObject({ kind: 'CONFIRMATION', status: 'SENT', deliveryStatus: 'delivered' });
+    expect(Object.keys(msg!).sort()).toEqual(['deliveryStatus', 'failureCode', 'forStart', 'kind', 'sentAt', 'status']);
   });
 
   it('only moves forward: a late or repeated callback changes nothing and writes no audit row', async () => {
