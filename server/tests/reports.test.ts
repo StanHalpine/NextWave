@@ -525,7 +525,8 @@ describe('the endpoints', () => {
     expect(r.headers['content-type']).toMatch(/^text\/csv/);
     expect(r.headers['content-disposition']).toBe(`attachment; filename="nextwave-members-${WHOLE.from}_to_${WHOLE.to}.csv"`);
     expect(r.headers['cache-control']).toBe('no-store');
-    const text = r.text.replace(/^﻿/, '');
+    expect(r.text.charCodeAt(0)).toBe(0xfeff);          // a byte-order mark, so a spreadsheet reads the dashes in the labels as UTF-8
+    const text = r.text.slice(1);
     const lines = text.trim().split('\r\n');
     expect(lines[0]).toBe('"Who paid, and how",Visits,List price,Discount,Net,Covered by membership,Credits redeemed');
     expect(lines).toContain(`Member — credits,1,100.00,0.00,0.00,100.00,2`);
