@@ -19,7 +19,6 @@
  * The message BODY is never stored or logged, only the keyword it matched; the phone number is
  * never logged.
  */
-import { createHmac, timingSafeEqual } from 'node:crypto';
 import { Router, urlencoded, type Request, type Response } from 'express';
 import { config } from '../config.js';
 import { basePrisma } from '../lib/prismaBase.js';
@@ -27,6 +26,7 @@ import { runAsSystem } from '../lib/audit.js';
 import { logger } from '../lib/logger.js';
 import { now } from '../lib/clock.js';
 import { staffTransaction } from '../lib/staffTx.js';
+import { checkTwilioRequest } from '../lib/twilioWebhook.js';
 import { phoneVariants, toE164 } from '../lib/phone.js';
 import { liftSuppression, suppressNumber } from '../lib/smsSuppression.js';
 import { utcTimestamp } from '../lib/sqlTime.js';
@@ -34,21 +34,8 @@ import { KEYWORDS, renderTemplate, sanitizeFirstName } from '../integrations/tem
 
 export const smsInboundRouter = Router();
 
-/** Twilio's request signature for `url` and the form `params`. Exported for tests. */
-export function twilioSignature(token: string, url: string, params: Record<string, string>): string {
-  const data = Object.keys(params).sort().reduce((acc, k) => acc + k + params[k], url);
-  return createHmac('sha1', token).update(data).digest('base64');
-}
-
-function validSignature(req: Request, token: string): boolean {
-  const given = req.get('x-twilio-signature');
-  if (!given) return false;
-  const params = Object.fromEntries(Object.entries((req.body ?? {}) as Record<string, unknown>).map(([k, v]) => [k, String(v)]));
-  const expected = twilioSignature(token, `${config.appBaseUrl}${req.originalUrl}`, params);
-  const a = Buffer.from(given);
-  const b = Buffer.from(expected);
-  return a.length === b.length && timingSafeEqual(a, b);
-}
+// Re-exported: tests (and anything else) have always imported the signature function from here.
+export { twilioSignature } from '../lib/twilioWebhook.js';
 
 type Keyword = 'STOP' | 'START' | 'HELP' | 'CONFIRM' | 'OTHER';
 
@@ -67,13 +54,12 @@ function twiml(res: Response, reply: string | null) {
 const clinicPhone = () => config.clinicPhone || '(clinic phone not set)';
 
 smsInboundRouter.post('/sms/inbound', urlencoded({ extended: false, limit: '8kb' }), async (req, res) => {
-  const token = process.env.TWILIO_AUTH_TOKEN ?? '';
-  if (!token) {
-    if (config.isProduction) {
-      logger.warn('sms_inbound_refused', { reason: 'no_auth_token' });
-      return res.status(503).json({ error: 'Inbound texts are not configured.' });
-    }
-  } else if (!validSignature(req, token)) {
+  const check = checkTwilioRequest(req);
+  if (check === 'not_configured') {
+    logger.warn('sms_inbound_refused', { reason: 'no_auth_token' });
+    return res.status(503).json({ error: 'Inbound texts are not configured.' });
+  }
+  if (check === 'bad_signature') {
     logger.warn('sms_inbound_refused', { reason: 'bad_signature' });
     return res.status(403).type('text').send('Forbidden');
   }

@@ -251,15 +251,17 @@ async function send(id: string, t: Target, to: Recipient, attempt: number, deps:
     : { first, time: formatApptTime(t.forStart) };
   try {
     const { providerMessageId } = await deps.messaging.sendSms({ to: to.to, templateId: t.templateId, variables });
-    await finish(id, { status: 'SENT', providerMessageId, sentAt: at, nextAttemptAt: null, failureCode: null }, out, 'sent');
+    await finish(id, { status: 'SENT', providerMessageId, sentAt: at, nextAttemptAt: null, failureCode: null, providerErrorCode: null }, out, 'sent');
   } catch (err) {
     const failure = err instanceof MessagingError ? err.failure : 'transient';
+    // The provider's NUMERIC code (21610 …) when it gave one: safe to keep; its message text never reaches here.
+    const providerErrorCode = err instanceof MessagingError ? (err.providerCode ?? null) : null;
     if (!(err instanceof MessagingError)) logger.error('sms_send_unexpected_error', err, { messageLogId: id }); // class + sanitised message only
     if (failure === 'transient' && attempt < MAX_ATTEMPTS) {
       const wait = BACKOFF_MS[Math.min(attempt - 1, BACKOFF_MS.length - 1)]!;
-      await finish(id, { nextAttemptAt: new Date(at.getTime() + wait), failureCode: 'transient' }, out, 'retry');
+      await finish(id, { nextAttemptAt: new Date(at.getTime() + wait), failureCode: 'transient', providerErrorCode }, out, 'retry');
     } else {
-      await finish(id, { status: 'FAILED', failureCode: failure === 'transient' ? 'transient_exhausted' : failure, nextAttemptAt: null }, out, 'failed');
+      await finish(id, { status: 'FAILED', failureCode: failure === 'transient' ? 'transient_exhausted' : failure, nextAttemptAt: null, providerErrorCode }, out, 'failed');
       if (failure === 'opted_out') await recordOptOut(to, at);
     }
   }

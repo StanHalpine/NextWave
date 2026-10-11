@@ -321,12 +321,16 @@ export function LinkPatientDialog({ appt, onClose, onLinked }: { appt: Appt; onC
 
 interface Detail {
   appointment: Appt; contact: { name: string; phone: string; email: string | null }; patientNote: string | null;
-  messages: Array<{ kind: string; status: string; forStart: string; sentAt: string | null; failureCode: string | null }>;
+  messages: Array<{ kind: string; status: string; forStart: string; sentAt: string | null; failureCode: string | null; deliveryStatus: string | null }>;
 }
 
 const MSG_KIND: Record<string, string> = { CONFIRMATION: 'Confirmation text', REMINDER_24H: 'Reminder text' };
 function msgSummary(m: Detail['messages'][number], tz: string): string {
-  if (m.status === 'SENT') return `sent${m.sentAt ? ` ${fmtInstantTime(m.sentAt, tz)}` : ''}`;
+  if (m.status === 'SENT') {
+    // What the provider has reported since (status callbacks); nothing until it does.
+    const delivery = m.deliveryStatus === 'delivered' ? ' · delivered' : m.deliveryStatus === 'undelivered' || m.deliveryStatus === 'failed' ? ' · not delivered' : '';
+    return `sent${m.sentAt ? ` ${fmtInstantTime(m.sentAt, tz)}` : ''}${delivery}`;
+  }
   if (m.status === 'QUEUED') return 'queued — will retry';
   if (m.status === 'SKIPPED') return `not sent (${(m.failureCode ?? 'skipped').replace(/_/g, ' ')})`;
   return `failed (${(m.failureCode ?? 'error').replace(/_/g, ' ')})`;

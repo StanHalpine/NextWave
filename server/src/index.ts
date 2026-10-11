@@ -26,6 +26,7 @@ import { membershipAdminRouter } from './routes/membershipAdmin.js';
 import { discountAdminRouter } from './routes/discountAdmin.js';
 import { reportsRouter } from './routes/reports.js';
 import { smsInboundRouter } from './routes/smsInbound.js';
+import { smsStatusRouter } from './routes/smsStatus.js';
 import { providerRouter } from './routes/provider.js';
 import { macrosRouter } from './routes/macros.js';
 import { devStorageRouter } from './routes/devStorage.js';
@@ -117,6 +118,7 @@ export function buildApp() {
   app.use('/api', availabilityRouter);
   app.use('/api', smsPublicRouter);  // consent label + the booking widget's consent checkbox
   app.use('/api', smsInboundRouter); // the messaging provider's STOP / HELP / C webhook (signed)
+  app.use('/api', smsStatusRouter);  // the messaging provider's delivery status callbacks (signed the same way)
   app.use('/api', holdsRouter);
   app.use('/api', bookingsRouter);
   app.use('/api', frontDeskRouter);

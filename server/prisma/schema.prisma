@@ -648,12 +648,19 @@ model MessageLog {
   queuedAt          DateTime      @default(now())
   sentAt            DateTime?
   nextAttemptAt     DateTime?
+  /// What the provider has told us since (status callbacks): queued | sending | sent | delivered | undelivered | failed. It only ever
+  /// moves forward — callbacks can arrive out of order — and is separate from `status`, which is our own send state.
+  deliveryStatus    String?
+  deliveryUpdatedAt DateTime?
+  /// The provider's numeric error code for a failure (e.g. 21610: the recipient opted out). A number, never its message text.
+  providerErrorCode Int?
 
   booking Booking  @relation(fields: [bookingId], references: [id])
   patient Patient? @relation(fields: [patientId], references: [id])
 
   @@unique([bookingId, kind, forStart])
   @@index([status, nextAttemptAt])
+  @@index([providerMessageId])
 }
 
 /// A phone number that texted STOP. Checked before EVERY send, whatever else says "consented":

@@ -144,8 +144,8 @@ scheduleRouter.get('/schedule/appointments/:id', requireFrontDesk, async (req, r
     // The contact the booking was made under — useful when no patient is linked yet.
     contact: { name: b.user.name, phone: b.user.phone, email: b.user.email },
     patientNote: b.patientNote,
-    // Delivery status of texts only. Never the number, never the message.
-    messages: b.messages.map((m) => ({ kind: m.kind, status: m.status, forStart: m.forStart, sentAt: m.sentAt, failureCode: m.failureCode })),
+    // Send and delivery status of texts only (what the provider has reported back). Never the number, never the message.
+    messages: b.messages.map((m) => ({ kind: m.kind, status: m.status, forStart: m.forStart, sentAt: m.sentAt, failureCode: m.failureCode, deliveryStatus: m.deliveryStatus })),
   });
 });
 

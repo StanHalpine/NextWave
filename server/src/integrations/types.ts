@@ -80,7 +80,11 @@ export interface Messaging {
 export type MessagingFailure = 'opted_out' | 'invalid_recipient' | 'transient' | 'rejected';
 
 export class MessagingError extends Error {
-  constructor(public readonly failure: MessagingFailure) {
+  /**
+   * @param providerCode the provider's NUMERIC error code where it gave one (Twilio: 21610 …). A number is safe to store and log;
+   *   its message text is not, and is never carried.
+   */
+  constructor(public readonly failure: MessagingFailure, public readonly providerCode?: number) {
     super(`Messaging failed: ${failure}`);
     this.name = 'MessagingError';
   }

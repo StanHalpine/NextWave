@@ -11,6 +11,7 @@ import { prisma } from '../lib/prisma.js';
 import { logger } from '../lib/logger.js';
 import { config } from '../config.js';
 import { StubAiScribe, StubFileStorage, StubMessaging } from './stubs.js';
+import { TwilioMessaging, twilioMissingCredential, twilioSendingConfigured } from './twilio.js';
 import { NotConfiguredError, type AiScribe, type FileStorage, type IntegrationKindName, type Messaging } from './types.js';
 
 export interface Integrations {
@@ -26,7 +27,17 @@ export interface IntegrationStatus {
   isStub: boolean;
 }
 
+/**
+ * Texts go through Twilio only when BOTH TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN are set and this is not the test run; otherwise
+ * the stub, which sends nothing. That decision is made from the environment, not the IntegrationConfig table, so a deployment cannot
+ * end up half-switched: it is the credentials being present that turns real sending on.
+ */
+function messagingProvider(configured: string): string {
+  return twilioSendingConfigured() ? 'twilio' : configured;
+}
+
 function build(kind: IntegrationKindName, provider: string, storage?: FileStorage) {
+  if (kind === 'MESSAGING' && provider === 'twilio') return TwilioMessaging.fromEnv();
   if (provider !== 'stub') throw new NotConfiguredError(kind, provider);
   switch (kind) {
     case 'FILE_STORAGE': return new StubFileStorage();
@@ -40,7 +51,15 @@ let statuses: IntegrationStatus[] = [];
 
 export async function loadIntegrations(): Promise<Integrations> {
   const rows = await prisma.integrationConfig.findMany();
-  const provider = (k: IntegrationKindName) => rows.find((r) => r.kind === k)?.provider ?? 'stub';
+  const provider = (k: IntegrationKindName) => {
+    const configured = rows.find((r) => r.kind === k)?.provider ?? 'stub';
+    return k === 'MESSAGING' ? messagingProvider(configured) : configured;
+  };
+  const missing = twilioMissingCredential();
+  if (missing && process.env.NODE_ENV !== 'test') {
+    // Names the variable, never a value. Texts stay on the stub — nothing is sent — until both are set.
+    logger.warn('twilio_partially_configured', { missing, effect: 'texts stay on the local stub: nothing is sent' });
+  }
 
   const storage = build('FILE_STORAGE', provider('FILE_STORAGE')) as FileStorage;
   cached = {
