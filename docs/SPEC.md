@@ -1,6 +1,6 @@
 # NextWave Wellness — Clinic System Specification
 
-Version 1.5 · 2026-10-10 · Status: **Phases 1, 2 and 3 approved. Phase 4 (Provider + SOAP) built — awaiting review; see `docs/PHASE4_NOTES.md`.** Phase 5 not started.
+Version 1.6 · 2026-10-11 · Status: **Phases 1–4 approved. Phase 5 (Accounting + Reports) built — awaiting review; see `docs/PHASE5_NOTES.md`.** Nothing is pushed or deployed; `docs/STAGING_CHECKLIST.md` lists everything that needs a real environment.
 
 > **Revision 1.1 — decisions recorded after approval** (the body below is otherwise
 > unchanged from the approved v1; sections touched are marked *[rev 1.1]*):
@@ -62,7 +62,7 @@ Version 1.5 · 2026-10-10 · Status: **Phases 1, 2 and 3 approved. Phase 4 (Prov
 >
 > | Item | Decision |
 > |---|---|
-> | Member discounts | **`MembershipPlan.discountPercent`**, applied at check-out to **cash** payments by **active** members, editable on Admin → Memberships. `RevenueEvent` records **list price, discount and net price as separate columns** (`priceCents` / `cashDueCents` became `listPriceCents` / `netPriceCents`, plus `discountPercent` and `discountCents`). The owner left the tier mapping blank, so every tier starts at **0%**. This **supersedes** the "member savings cannot be applied" limitation in rev 1.4 |
+> | Member discounts | *[superseded by rev 1.6: now per tier per service category]* **`MembershipPlan.discountPercent`**, applied at check-out to **cash** payments by **active** members, editable on Admin → Memberships. `RevenueEvent` records **list price, discount and net price as separate columns** (`priceCents` / `cashDueCents` became `listPriceCents` / `netPriceCents`, plus `discountPercent` and `discountCents`). The owner left the tier mapping blank, so every tier starts at **0%**. This **supersedes** the "member savings cannot be applied" limitation in rev 1.4 |
 > | Perks | Quantities left blank by the owner → counters stay **off** |
 > | `membership.html` | Cherry-picked onto `main` (only that commit). It conflicted with an unpushed local commit on `main`; the owner's copy replaced it |
 > | Render | Paid plans approved: the entry size (`0.5c-512mb`) for the web service and the cron job |
@@ -75,7 +75,7 @@ Version 1.5 · 2026-10-10 · Status: **Phases 1, 2 and 3 approved. Phase 4 (Prov
 > | Item | As built |
 > |---|---|
 > | Notes | **No `SoapNote` / `SoapNoteRevision`.** The owner's instruction was to build on the existing amend-only `VisitNote` model **without changing its amendment semantics**, so: a mutable **`DocumentationDraft`** (the scratchpad), **signing copies it into `VisitNote` rows** (S, O, A, P — or one GENERAL note for a session log) and writes an append-only **`NoteSignature`** (account, provider role used, time, which notes). Corrections after signing are the existing amendment. `VisitNote` gains a nullable `durationMin` (session logs) so a duration correction is an ordinary amendment. The database now **rejects UPDATE/DELETE/TRUNCATE on `VisitNote` and `NoteSignature`** |
-> | Legacy `VisitNote` endpoints "made read-only" | **Not done.** They are the existing model the owner told me not to change; the amend route still lets any provider amend any note (§7 of the notes) |
+> | Legacy `VisitNote` endpoints "made read-only" | *[rev 1.6: the amend route is now signer-only, and other providers add addenda]* **Not done.** They are the existing model the owner told me not to change; the amend route still lets any provider amend any note (§7 of the notes) |
 > | Queue | `GET /api/provider/queue?role=` — by **provider role** (not `scope=mine\|specialty`): today's checked-in patients for the role plus visits with **no provider assigned**, with each visit's documentation status, and earlier unsigned visits (30 days). Role switching for multi-role accounts; an admin may view any role read-only |
 > | Workspace | `/api/provider/visits/:id/{documentation,start,draft,sign}` (the spec's `/encounters/:id/soap…` paths). Optimistic `version` on the draft. A SOAP note needs all four sections (write N/A where one does not apply); a session log needs duration and notes |
 > | Macros | **One-click insertion by section**, not typed `trigger` expansion (the owner's wording). `MacroSet` is `PERSONAL` (one per provider) or `SHARED` (admin-defined, all provider roles or the listed ones); `Macro` has a title, a section and a body of at most 4,000 characters |
@@ -83,7 +83,24 @@ Version 1.5 · 2026-10-10 · Status: **Phases 1, 2 and 3 approved. Phase 4 (Prov
 > | Integrations in production | While FileStorage or AiScribe is a stub, the scribe is **off** in production (`ALLOW_STUB_INTEGRATIONS` lifts that for a fake-patient staging deployment). This replaces the Phase 1 plan to refuse to start |
 > | MFA | `MFA_REQUIRED_ROLES` now defaults to `ADMIN` + the three provider roles, and every clinical route checks the authenticator itself regardless of that setting |
 > | Front desk | `Appointment.documentation = { status: NONE \| DRAFT \| SIGNED, signedAt }` — never text |
-> | Not built | The audio **purge job** (retention is the owner's decision, §9 of the notes); a typed-trigger macro manager; a provider-only "Mine" scope beyond an "Only mine" filter |
+> | Not built | *[rev 1.6: the purge job is built — 30 days after signing]* The audio **purge job** (retention is the owner's decision, §9 of the notes); a typed-trigger macro manager; a provider-only "Mine" scope beyond an "Only mine" filter |
+
+> **Revision 1.6 — decisions recorded at Phase 4 approval, and Phase 5 as built.**
+>
+> | Item | As built |
+> |---|---|
+> | Member discounts | **A percentage per tier per service category**, admin-editable (`DiscountCategory`, `PlanCategoryDiscount`, `Service.discountCategoryId`; `RevenueEvent.discountCategory` is a snapshot). **Supersedes** `MembershipPlan.discountPercent` (rev 1.5), which is gone. Applied at check-out to **cash** paid by an **active** member; credits and perks are never discounted. **Nothing is enabled**: no categories, no percentages, perks off, until the owner approves `docs/DISCOUNT_MAPPING.md` (derived from `membership.html`, with its five internal conflicts listed) |
+> | Amendments | **Only the provider who signed a note can amend it**; any other provider adds an **addendum** (`NoteAddendum`: append-only, linked to the note, never changes it). An administrator has **no** write path. The amendment model and its versioning are unchanged. **Supersedes** "any provider can amend any note" (rev 1.5 row on the legacy `VisitNote` endpoints) |
+> | Audio retention | Raw audio is deleted **`AUDIO_RETENTION_DAYS` (default 30) after the note is signed**, by a step of `jobs:run`; each deletion is audited. The transcript and the AI draft **stay with the visit**, which **supersedes** assumption A-7's 90-day transcript. Replaces "Not built: the audio purge job" in rev 1.5 |
+> | Reminder | A same-day wording, `appt_reminder_today_v1`, is used when the appointment is today; the Phase 3 `same_day` skip is gone |
+> | Clinic phone and sender | Defaults `(308) 830-1951` (`CLINIC_PHONE` overrides) and `+18665241007` (`TWILIO_FROM_NUMBER` overrides; must be E.164). `contact.html` carries the same, and a test keeps them level |
+> | **Phase 5 · Accounting** | `/app/accounting`, **admin only**: one page with four views — *Monthly by service*, *Daily*, *Members vs. non-members*, *Custom* (date range, service, payment type, provider, and how to total). Built on **`RevenueEvent`** (not `Charge`). Columns: visits, **list**, **discount**, **net**, **covered by membership** (= list − discount − net: the list value of a credit or perk visit, per A-13), credits redeemed. `GET /api/accounting/{options,monthly,daily,members,custom}`; **not** the `revenue/…` paths or the `POST …/analytics/query` builder of §5.5 (a fixed set of filters and groupings instead) |
+> | **Phase 5 · Reports** | `/app/reports`, **front desk and admin** (A-14; providers see neither): *New memberships* (by tier, `Membership.startedOn`), *Walk-ins by day* and *by hour*, *Weekend visits* (Saturday + Sunday, A-17), *Service demand* (booked / attended / no-shows). `GET /api/reports/{signups,walkins-day,walkins-hour,weekend,demand}`. The six demand categories follow **A-6 by service slug, in code** (`lib/reportFormat.ts`) rather than a `Service.reportGroup` column; vitamin shots, body composition and any new service are **Other** |
+> | Every view | A date range that starts on the **current month in the clinic calendar**, a totals row, a CSV export (`?format=csv`; BOM, `CRLF`, plain decimals, formula-safe). **Aggregates only — no patient, booking or encounter is named or identified**, in JSON or CSV. Every view is audited as `READ` and every export as `EXPORT` (`accounting_report`, `clinic_report`) with its range and filters; views are not de-duplicated. Unknown parameters are refused. A range is clinic-local days, both ends inclusive, at most five years |
+> | Schema (Phase 5) | `RevenueEvent.staffId` (the provider the visit was booked with, snapshotted at check-out; existing rows backfilled from their bookings) and indexes `RevenueEvent(staffId, occurredAt)`, `Booking(source, startTime)`, `Membership(startedOn)`. **No `Service.reportGroup`.** Measured at 50,000 encounters: slowest view 127 ms, every current-month query on an index (`npm run perf:reports`; `docs/PHASE5_NOTES.md` §4) |
+> | **Time zones and raw SQL** | Every `DateTime` column is a UTC `timestamp`. **Raw SQL must bind an instant with `utcTimestamp()`** (`lib/sqlTime.ts`): a bare `Date` is compared in the *database session's* zone, which is wrong by the offset on any non-UTC database. Three queries from Phases 2–3 had it and are fixed. The test database now runs in `Asia/Kolkata` unless `NW_TEST_TZ` says otherwise |
+> | Revenue basis | **Membership dues are not in Accounting**: nothing records them (A-13 assumed they would be). Revenue is what was recorded at check-out |
+> | Not built | A **Twilio sending adapter** (texts still go to the stub; only the inbound webhook, its signature check and the wording are real), the **AWS adapters**, a dues record, void/refund, print/PDF, a free-form analytics builder |
 
 Companion to `docs/CURRENT_STATE.md` (what exists today). This document turns
 the approved flowchart into pages, schema, API, and a five-phase plan.
@@ -641,6 +658,8 @@ model ScribeSession {            // transcript and audio live in S3; only keys h
 
 ### 4.5 Phase 5 — Accounting + Reports
 
+> *Original design. **As built: see Revision 1.6 at the top of this document** (`RevenueEvent` instead of `Charge`; `RevenueEvent.staffId` and three indexes; no `Service.reportGroup`).*
+
 No new tables beyond indexes: reports and accounting read `Charge`,
 `CreditLedger`, `Membership`, `Booking`, `Encounter`. One addition to `Service`
 (§4.6). All date bucketing is done in the **clinic timezone**
@@ -738,6 +757,8 @@ patient / appointment / SOAP / credit data writes an `AuditLog` row (§6).
 | `POST /api/provider/scribe/:sid/apply` · `/discard` | provider_* | Pull draft into the note / purge audio |
 
 ### 5.5 Accounting + Reports (Phase 5)
+
+> *Original design. **As built: see Revision 1.6** — `GET /api/accounting/{options,monthly,daily,members,custom}` and `GET /api/reports/{signups,walkins-day,walkins-hour,weekend,demand}`, each with `?from&to` and `&format=csv`; no analytics `POST` builder.*
 | Method · Path | Roles |
 |---|---|
 | `GET /api/accounting/revenue/monthly?from&to` · `/daily?from&to` · `/member-vs-nonmember?from&to` | admin |
@@ -820,7 +841,7 @@ review before the next phase.
 **Exit:** a note cannot be signed by anyone but its provider; every revision is retained; draft AI text is visibly marked until the provider edits and signs; stubs let the whole flow run with no AWS credentials.
 **Needs from you:** AWS account, BAA, Bedrock model access, region, S3 bucket, IAM role (A-7); which services need notes (A-5).
 
-### Phase 5 — Accounting + Reports  *(M)*
+### Phase 5 — Accounting + Reports  *(M)* — **built; see `docs/PHASE5_NOTES.md`**
 **Migrations:** indexes; `Service.reportGroup`.
 **Build:** A1–A4 and R1–R4, date-range filters, CSV export (audited), timezone-correct bucketing; analytics builder = measures (revenue, count, credits redeemed) × dimensions (service, category, day/month, member status, payment method) × filters.
 **Exit:** report totals reconcile to `Charge` rows to the cent; Saturday/DST boundaries bucket correctly.
@@ -855,7 +876,7 @@ Each has a default; say "defaults OK" or override.
 | A-4 | Admin and SOAP authoring | Admin can read but not author notes. If the owner is also a provider, give them a provider account — or tell me to allow multi-role accounts |
 | A-5 | Which services need a SOAP note | All, except Body Composition, Red Light, and Hyperbaric, which default off (admin toggle) |
 | A-6 | Report-group mapping | Chiro = adjustment/exam/X-ray · HBOT · Red Light · IV · Consult = FM consult, wellness planning, hormone, peptide, supplementation · Bloodwork = biomarker testing · Other = vitamin shots, body composition |
-| A-7 | AI audio/transcript retention | Audio purged 30 days after note signing; transcript 90 days; consent required per encounter. AWS BAA/region/IAM are yours |
+| A-7 | AI audio/transcript retention | Audio purged 30 days after note signing; ~~transcript 90 days~~ *[rev 1.6: transcript and draft stay with the encounter]*; consent required per encounter. AWS BAA/region/IAM are yours |
 | A-8 | SMS in scope | Yes: confirmation (Phase 2) + reminders (Phase 3), opt-in required, no clinical detail in message text |
 | A-9 | MFA | Not in Phase 1; strongly recommended for `admin` before real PHI. Say if you want it earlier |
 | A-10 | Price of an additional credit | Admin-set field, blank until you give a number (the 20% member discount applies to it) |

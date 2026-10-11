@@ -233,6 +233,32 @@ unchanged). Any other provider-role account adds an **addendum** instead: a new 
 them, that never changes (the database refuses to edit or delete one) and changes nothing it is linked to. An
 administrator has no write path to either.
 
+### Accounting and Reports (Phase 5)
+
+| Where | What |
+|---|---|
+| **Accounting** (`/app/accounting`, **admin only**) | *Monthly by service*, *Daily*, *Members vs. non-members*, and a *Custom* view (date range, service, payment type, provider, and how to total). Columns: visits, **list**, **discount**, **net**, **covered by membership**, credits redeemed — and `list = discount + covered + net` on every row |
+| **Reports** (`/app/reports`, front desk and admin) | *New memberships* (by tier), *Walk-ins* by day and by hour, *Weekend visits*, *Service demand* (chiropractic, HBOT, red light, IV, consults, bloodwork, other) |
+| Every view | A date range that starts on the **current month in the clinic's calendar**, a **totals row**, and a **CSV export** of what is on screen |
+
+**Aggregates only.** Every response and every CSV is counts and sums grouped by a service, day, hour, month, tier, payment
+type or provider. No patient, booking or encounter is named or identified. Every view is audited as `READ` and every export as
+`EXPORT` (`accounting_report` / `clinic_report`), with the range and filters it was asked with.
+
+**Where the numbers come from.** Revenue is `RevenueEvent`: what the front desk recorded at check-out (net = list − member
+discount; $0 for a visit a membership covered, which shows its list value under *Covered by membership*). **Membership dues are not in
+it** — nothing records them. Visit counts come from `Booking` and `Encounter`; sign-ups from `Membership.startedOn`. Days and
+months are the **clinic's** (`CLINIC_TIMEZONE`), so a sale at 11:59 p.m. on the last day of a month belongs to that month. The
+service-demand categories are SPEC assumption A-6 by service, in `src/lib/reportFormat.ts`; a service not listed there, such as a
+new one, shows as **Other**.
+
+**Time zones in raw SQL.** Every `DateTime` column is a UTC `timestamp`. A hand-written query must bind an instant with
+`utcTimestamp()` (`src/lib/sqlTime.ts`), never a bare `Date`: Postgres reads a bare `Date` against a `timestamp` column in the
+**database session's** zone, which is right only on a database set to UTC. The test suite runs the database in `Asia/Kolkata` for that reason.
+
+**Speed.** `npm run perf:reports` loads 50,000 encounters into a throwaway schema and times every view (slowest: 127 ms); every
+current-month query uses an index. `docs/PHASE5_NOTES.md` §4 has the table.
+
 ### Scheduled jobs
 
 Texts, the monthly credit grant and credit expiry are jobs, not part of any request, so something must run them. Pick one:
@@ -354,7 +380,8 @@ allowed. Every non-GET staff request also needs the `x-csrf-token` header.
 | GET | `/api/front-desk/schedule?date` | front desk, admin | Grid data |
 | GET | `/api/front-desk/pending` | front desk, admin | Review queue |
 | POST | `/api/bookings/:id/notes` | provider | Write a clinical note (author = your login) |
-| POST | `/api/visit-notes/:id/amend` | provider | Supersede a note (never updates) |
+| POST | `/api/visit-notes/:id/amend` | provider **who signed it** | Supersede a note (never updates); anyone else gets `403 not_author` |
+| POST | `/api/visit-notes/:id/addendum` | provider (any role) | Add a signed addendum linked to a note; never changes it. Admin: none |
 | GET | `/api/bookings/:id/notes` | staff | Notes for one visit — text for providers/admin, a count for front desk |
 | POST | `/api/patients/search` | staff | Find a patient (body, never a query string) |
 | GET | `/api/patients/:id/history` | staff | Compiled patient record |
@@ -384,6 +411,9 @@ allowed. Every non-GET staff request also needs the `x-csrf-token` header.
 | POST | `/api/fd/patients/:id/perks/:perkId/use` | front desk, admin | Use a perk not tied to a service (guest passes) |
 | GET | `/api/membership-plans` | staff | The tiers, for the enrol dialog |
 | GET · PATCH | `/api/admin/membership-plans` · `/:id` · `/:id/perks/:perkId` | admin | Tiers and perks as data; audited before → after |
+| GET · POST · PATCH · PUT · DELETE | `/api/admin/discount-categories` · `/:id` · `/:id/discounts` | admin | Member discounts: a percentage per tier per service category; none exist until created |
+| GET | `/api/accounting/options` · `/monthly` · `/daily` · `/members` · `/custom` (`?from&to`, `&format=csv`; custom adds `serviceId`, `paymentType`, `providerId`, `group`) | **admin** | Revenue: list, discount, net, covered. Aggregates only; every view and export audited |
+| GET | `/api/reports/signups` · `/walkins-day` · `/walkins-hour` · `/weekend` · `/demand` (`?from&to`, `&format=csv`) | front desk, admin | Counts only; every view and export audited |
 | GET | `/api/sms/consent-label` | — | The exact words for the booking widget's text-consent checkbox |
 | POST | `/api/bookings/:id/sms-consent` | — (booking id; ≤ 30 min old; rate limited) | Record the tick and the words shown |
 | POST | `/api/sms/inbound` | provider signature | STOP / START / HELP / C |
@@ -494,9 +524,9 @@ note inserts a new row and preserves the original verbatim; there is no PATCH an
 no DELETE. The author and the provider role used are taken from the signed-in
 session, never the request body. Phase 4 adds the provider workspace (draft →
 sign, with the amendment model unchanged) and the database now refuses to edit or
-delete a note or a signature. The older `POST /api/visit-notes/:id/amend` still lets
-**any provider** amend **any** note (the workspace only offers it for the booked
-role) — see `docs/PHASE4_NOTES.md` §7.
+delete a note or a signature. `POST /api/visit-notes/:id/amend` now requires the provider who **signed** the
+note; any other provider adds an addendum (`POST /api/visit-notes/:id/addendum`), and an administrator
+can do neither — see `docs/PHASE5_NOTES.md` §1.3.
 
 **No EHR export exists.** `GET /api/patients/:id/history` returns the compiled
 record in the shape an export would be built from, but there is no FHIR or HL7
@@ -504,7 +534,7 @@ mapping. Spec §8.5.
 
 **Not built** (nobody specified them): patient-facing booking UI, recurring
 appointment expansion (`isRecurring` is stored but never acted on), a real SMS provider
-(texts go to a local stub until Twilio is wired in), cancellation or reschedule texts, email
+(texts go to a local stub: there is no Twilio sending adapter, only the inbound webhook), membership dues, accounting print/PDF, cancellation or reschedule texts, email
 confirmations, payment processing, void of a check-out, cancellation windows, provider
 time-off/blackout dates. (Automated tests now exist — `npm test` — covering auth, access control, audit and start-up guards; the booking engine itself is still verified by `scripts/race-test.sh` rather than unit tests.)
 
@@ -521,6 +551,7 @@ time-off/blackout dates. (Automated tests now exist — `npm test` — covering 
 | `npm test` | Vitest — runs against a throwaway Postgres *schema* (see below) |
 | `npm run web:build` / `web:dev` / `web:install` | The React staff app |
 | `npm run jobs:run` | Run every scheduled job once (appointment texts, monthly credit grant, credit expiry) and exit — see *Scheduled jobs* |
+| `npm run perf:reports` | Time every Accounting and Reports query against 50,000 encounters (`PERF_ENCOUNTERS=…` to change) in a throwaway schema; prints timings and query plans, then drops it |
 | `npm run sms:templates` | Rewrite `docs/SMS_TEMPLATES.md` (every text, its length and segment cost) from `templates.ts` |
 | `npm run dev:reset` | **Dev only**: delete bookings, patients and notes. Refuses when `NODE_ENV=production` or `BOOKING_MODE` is beta/live, and needs `CONFIRM_DEV_RESET=yes` |
 | `./scripts/race-test.sh [date] [n]` | Concurrency proof — exactly one winner for one room |
@@ -539,6 +570,8 @@ privilege on the database.
 The suite sends its fake texts and files to a throwaway folder (`DEV_DATA_DIR`), not to your
 `.devdata/`. `NW_TEST_POOL=3 npm test` re-runs everything with the connection pool capped at
 3 — the setting under which a lock-ordering mistake shows up every time rather than rarely.
+The database session also runs in a non-UTC zone (`Asia/Kolkata`, which is neither UTC nor the clinic's) so a query that reads a UTC
+timestamp in the wrong zone fails here; `NW_TEST_TZ=UTC npm test` (or `America/Chicago`, `Pacific/Auckland`, …) runs it under another.
 The walk-in race tests (`tests/walkin-race.test.ts`) fire concurrent walk-ins, bookings,
 moves, cancellations, check-ins and the existing approve route at one another and assert
 exact winner counts, no double-booking and no deadlock.

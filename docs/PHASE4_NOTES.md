@@ -14,6 +14,11 @@ Four things need a decision from you before anything ships:
 highlighted placeholders — §1.6), **the tier discount percentages** (§1.1 — every tier starts at 0%),
 **who may amend a signed note** (§7.1), and **how long audio is kept** (§7.3).
 
+> **Update (Phase 5):** all four are decided and built — see `docs/PHASE5_NOTES.md` §1. The phone and address are
+> `(308) 830-1951` and 110 S. 243rd St., Waterloo, NE 68069; discounts are per tier per service category (none enabled
+> until you approve `docs/DISCOUNT_MAPPING.md`); only the signer can amend and others add addenda; audio is deleted 30
+> days after signing.
+
 ---
 
 ## 1. Carried over from Phase 3 approval
@@ -53,6 +58,10 @@ price. `RevenueEvent` columns: `listPriceCents`, `discountPercent`, `discountCen
 `net = list − discount` for cash and zero discount / zero money for a member visit. The tier code is now recorded
 on any active member's event, including a cash one.
 
+> **Update (Phase 5):** the first bullet above is superseded. A discount is now a percentage **per tier per service
+> category** (`DiscountCategory`, `PlanCategoryDiscount`); `MembershipPlan.discountPercent` is gone. None is enabled.
+> The second bullet stands: it applies to cash paid by an active member, for any service. See `docs/PHASE5_NOTES.md` §1.2.
+
 ### 1.2 `membership.html` on `main`
 Cherry-picked as `b86a432`. It **conflicted**: `main` already had an unpushed local commit, `ce91802`
 ("Update membership tiers…", 11 Aug), that rewrote the same tier cards. You said the owner's copy is the one to
@@ -78,12 +87,18 @@ those patients to get a reminder, here is wording in your punctuation style — 
 adding to the A2P campaign** — *"NextWave Wellness: Reminder for {first}: see you today at {time}. Reply STOP to opt
 out."*
 
+> **Update (Phase 5):** the same-day variant now exists: `appt_reminder_today_v1` ("Reminder for {first}: see you today at
+> {time}. Reply STOP to opt out."), used when the appointment is today. The `same_day` skip described here is gone.
+
 ### 1.5 `CLINIC_PHONE`
 `contact.html` publishes three email addresses and "Address to be confirmed" — **no phone number**. The server does
 not read the HTML at run time (the deployed service is built from `server/` alone), so the published number is
 copied into `src/clinicContact.ts` and a **test fails if the two disagree**, in either direction (a number added to
 the page with no copy here, or a copy the page no longer shows). That copy is empty today. `CLINIC_PHONE` still
 overrides it, and the app still refuses to start in production with a real Twilio token and no phone.
+
+> **Update (Phase 5):** `CLINIC_PHONE` now defaults to `(308) 830-1951` (the env var still overrides) and the sender to
+> `+18665241007` (`TWILIO_FROM_NUMBER`); `contact.html` carries the same and a test keeps them level.
 
 ### 1.6 The marketing site — separate branch, one decision from you
 Branch `site/privacy-and-sms-terms`, **off `main`**, two commits on top of the cherry-pick:
@@ -110,6 +125,9 @@ copied from `contact.html`); **Privacy** and **SMS Terms** links in the footer o
   site branch's PR. I pushed nothing.
 
 ---
+
+> **Update (Phase 5):** the placeholders are filled and the legal pages are published on `main` (pushed); Twilio verification
+> has been submitted.
 
 ## 2. Phase 4 scope
 
@@ -367,6 +385,11 @@ against the stub and the real adapter; and a script that runs one synthetic reco
 9. **Not independently reviewed for HIPAA**, and not run against real devices (staging checklist). Draft and note
    text sit in the database like any other column: encryption at rest is the database host's (RDS later).
 10. Dependency advisories: unchanged from Phase 1.
+
+> **Update (Phase 5):** items 1, 3 and 8 are resolved. (1) **Only the signer can amend a note**; any other provider adds an
+> addendum; an admin has no write path. (3) **Raw audio is deleted 30 days after signing** by a step of `jobs:run`
+> (`AUDIO_RETENTION_DAYS`); the transcript and draft stay. (8) Discounts are per tier per service category (none enabled
+> yet); perks stay off. See `docs/PHASE5_NOTES.md` §1.
 
 ---
 

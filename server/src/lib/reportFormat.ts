@@ -83,9 +83,11 @@ export function toCsv(columns: Column[], rows: Array<Record<string, string | num
 // ---- service demand categories -----------------------------------------------------------------------
 
 /**
- * The six demand categories the owner named, mapped from services by their slug (the booking app's `Service.category`
- * has only three disciplines — chiropractic, functional medicine, longevity — which is too coarse). A service not
- * listed, including one added later, is "Other" until it is added here.
+ * The six demand categories the owner named, with the services in each — SPEC assumption A-6, by service slug. (The booking app's
+ * `Service.category` has only three disciplines — Chiropractic, Functional Medicine, Longevity — too coarse for these six, and
+ * the owner's rule groups across them: "Consult" is the five nurse-practitioner consult-room services.) Vitamin shots and body
+ * composition are in none of the six: A-6 puts them in "Other", and so does any service added later, until it is listed here.
+ * tests/reports.test.ts pins the seeded services that land in Other, so adding a service fails there until someone decides.
  */
 export const DEMAND_CATEGORIES = [
   { key: 'chiropractic', label: 'Chiropractic', slugs: ['spinal-postural-exam', 'manual-adjustment', 'spinal-xrays'] },

@@ -96,7 +96,7 @@ describe('service demand categories', () => {
     const slugs = (await basePrisma.service.findMany({ where: { id: { startsWith: '5e401ce0-' } }, select: { slug: true } })).map((s) => s.slug);
     expect(slugs.length).toBeGreaterThan(10);
     const other = [...new Set(slugs.filter((s) => demandCategoryOf(s).key === 'other'))].sort();
-    // Vitamin shots and body composition belong to none of the six categories the owner named (PHASE5_NOTES, "Decisions for you").
+    // SPEC A-6: vitamin shots and body composition are in none of the six categories the owner named — they are "Other".
     expect(other, `services in "Other" — map them in lib/reportFormat.ts: ${other.join(', ')}`).toEqual(['body-composition', 'vitamin-shots']);
   });
 });

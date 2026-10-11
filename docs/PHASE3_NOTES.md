@@ -38,6 +38,9 @@ The one real defect in this area came from your new wording, not the clock: **"s
 false** for an appointment that is *today* (the job down overnight; consent given late). The reminder is now
 sent only when the appointment is tomorrow by the clinic's calendar, otherwise a `same_day` skip is recorded.
 
+> **Update (Phase 5):** the `same_day` skip is gone. An appointment that is *today* now gets its own wording
+> (`appt_reminder_today_v1`, "see you today at {time}"); see `docs/PHASE5_NOTES.md` §1.5.
+
 ---
 
 ## 2. Phase 3 scope
@@ -204,6 +207,10 @@ your text preference". The failure mode is "no texts", never "texts without cons
 > percentage and every check-out records list price, discount and net (see `docs/PHASE4_NOTES.md` §1.1; the
 > percentages start at 0% until you set them). The em-dash bullet no longer applies: the reminder wording changed
 > and is plain GSM-7.
+>
+> **Update (Phase 5):** the discount is no longer one percentage per tier. It is a percentage **per tier per service
+> category**, admin-editable, and **nothing is enabled** until you approve `docs/DISCOUNT_MAPPING.md`
+> (`docs/PHASE5_NOTES.md` §1.2).
 
 - **Member savings cannot be applied at check-out.** Your tiers promise 20% off X-rays, 20% off extra credits,
   10% / 15% / 20% off supplements, etc. Nothing applies them: the cash price must equal the list price, so the desk
