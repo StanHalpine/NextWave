@@ -379,7 +379,7 @@ describe('when processing fails', () => {
     const { p, id } = await setup();
     await consent(p, id);
     const sid = (await post(p, URL.sessions(id), { contentType: TYPE })).body.session.id;
-    await basePrisma.$executeRawUnsafe(`UPDATE "ScribeSession" SET "status" = 'TRANSCRIBING', "updatedAt" = now() - interval '2 hours' WHERE "id" = '${sid}'`);
+    await basePrisma.$executeRawUnsafe(`UPDATE "ScribeSession" SET "status" = 'TRANSCRIBING', "updatedAt" = (now() AT TIME ZONE 'UTC') - interval '2 hours' WHERE "id" = '${sid}'`);
     const s = (await p.agent.get(URL.session(id, sid))).body.session;
     expect([s.status, s.failureCode]).toEqual(['FAILED', 'timed_out']);
     // …and a fresh one is left alone.

@@ -27,6 +27,7 @@ import { DateTime } from 'luxon';
 import type { Prisma } from '@prisma/client';
 import { toLocalDateISO } from './time.js';
 import { SchedulingError } from './scheduling.js';
+import { utcTimestamp } from './sqlTime.js';
 import type { Rec } from './staffTx.js';
 
 type Tx = Prisma.TransactionClient;
@@ -153,7 +154,7 @@ export async function grantMonthly(tx: Tx, rec: Rec, a: { patientId: string; mem
   const rows = await tx.$queryRaw<Array<{ id: string }>>`
     INSERT INTO "CreditLedger" ("patientId", "membershipId", "reason", "delta", "lotExpiresOn", "periodStart", "actorAccountId", "createdAt")
     VALUES (${a.patientId}, ${a.membershipId}, 'MONTHLY_GRANT'::"LedgerReason", ${a.credits},
-            (${a.periodStart}::date + ${a.rolloverDays}::int), ${a.periodStart}::date, ${a.actorAccountId ?? null}, ${a.now})
+            (${a.periodStart}::date + ${a.rolloverDays}::int), ${a.periodStart}::date, ${a.actorAccountId ?? null}, ${utcTimestamp(a.now)})
     ON CONFLICT ("membershipId", "periodStart", "reason") DO NOTHING
     RETURNING id::text AS id`;
   if (rows.length === 0) return false;

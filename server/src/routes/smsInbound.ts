@@ -29,6 +29,7 @@ import { now } from '../lib/clock.js';
 import { staffTransaction } from '../lib/staffTx.js';
 import { phoneVariants, toE164 } from '../lib/phone.js';
 import { liftSuppression, suppressNumber } from '../lib/smsSuppression.js';
+import { utcTimestamp } from '../lib/sqlTime.js';
 import { KEYWORDS, renderTemplate, sanitizeFirstName } from '../integrations/templates.js';
 
 export const smsInboundRouter = Router();
@@ -114,7 +115,7 @@ async function confirmNextAppointment(from: string, at: Date): Promise<string> {
     SELECT b.id FROM "Booking" b
     JOIN "User" u ON u.id = b."userId"
     LEFT JOIN "Patient" p ON p.id = b."patientId"
-    WHERE b.status = 'CONFIRMED' AND b."startTime" > ${at}
+    WHERE b.status = 'CONFIRMED' AND b."startTime" > ${utcTimestamp(at)}
       AND (regexp_replace(u.phone, '\\D', '', 'g') = ANY(${variants}) OR p."phoneDigits" = ANY(${variants}))
     ORDER BY b."startTime" ASC LIMIT 1`;
   const id = ids[0]?.id;

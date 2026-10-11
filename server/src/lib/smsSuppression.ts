@@ -10,6 +10,7 @@
 import type { Prisma } from '@prisma/client';
 import type { Rec } from './staffTx.js';
 import { canonicalDigits, phoneVariants } from './phone.js';
+import { utcTimestamp } from './sqlTime.js';
 
 type Db = Prisma.TransactionClient;
 
@@ -29,7 +30,7 @@ async function hasConsentNewerThan(tx: Db, phone: string, since: Date): Promise<
   const rows = await tx.$queryRaw<Array<{ n: number }>>`
     SELECT COUNT(*)::int AS n
     FROM "Booking" b JOIN "User" u ON u.id = b."userId"
-    WHERE b."smsConsentAt" > ${since}
+    WHERE b."smsConsentAt" > ${utcTimestamp(since)}
       AND regexp_replace(u.phone, '\\D', '', 'g') = ANY(${variants})`;
   return (rows[0]?.n ?? 0) > 0;
 }

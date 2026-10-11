@@ -66,7 +66,7 @@ describe('who is purged, and when', () => {
 
   it('never purges a visit whose note is unsigned, however old the recording', async () => {
     const x = await recorded({ signedDaysAgo: null });
-    await basePrisma.$executeRawUnsafe(`UPDATE "ScribeSession" SET "createdAt" = now() - interval '400 days' WHERE id = '${x.session.id}'`);
+    await basePrisma.$executeRawUnsafe(`UPDATE "ScribeSession" SET "createdAt" = (now() AT TIME ZONE 'UTC') - interval '400 days' WHERE id = '${x.session.id}'`);
     await runAudioRetention({ now: NOW });
     expect(await storage().exists(x.audioKey)).toBe(true);
     expect((await reload(x.session.id)).audioPurgedAt).toBeNull();

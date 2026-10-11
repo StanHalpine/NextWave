@@ -27,10 +27,11 @@ export async function setup() {
   // NW_TEST_POOL=3 re-runs the suite with a tiny connection pool — the setting under which
   // a lock-order mistake turns from "rare" into "every time". See tests/walkin-race.test.ts.
   if (process.env.NW_TEST_POOL) url.searchParams.set('connection_limit', process.env.NW_TEST_POOL);
-  // NW_TEST_TZ=Pacific/Auckland (or UTC, America/Los_Angeles …) forces the DATABASE SESSION's time zone for the run.
-  // Every DateTime column is a UTC `timestamp without time zone`; raw SQL that binds a bare Date reads it in the session zone,
-  // so a suite that passes only under one zone is hiding a boundary bug. See lib/sqlTime.ts.
-  if (process.env.NW_TEST_TZ) url.searchParams.set('options', `-c timezone=${process.env.NW_TEST_TZ}`);
+  // The DATABASE SESSION's time zone for the run. Every DateTime column is a UTC `timestamp without time zone`, and raw SQL that
+  // binds a bare Date (or writes now()) reads it in the session zone — invisible on a UTC database, wrong by the offset anywhere
+  // else (see lib/sqlTime.ts). So the suite runs in a zone that is neither UTC nor the clinic's, with a half-hour offset to
+  // catch a whole-hour assumption too. NW_TEST_TZ=UTC (or America/Chicago, Pacific/Auckland …) runs it under another.
+  url.searchParams.set('options', `-c timezone=${process.env.NW_TEST_TZ ?? 'Asia/Kolkata'}`);
   process.env.DATABASE_URL = url.toString();
 }
 
