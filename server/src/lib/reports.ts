@@ -62,9 +62,9 @@ export const BUCKET_LABEL: Record<string, string> = {
 };
 export const PAYMENT_LABEL: Record<string, string> = { CASH: 'Cash', MEMBER: 'Covered by membership' };
 
-interface Dimension { select: Prisma.Sql; join: Prisma.Sql; groupBy: Prisma.Sql; orderBy: Prisma.Sql; columns: Column[] }
+export interface Dimension { select: Prisma.Sql; join: Prisma.Sql; groupBy: Prisma.Sql; orderBy: Prisma.Sql; columns: Column[] }
 
-function dimension(g: RevenueGroup): Dimension {
+export function dimension(g: RevenueGroup): Dimension {
   const none = Prisma.empty;
   const month = Prisma.sql`to_char(${local(Prisma.sql`e."occurredAt"`)}, 'YYYY-MM')`;
   const dayExpr = Prisma.sql`to_char(${local(Prisma.sql`e."occurredAt"`)}, 'YYYY-MM-DD')`;
@@ -110,10 +110,9 @@ export interface Table {
 const sumMetrics = (rows: Array<Record<string, string | number>>): Record<string, number> =>
   Object.fromEntries(METRIC_COLUMNS.map((c) => [c.key, rows.reduce((t, r) => t + (r[c.key] as number), 0)]));
 
-/** Revenue grouped one way, with the list, discount and net totals. */
-export async function revenueTable(f: RevenueFilter, group: RevenueGroup): Promise<Table> {
-  const d = dimension(group);
-  const raw = await basePrisma.$queryRaw<Array<Record<string, unknown>>>`
+// ---- the statements themselves: exported so scripts/perf-reports.ts can EXPLAIN exactly what runs ---------------------
+
+export const revenueSql = (f: RevenueFilter, d: Dimension): Prisma.Sql => Prisma.sql`
     SELECT ${d.select},
            COUNT(*)::int AS "visits",
            COALESCE(SUM(e."listPriceCents"), 0)::bigint AS "listCents",
@@ -125,6 +124,47 @@ export async function revenueTable(f: RevenueFilter, group: RevenueGroup): Promi
     WHERE ${revenueWhere(f)}
     GROUP BY ${d.groupBy}
     ORDER BY ${d.orderBy}`;
+
+export const signupsSql = (range: DateRange): Prisma.Sql => Prisma.sql`
+    SELECT to_char(m."startedOn", 'YYYY-MM') AS "month", p."code" AS "plan", COUNT(*)::int AS "n"
+    FROM "Membership" m JOIN "MembershipPlan" p ON p."id" = m."planId"
+    WHERE m."startedOn" >= ${range.from}::date AND m."startedOn" <= ${range.to}::date
+    GROUP BY 1, 2`;
+
+export const walkInsByDaySql = (range: DateRange): Prisma.Sql => { const { start, end } = bounds(range); return Prisma.sql`
+    SELECT to_char(${local(Prisma.sql`b."startTime"`)}, 'YYYY-MM-DD') AS "day", COUNT(*)::int AS "n"
+    FROM "Booking" b WHERE b."source" = 'WALK_IN' AND b."status" = 'CONFIRMED' AND b."startTime" >= ${start} AND b."startTime" < ${end}
+    GROUP BY 1`; };
+
+export const walkInsByHourSql = (range: DateRange): Prisma.Sql => { const { start, end } = bounds(range); return Prisma.sql`
+    SELECT EXTRACT(HOUR FROM ${local(Prisma.sql`b."startTime"`)})::int AS "hour", COUNT(*)::int AS "n"
+    FROM "Booking" b WHERE b."source" = 'WALK_IN' AND b."status" = 'CONFIRMED' AND b."startTime" >= ${start} AND b."startTime" < ${end}
+    GROUP BY 1`; };
+
+export const attendedVisitsSql = (range: DateRange): Prisma.Sql => { const { start, end } = bounds(range); return Prisma.sql`
+    SELECT COUNT(*)::int AS "n" FROM "Booking" b JOIN "Encounter" e ON e."bookingId" = b."id"
+    WHERE b."status" = 'CONFIRMED' AND e."deletedAt" IS NULL AND e."status" IN ${ATTENDED} AND b."startTime" >= ${start} AND b."startTime" < ${end}`; };
+
+export const weekendSql = (range: DateRange): Prisma.Sql => { const { start, end } = bounds(range); return Prisma.sql`
+    SELECT EXTRACT(ISODOW FROM ${local(Prisma.sql`b."startTime"`)})::int AS "dow",
+           COUNT(*) FILTER (WHERE e."status" IN ${ATTENDED})::int AS "visits",
+           COUNT(*) FILTER (WHERE e."status" = 'NO_SHOW')::int AS "noShows"
+    FROM "Booking" b JOIN "Encounter" e ON e."bookingId" = b."id"
+    WHERE b."status" = 'CONFIRMED' AND e."deletedAt" IS NULL AND b."startTime" >= ${start} AND b."startTime" < ${end}
+    GROUP BY 1`; };
+
+export const demandSql = (range: DateRange): Prisma.Sql => { const { start, end } = bounds(range); return Prisma.sql`
+    SELECT sv."slug" AS "slug", COUNT(*)::int AS "booked",
+           COUNT(*) FILTER (WHERE e."status" IN ${ATTENDED})::int AS "attended",
+           COUNT(*) FILTER (WHERE e."status" = 'NO_SHOW')::int AS "noShows"
+    FROM "Booking" b JOIN "Service" sv ON sv."id" = b."serviceId" LEFT JOIN "Encounter" e ON e."bookingId" = b."id" AND e."deletedAt" IS NULL
+    WHERE b."status" = 'CONFIRMED' AND b."startTime" >= ${start} AND b."startTime" < ${end}
+    GROUP BY sv."slug"`; };
+
+/** Revenue grouped one way, with the list, discount and net totals. */
+export async function revenueTable(f: RevenueFilter, group: RevenueGroup): Promise<Table> {
+  const d = dimension(group);
+  const raw = await basePrisma.$queryRaw<Array<Record<string, unknown>>>(revenueSql(f, d));
   const rows = raw.map((r) => {
     const row: Record<string, string | number> = {};
     for (const c of d.columns) {
@@ -161,14 +201,12 @@ export async function revenueFilterOptions() {
 
 /** New memberships per month, by tier: Membership.startedOn (the clinic-local day the member joined). */
 export async function signupsByMonth(range: DateRange) {
-  const [raw, plans] = await Promise.all([
-    basePrisma.$queryRaw<Array<{ month: string; plan: string; n: number }>>`
-      SELECT to_char(m."startedOn", 'YYYY-MM') AS "month", p."code" AS "plan", COUNT(*)::int AS "n"
-      FROM "Membership" m JOIN "MembershipPlan" p ON p."id" = m."planId"
-      WHERE m."startedOn" >= ${range.from}::date AND m."startedOn" <= ${range.to}::date
-      GROUP BY 1, 2`,
-    basePrisma.membershipPlan.findMany({ orderBy: { sortOrder: 'asc' }, select: { code: true, name: true } }),
+  const [raw, allPlans] = await Promise.all([
+    basePrisma.$queryRaw<Array<{ month: string; plan: string; n: number }>>(signupsSql(range)),
+    basePrisma.membershipPlan.findMany({ orderBy: { sortOrder: 'asc' }, select: { code: true, name: true, active: true } }),
   ]);
+  // A plan that is switched off appears only if someone joined it in this range.
+  const plans = allPlans.filter((p) => p.active || raw.some((r) => r.plan === p.code));
   const counts = new Map(raw.map((r) => [`${r.month}|${r.plan}`, num(r.n)]));
   const columns: Column[] = [{ key: 'month', label: 'Month', kind: 'text' }, ...plans.map((p) => ({ key: p.code, label: p.name, kind: 'int' as const })), { key: 'total', label: 'Total', kind: 'int' }];
   const rows = eachMonth(range).map((month) => {
@@ -184,19 +222,10 @@ export async function signupsByMonth(range: DateRange) {
 
 /** Confirmed walk-ins by the clinic-local day and hour they were seen, and their share of all visits. */
 export async function walkIns(range: DateRange) {
-  const { start, end } = bounds(range);
   const [byDay, byHour, all] = await Promise.all([
-    basePrisma.$queryRaw<Array<{ day: string; n: number }>>`
-      SELECT to_char(${local(Prisma.sql`b."startTime"`)}, 'YYYY-MM-DD') AS "day", COUNT(*)::int AS "n"
-      FROM "Booking" b WHERE b."source" = 'WALK_IN' AND b."status" = 'CONFIRMED' AND b."startTime" >= ${start} AND b."startTime" < ${end}
-      GROUP BY 1`,
-    basePrisma.$queryRaw<Array<{ hour: number; n: number }>>`
-      SELECT EXTRACT(HOUR FROM ${local(Prisma.sql`b."startTime"`)})::int AS "hour", COUNT(*)::int AS "n"
-      FROM "Booking" b WHERE b."source" = 'WALK_IN' AND b."status" = 'CONFIRMED' AND b."startTime" >= ${start} AND b."startTime" < ${end}
-      GROUP BY 1`,
-    basePrisma.$queryRaw<Array<{ n: number }>>`
-      SELECT COUNT(*)::int AS "n" FROM "Booking" b JOIN "Encounter" e ON e."bookingId" = b."id"
-      WHERE b."status" = 'CONFIRMED' AND e."deletedAt" IS NULL AND e."status" IN ${ATTENDED} AND b."startTime" >= ${start} AND b."startTime" < ${end}`,
+    basePrisma.$queryRaw<Array<{ day: string; n: number }>>(walkInsByDaySql(range)),
+    basePrisma.$queryRaw<Array<{ hour: number; n: number }>>(walkInsByHourSql(range)),
+    basePrisma.$queryRaw<Array<{ n: number }>>(attendedVisitsSql(range)),
   ]);
   const dayN = new Map(byDay.map((r) => [r.day, num(r.n)]));
   const hourN = new Map(byHour.map((r) => [num(r.hour), num(r.n)]));
@@ -219,14 +248,7 @@ export async function walkIns(range: DateRange) {
 
 /** Attended visits and no-shows by weekday, and the weekend's share. Weekday is the clinic-local day of the appointment. */
 export async function weekendVisits(range: DateRange) {
-  const { start, end } = bounds(range);
-  const raw = await basePrisma.$queryRaw<Array<{ dow: number; visits: number; noShows: number }>>`
-    SELECT EXTRACT(ISODOW FROM ${local(Prisma.sql`b."startTime"`)})::int AS "dow",
-           COUNT(*) FILTER (WHERE e."status" IN ${ATTENDED})::int AS "visits",
-           COUNT(*) FILTER (WHERE e."status" = 'NO_SHOW')::int AS "noShows"
-    FROM "Booking" b JOIN "Encounter" e ON e."bookingId" = b."id"
-    WHERE b."status" = 'CONFIRMED' AND e."deletedAt" IS NULL AND b."startTime" >= ${start} AND b."startTime" < ${end}
-    GROUP BY 1`;
+  const raw = await basePrisma.$queryRaw<Array<{ dow: number; visits: number; noShows: number }>>(weekendSql(range));
   const by = new Map(raw.map((r) => [num(r.dow), r]));
   const rows = WEEKDAY.map((name, i) => {
     const r = by.get(i + 1);
@@ -248,14 +270,7 @@ export async function weekendVisits(range: DateRange) {
 
 /** Confirmed appointments by the six demand categories (see DEMAND_CATEGORIES): booked, attended, no-shows. */
 export async function serviceDemand(range: DateRange) {
-  const { start, end } = bounds(range);
-  const raw = await basePrisma.$queryRaw<Array<{ slug: string; booked: number; attended: number; noShows: number }>>`
-    SELECT sv."slug" AS "slug", COUNT(*)::int AS "booked",
-           COUNT(*) FILTER (WHERE e."status" IN ${ATTENDED})::int AS "attended",
-           COUNT(*) FILTER (WHERE e."status" = 'NO_SHOW')::int AS "noShows"
-    FROM "Booking" b JOIN "Service" sv ON sv."id" = b."serviceId" LEFT JOIN "Encounter" e ON e."bookingId" = b."id" AND e."deletedAt" IS NULL
-    WHERE b."status" = 'CONFIRMED' AND b."startTime" >= ${start} AND b."startTime" < ${end}
-    GROUP BY sv."slug"`;
+  const raw = await basePrisma.$queryRaw<Array<{ slug: string; booked: number; attended: number; noShows: number }>>(demandSql(range));
   const cats = [...DEMAND_CATEGORIES.map((c) => ({ key: c.key as string, label: c.label as string })), { key: OTHER_DEMAND.key as string, label: OTHER_DEMAND.label as string }];
   const acc = new Map(cats.map((c) => [c.key, { category: c.label, booked: 0, attended: 0, noShows: 0 }]));
   for (const r of raw) {
