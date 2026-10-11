@@ -260,6 +260,14 @@ Two test fixtures also wrote `now()` into timestamp columns. The suite now runs 
 zone the database defaults to; `tests/timezone.test.ts` pins each fix. Production code has no raw `now()` writes. I did not
 touch the booking, hold or availability SQL (their raw statements are `FOR UPDATE` lock queries that bind no time).
 
+**A fragile test fixture, found at the very end.** Two DST tests started failing about two runs in three, though they pass alone.
+The suite shares one schema, and a fixture patient's default phone came from a counter that restarts in every file; "honours STOP"
+in `texts.test.ts` leaves a do-not-text row for its patient's number, and whichever file ran after it and drew the same number had
+its patient silently suppressed. The collision was latent — it appears only when the files run in a different order, and adding
+this phase's test files shifted the order. `makePatient` now takes numbers from a sequence in the test schema, so each is issued
+once per run across all files. I reproduced the failure by forcing the order (`--sequence.shuffle.files --sequence.seed=3` on
+`texts` + `dst` fails with the old helper, passes with the new) and ran the full suite under four shuffled orders: all green.
+
 ---
 
 ## 7. Known limitations

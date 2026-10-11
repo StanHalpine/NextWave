@@ -60,9 +60,23 @@ export async function makeClinic(opts: { rooms?: number; staff?: number; capacit
   return { service, rooms: roomRows, staff: staffRows, tag };
 }
 
+/**
+ * A fixture patient's phone must be unique ACROSS test files, not just within one. The schema is shared, a file's counter restarts
+ * at zero, and a do-not-text row left behind by one file (a STOP, a provider opt-out) silently suppresses a later file's patient
+ * who draws the same number — a failure that appears only when the files happen to run in a different order. A sequence in the test
+ * schema hands each number out once per run. (The memoised promise keeps concurrent callers from racing to create it.)
+ */
+let phoneSequence: Promise<unknown> | null = null;
+async function nextPhone(): Promise<string> {
+  phoneSequence ??= prisma.$executeRawUnsafe('CREATE SEQUENCE IF NOT EXISTS nw_test_phone_seq');
+  await phoneSequence;
+  const rows = await prisma.$queryRaw<Array<{ v: bigint }>>`SELECT nextval('nw_test_phone_seq') AS v`;
+  return `612555${String(1000 + (Number(rows[0]!.v) % 9000))}`;
+}
+
 export async function makePatient(over: Partial<{ firstName: string; lastName: string; phone: string; email: string | null; smsOptIn: boolean; preferredName: string }> = {}) {
   const tag = rnd();
-  const phone = over.phone ?? `612555${String(1000 + (n % 9000))}`;
+  const phone = over.phone ?? await nextPhone();
   return prisma.patient.create({
     data: {
       firstName: over.firstName ?? 'Test',
