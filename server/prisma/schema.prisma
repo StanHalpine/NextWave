@@ -692,6 +692,14 @@ enum PerkPeriod {
 enum PaymentType {
   MEMBER
   CASH
+  /// A membership's monthly dues, billed when the month's credits are granted (RevenueEvent without a visit).
+  DUES
+}
+
+/// Where a dues charge stands. Payment collection is outside this system for now, so a charge is only ever BILLED;
+/// a later PAID would be a new event, because RevenueEvent is append-only.
+enum BillingStatus {
+  BILLED
 }
 
 enum MemberBenefit {
@@ -766,9 +774,10 @@ model Membership {
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
 
-  patient  Patient        @relation(fields: [patientId], references: [id])
-  plan     MembershipPlan @relation(fields: [planId], references: [id])
-  perkUses PerkUsage[]
+  patient       Patient        @relation(fields: [patientId], references: [id])
+  plan          MembershipPlan @relation(fields: [planId], references: [id])
+  perkUses      PerkUsage[]
+  revenueEvents RevenueEvent[]
   // + in the migration SQL: a partial unique index — one ACTIVE or PAUSED membership per patient.
 
   @@index([patientId])
@@ -849,15 +858,15 @@ model PerkUsage {
 /// here: `netPriceCents` is what the desk recorded collecting. list − discount = net, enforced.
 model RevenueEvent {
   id               String         @id @default(uuid())
-  encounterId      String         @unique
-  bookingId        String
+  encounterId      String?        @unique
+  bookingId        String?
   patientId        String?
-  serviceId        String
+  serviceId        String?
   /// Snapshots, so a later rename or re-price does not rewrite history.
   serviceName      String
   serviceCategory  String
   subOption        String?
-  /// What the visit is worth at list price. NULL only when it has none and was paid with credits.
+  /// For dues: the monthly dues billed (the tier's price at the time). For a visit: what it is worth at list price. NULL only when it has none and was paid with credits.
   listPriceCents   Int?
   /// MEMBER = covered by the membership (credits or a perk); CASH = paid at the desk.
   paymentType      PaymentType
@@ -881,8 +890,16 @@ model RevenueEvent {
   recordedById     String
   createdAt        DateTime       @default(now())
 
-  encounter Encounter @relation(fields: [encounterId], references: [id])
+  /// Dues only (all three null for a service visit). The membership billed and the first day of the month it covers, UNIQUE together:
+  /// running the grant twice bills a month once. Dated the day the period starts, in the clinic's calendar.
+  membershipId  String?
+  periodStart   DateTime?      @db.Date
+  billingStatus BillingStatus?
 
+  encounter  Encounter?  @relation(fields: [encounterId], references: [id], onDelete: Restrict)
+  membership Membership? @relation(fields: [membershipId], references: [id], onDelete: Restrict)
+
+  @@unique([membershipId, periodStart])
   @@index([occurredAt])
   @@index([serviceId, occurredAt])
   @@index([patientId])

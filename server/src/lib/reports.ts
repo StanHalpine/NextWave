@@ -7,8 +7,9 @@
  *
  * Dates are the CLINIC's calendar. A range "2026-03-01 to 2026-03-31" is the 31 local days, so the day that has
  * 23 or 25 hours (the daylight-saving change) is still one day, and a check-out at 11:30 p.m. on the 31st
- * counts in March, whatever UTC says. Money is whole cents. Revenue is RevenueEvent.netPriceCents: what the desk
- * recorded collecting. Membership dues are collected outside this system and are NOT in it.
+ * counts in March, whatever UTC says. Money is whole cents. Service revenue is RevenueEvent.netPriceCents of the visits (payment
+ * type CASH or MEMBER): what the desk recorded collecting. Membership DUES are RevenueEvents of payment type DUES (lib/dues.ts) and
+ * are NEVER mixed into service revenue: every service query below excludes them, and duesTable() reports them on their own.
  *
  * Indexes: each query bounds one indexed time column (RevenueEvent.occurredAt, Booking.startTime / (source, startTime),
  * Membership.startedOn) and aggregates what that range returns; scripts/perf-reports.ts times them on 50,000 visits.
@@ -36,7 +37,8 @@ const ATTENDED = Prisma.sql`('CHECKED_IN', 'IN_PROGRESS', 'SEEN', 'CHECKED_OUT')
 export interface RevenueFilter {
   range: DateRange;
   serviceId?: string | undefined;
-  paymentType?: 'MEMBER' | 'CASH' | undefined;
+  /** CASH and MEMBER filter the visits; DUES shows only the dues table (and no visits). */
+  paymentType?: 'MEMBER' | 'CASH' | 'DUES' | undefined;
   /** A Staff id: the provider the visit was booked with. */
   providerId?: string | undefined;
 }
@@ -60,7 +62,7 @@ export const BUCKET_LABEL: Record<string, string> = {
   MEMBER_CREDITS: 'Member — credits',
   MEMBER_PERK: 'Member — included perk',
 };
-export const PAYMENT_LABEL: Record<string, string> = { CASH: 'Cash', MEMBER: 'Covered by membership' };
+export const PAYMENT_LABEL: Record<string, string> = { CASH: 'Cash', MEMBER: 'Covered by membership', DUES: 'Membership dues' };
 
 export interface Dimension { select: Prisma.Sql; join: Prisma.Sql; groupBy: Prisma.Sql; orderBy: Prisma.Sql; columns: Column[] }
 
@@ -95,9 +97,10 @@ export function dimension(g: RevenueGroup): Dimension {
 
 function revenueWhere(f: RevenueFilter): Prisma.Sql {
   const { start, end } = bounds(f.range);
-  return Prisma.sql`e."occurredAt" >= ${start} AND e."occurredAt" < ${end}
+  // Dues are not visits and never part of service revenue: they have their own table (duesTable).
+  return Prisma.sql`e."occurredAt" >= ${start} AND e."occurredAt" < ${end} AND e."paymentType" <> 'DUES'
     ${f.serviceId ? Prisma.sql`AND e."serviceId" = ${f.serviceId}` : Prisma.empty}
-    ${f.paymentType ? Prisma.sql`AND e."paymentType" = ${f.paymentType}::"PaymentType"` : Prisma.empty}
+    ${f.paymentType && f.paymentType !== 'DUES' ? Prisma.sql`AND e."paymentType" = ${f.paymentType}::"PaymentType"` : Prisma.empty}
     ${f.providerId ? Prisma.sql`AND e."staffId" = ${f.providerId}` : Prisma.empty}`;
 }
 
@@ -124,6 +127,19 @@ export const revenueSql = (f: RevenueFilter, d: Dimension): Prisma.Sql => Prisma
     WHERE ${revenueWhere(f)}
     GROUP BY ${d.groupBy}
     ORDER BY ${d.orderBy}`;
+
+/** Dues billed, grouped by the dimension that means something for dues (month, day, tier) — see duesDimension. */
+export const duesSql = (f: RevenueFilter, d: Dimension): Prisma.Sql => {
+  const { start, end } = bounds(f.range);
+  return Prisma.sql`
+    SELECT ${d.select},
+           COUNT(*)::int AS "duesCount",
+           COALESCE(SUM(e."netPriceCents"), 0)::bigint AS "duesCents"
+    FROM "RevenueEvent" e
+    WHERE e."paymentType" = 'DUES' AND e."occurredAt" >= ${start} AND e."occurredAt" < ${end}
+    GROUP BY ${d.groupBy}
+    ORDER BY ${d.orderBy}`;
+};
 
 export const signupsSql = (range: DateRange): Prisma.Sql => Prisma.sql`
     SELECT to_char(m."startedOn", 'YYYY-MM') AS "month", p."code" AS "plan", COUNT(*)::int AS "n"
@@ -164,6 +180,10 @@ export const demandSql = (range: DateRange): Prisma.Sql => { const { start, end 
 /** Revenue grouped one way, with the list, discount and net totals. */
 export async function revenueTable(f: RevenueFilter, group: RevenueGroup): Promise<Table> {
   const d = dimension(group);
+  if (f.paymentType === 'DUES') {
+    const first = d.columns[0]!;
+    return { columns: [...d.columns, ...METRIC_COLUMNS], rows: [], totals: { [first.key]: 'Total', ...sumMetrics([]) } };   // dues only: no visits
+  }
   const raw = await basePrisma.$queryRaw<Array<Record<string, unknown>>>(revenueSql(f, d));
   const rows = raw.map((r) => {
     const row: Record<string, string | number> = {};
@@ -179,6 +199,47 @@ export async function revenueTable(f: RevenueFilter, group: RevenueGroup): Promi
   return { columns: [...d.columns, ...METRIC_COLUMNS], rows, totals: { [first.key]: 'Total', ...sumMetrics(rows) } };
 }
 
+export const DUES_COLUMNS: Column[] = [
+  { key: 'duesCount', label: 'Months billed', kind: 'int' },
+  { key: 'duesCents', label: 'Dues billed', kind: 'money' },
+];
+export const DUES_TITLE = 'Membership dues (billed)';
+
+export interface DuesTable extends Table {
+  /** Why the table is empty or what it means, when that is not obvious from the rows. */
+  note: string | null;
+}
+
+/**
+ * Membership dues billed in the range, separately from service revenue. Totalled by what the view totals by where that means
+ * something for dues (month, day, tier; a month-and-service view totals dues by month); by anything else — a service, a provider,
+ * a payment type — dues have no such attribute, so they are one line. Dues belong to no service or provider and are not cash or
+ * credits, so a service, provider or CASH/MEMBER filter leaves them out, and a DUES payment filter leaves only them.
+ */
+export async function duesTable(f: RevenueFilter, group: RevenueGroup): Promise<DuesTable> {
+  const by: Record<string, RevenueGroup | undefined> = { month: 'month', serviceMonth: 'month', day: 'day', tier: 'tier', bucket: 'tier' };
+  const g = by[group];
+  const d = g ? dimension(g) : null;
+  const columns: Column[] = [...(d ? d.columns : [{ key: 'line', label: 'Revenue line', kind: 'text' as const }]), ...DUES_COLUMNS];
+  const first = columns[0]!;
+  const empty = (note: string): DuesTable => ({ columns, rows: [], totals: { [first.key]: 'Total', duesCount: 0, duesCents: 0 }, note });
+  if (f.serviceId || f.providerId) return empty('Dues belong to no service or provider, so they are left out when you filter by one.');
+  if (f.paymentType === 'CASH' || f.paymentType === 'MEMBER') return empty('Dues are neither cash nor credits, so they are left out when you filter by that payment type.');
+
+  const raw = await basePrisma.$queryRaw<Array<Record<string, unknown>>>(
+    duesSql(f, d ?? { select: Prisma.sql`${DUES_TITLE}::text AS "line"`, join: Prisma.empty, groupBy: Prisma.sql`1`, orderBy: Prisma.sql`1`, columns: [] }),
+  );
+  const rows = raw.map((r) => {
+    const row: Record<string, string | number> = { [first.key]: String(r[first.key]) };
+    for (const c of DUES_COLUMNS) row[c.key] = num(r[c.key]);
+    return row;
+  });
+  return {
+    columns, rows, note: null,
+    totals: { [first.key]: 'Total', duesCount: rows.reduce((t, r) => t + (r.duesCount as number), 0), duesCents: rows.reduce((t, r) => t + (r.duesCents as number), 0) },
+  };
+}
+
 /** Members and non-members, side by side: each payment bucket, then the two subtotals. */
 export async function memberSplit(f: RevenueFilter) {
   const table = await revenueTable(f, 'bucket');
@@ -192,7 +253,7 @@ export async function revenueFilterOptions() {
     basePrisma.service.findMany({ orderBy: [{ category: 'asc' }, { name: 'asc' }], select: { id: true, name: true } }),
     basePrisma.staff.findMany({ where: { role: { not: 'FRONT_DESK' } }, orderBy: { name: 'asc' }, select: { id: true, name: true } }),
   ]);
-  return { services, providers: staff, paymentTypes: [{ value: 'CASH', label: PAYMENT_LABEL.CASH! }, { value: 'MEMBER', label: PAYMENT_LABEL.MEMBER! }] };
+  return { services, providers: staff, paymentTypes: [{ value: 'CASH', label: PAYMENT_LABEL.CASH! }, { value: 'MEMBER', label: PAYMENT_LABEL.MEMBER! }, { value: 'DUES', label: PAYMENT_LABEL.DUES! }] };
 }
 
 // =====================================================================================================

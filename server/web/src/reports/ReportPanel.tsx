@@ -105,6 +105,23 @@ export default function ReportPanel({ endpoint, view, extra, children }: {
               <tfoot><tr className="report-total">{data.columns.map((c) => cell(c, data.totals))}</tr></tfoot>
             </table>
           </div>
+          {data.dues && (
+            <div className="report-dues">
+              <h2>Membership dues (billed)</h2>
+              <p className="hint">Billed when each month's credits are granted, and kept apart from the service revenue above. Collecting the payment happens outside this system, so this means billed, not paid.</p>
+              {data.dues.note && <p className="notice">{data.dues.note}</p>}
+              <div className="table-scroll">
+                <table className="table dense report-table">
+                  <thead><tr>{data.dues.columns.map((c) => <th key={c.key} className={cellClass(c)}>{c.label}</th>)}</tr></thead>
+                  <tbody>
+                    {data.dues.rows.map((r, i) => <tr key={i}>{data.dues!.columns.map((c) => cell(c, r))}</tr>)}
+                    {data.dues.rows.length === 0 && <tr><td colSpan={data.dues.columns.length} className="muted">No dues billed in this range.</td></tr>}
+                  </tbody>
+                  <tfoot><tr className="report-total">{data.dues.columns.map((c) => cell(c, data.dues!.totals))}</tr></tfoot>
+                </table>
+              </div>
+            </div>
+          )}
           {data.notes.length > 0 && (
             <details className="report-notes"><summary>How these numbers are made</summary>{data.notes.map((n, i) => <p key={i} className="small">{n}</p>)}</details>
           )}

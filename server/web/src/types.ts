@@ -187,6 +187,14 @@ export interface MacroSetAdmin { id: string; name: string; roles: ProviderRole[]
 // ---- Accounting and Reports (Phase 5) ------------------------------------------------------------------------------
 export interface ReportColumn { key: string; label: string; kind: 'text' | 'int' | 'money' | 'percent' }
 export type ReportRow = Record<string, string | number>;
+/** Membership dues billed, apart from the service revenue (Accounting views only). */
+export interface ReportDues {
+  columns: ReportColumn[];
+  rows: ReportRow[];
+  totals: ReportRow;
+  /** Why it is empty, or what it means, when the rows do not say. */
+  note: string | null;
+}
 export interface ReportData {
   view: string;
   title: string;
@@ -197,6 +205,7 @@ export interface ReportData {
   /** Rows between the body and the totals (e.g. all members / non-members). */
   subtotals: ReportRow[];
   totals: ReportRow;
+  dues: ReportDues | null;
   summary: Record<string, number> | null;
   notes: string[];
 }

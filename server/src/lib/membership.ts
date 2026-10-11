@@ -8,7 +8,7 @@
  *   change plan: takes effect at the NEXT grant — nothing is prorated or clawed back.
  *
  * Nothing here takes payment. Dues are collected outside this system; the front desk enrols,
- * pauses or cancels to match.
+ * pauses or cancels to match. Each month's dues are BILLED (a RevenueEvent, lib/dues.ts) when its credits are granted.
  *
  * Lock order: Patient → Membership (and Booking before both in a check-out).
  */
@@ -18,6 +18,7 @@ import {
   addMonthsISO, balance, clinicDay, CreditError, firstGrantOnOrAfter, fromDateOnly, grantDate, grantMonthly,
   lockPatient, monthsBetween, toDateOnly,
 } from './credits.js';
+import { billDues } from './dues.js';
 import type { Rec } from './staffTx.js';
 
 type Tx = Prisma.TransactionClient;
@@ -52,6 +53,8 @@ export async function grantDue(tx: Tx, rec: Rec, membershipId: string, now: Date
       periodStart: next, now, actorAccountId: opts.actorAccountId ?? null,
     });
     if (made) granted++;
+    // The month's dues are billed with its credits (lib/dues.ts) — also when the tier grants none.
+    await billDues(tx, rec, { membership: m, plan: m.plan, periodStart: next, actorAccountId: opts.actorAccountId ?? null });
     next = grantDate(startedOn, monthsBetween(startedOn, next) + 1);
   }
   if (next !== fromDateOnly(m.nextGrantOn)) {

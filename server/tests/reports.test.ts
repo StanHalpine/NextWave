@@ -6,7 +6,8 @@ import { basePrisma } from '../src/lib/prismaBase.js';
 import { setClockForTests } from '../src/lib/clock.js';
 import { staffTransaction } from '../src/lib/staffTx.js';
 import { checkoutVisit, type PaymentChoice } from '../src/lib/checkout.js';
-import { memberSplit, revenueTable, serviceDemand, signupsByMonth, walkIns, weekendVisits } from '../src/lib/reports.js';
+import { billDues } from '../src/lib/dues.js';
+import { duesTable, memberSplit, revenueTable, serviceDemand, signupsByMonth, walkIns, weekendVisits } from '../src/lib/reports.js';
 import { DEMAND_CATEGORIES, ReportError, csvCell, currentMonth, demandCategoryOf, dollars, eachDay, eachMonth, resolveRange, toCsv } from '../src/lib/reportFormat.js';
 import { app, auditRows, blob, makeAccount, signInFully, type Signed } from './helpers.js';
 import { makeClinic, makePatient } from './phase2.js';
@@ -108,7 +109,9 @@ describe('service demand categories', () => {
 
 interface Sale { key: string; at: Date; local: string; month: string; staffId: string; service: string; planCode: string | null; bucket: string; payment: 'CASH' | 'MEMBER'; list: number; discount: number; net: number; credits: number; covered: number }
 const sales: Sale[] = [];
-const ctx = {} as { accountId: string; s100: Awaited<ReturnType<typeof creditService>>; s1999: Awaited<ReturnType<typeof creditService>>; cat: { id: string; code: string }; restore: { id: string; code: string }; prevent: { id: string; code: string }; admin: Signed; fd: Signed };
+interface Due { key: string; periodStart: string; month: string; tier: string; cents: number }
+const DUES: Due[] = [];
+const ctx = {} as { accountId: string; s100: Awaited<ReturnType<typeof creditService>>; s1999: Awaited<ReturnType<typeof creditService>>; cat: { id: string; code: string }; restore: { id: string; code: string; priceCents: number }; prevent: { id: string; code: string; priceCents: number }; admin: Signed; fd: Signed };
 const MAY = { from: '2033-05-01', to: '2033-05-31' };
 const WHOLE = { from: '2033-05-01', to: '2033-06-30' };
 
@@ -123,14 +126,14 @@ beforeAll(async () => {
   ctx.s1999 = await creditService({ priceCents: 1999, creditCost: 1 });
   // Tiers of this file's own: the seeded Prevent / Restore / Optimize must stay free of discounts for the tests that assert they start empty.
   ctx.restore = (await makePlan({ credits: 4 })).plan;
-  ctx.prevent = (await makePlan({ credits: 4 })).plan;
+  ctx.prevent = (await makePlan({ credits: 4, priceCents: 15000 })).plan;   // restore's dues are the default $123.00; prevent's $150.00
   ctx.cat = await makeCategory({ serviceIds: [ctx.s100.service.id, ctx.s1999.service.id], percents: { [ctx.restore.id]: 15, [ctx.prevent.id]: 10 } });
 
   const memberOf = async (code: string, status: 'ACTIVE' | 'PAUSED' = 'ACTIVE', credits = 0) => {
     const p = await makePatient();
     const m = await makeMembership(p.id, code, '2033-05-01', { status });
     if (credits) await grantLot({ patientId: p.id, membershipId: m.id, credits, periodStart: '2033-05-01', now: at('2033-05-01T12:00:00Z') });
-    return p;
+    return Object.assign(p, { membership: m });
   };
   const sale = async (key: string, clinic: typeof ctx.s100, when: Date, patientId: string | null, pay: PaymentChoice,
     expect_: Omit<Sale, 'key' | 'at' | 'local' | 'month' | 'staffId' | 'service'>) => {
@@ -164,6 +167,17 @@ beforeAll(async () => {
   await sale('may-31-late', ctx.s100, CDT('2033-05-31T23:59:00'), null, { payment: 'CASH' }, { planCode: null, bucket: 'Non-member — cash', payment: 'CASH', list: 10000, discount: 0, net: 10000, credits: 0, covered: 0 });
   await sale('june-1-midnight', ctx.s1999, CDT('2033-06-01T00:00:00'), restoreC.id, { payment: 'CASH' }, { planCode: ctx.restore.code, bucket: 'Member — cash', payment: 'CASH', list: 1999, discount: 300, net: 1699, credits: 0, covered: 0 });
   await sale('june-late', ctx.s1999, CDT('2033-06-20T09:00:00'), null, { payment: 'CASH' }, { planCode: null, bucket: 'Non-member — cash', payment: 'CASH', list: 1999, discount: 0, net: 1999, credits: 0, covered: 0 });
+
+  // Dues, billed through the same code the monthly grant uses. Hand-written: who, which month, which tier, how much.
+  const dues = async (key: string, who: { id: string; membership: { id: string } }, plan: { code: string; priceCents: number }, periodStart: string) => {
+    await staffTransaction((tx, rec) => billDues(tx, rec, { membership: { id: who.membership.id, patientId: who.id }, plan, periodStart, actorAccountId: ctx.accountId }));
+    DUES.push({ key, periodStart, month: periodStart.slice(0, 7), tier: plan.code, cents: plan.priceCents });
+  };
+  await dues('restore-may', restore, ctx.restore, '2033-05-01');
+  await dues('restore-june', restore, ctx.restore, '2033-06-01');
+  await dues('restoreB-may-31', restoreB, ctx.restore, '2033-05-31');           // dated the first day of its period: 31 May, local midnight
+  await dues('prevent-may-3', prevent, ctx.prevent, '2033-05-03');              // the same day as visits
+  await dues('restoreC-june-1', restoreC, ctx.restore, '2033-06-01');           // local midnight, the same instant as a visit
 
   ctx.admin = await adminLogin();
   ctx.fd = await fdLogin();
@@ -279,6 +293,111 @@ describe('Accounting: the arithmetic', () => {
     await staffTransaction((tx, rec) => checkoutVisit(tx, rec, { bookingId: booking.id, accountId: ctx.accountId, now: CDT('2033-08-10T10:00:00'), payment: 'CREDITS' }));
     const t = await revenueTable({ range: { from: '2033-08-01', to: '2033-08-31' }, serviceId: clinic.service.id }, 'service');
     expect(t.totals).toMatchObject({ visits: 1, listCents: 0, discountCents: 0, netCents: 0, coveredCents: 0, credits: 2 });
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------
+describe('Accounting: membership dues, apart from service revenue', () => {
+  const duesIn = (from: string, to: string) => DUES.filter((d) => d.periodStart >= from && d.periodStart <= to);
+  const total = (rows: Due[]) => ({ duesCount: rows.length, duesCents: rows.reduce((t, d) => t + d.cents, 0) });
+  const row = (t: { rows: Array<Record<string, string | number>> }, key: string, value: string) => t.rows.find((r) => r[key] === value);
+
+  it('is never counted as a visit or added into service revenue, in any grouping', async () => {
+    // The sales fixture above is exact to the cent and has five dues events in the same months; every assertion there is
+    // the proof. Here, the one blunt check: service totals are the sales alone, whatever the grouping.
+    for (const g of ['day', 'month', 'service', 'bucket', 'tier', 'paymentType', 'serviceMonth', 'category', 'provider', 'discountCategory'] as const) {
+      const t = await revenueTable({ range: WHOLE }, g);
+      expect(t.totals, g).toMatchObject(metrics(sales));
+      expect(JSON.stringify(t.rows), g).not.toContain('Membership dues');
+    }
+    expect((await memberSplit({ range: WHOLE })).totals).toMatchObject(metrics(sales));
+  });
+
+  it("is billed at the tier's price, dated the first day of its period in the clinic's calendar", async () => {
+    const ev = await basePrisma.revenueEvent.findMany({ where: { paymentType: 'DUES', planCode: { in: [ctx.restore.code, ctx.prevent.code] } }, orderBy: { periodStart: 'asc' } });
+    expect(ev).toHaveLength(DUES.length);
+    for (const e of ev) {
+      expect(e).toMatchObject({ billingStatus: 'BILLED', encounterId: null, bookingId: null, serviceId: null, serviceName: 'Membership dues', serviceCategory: 'Membership', discountCents: 0, creditsRedeemed: 0, memberBenefit: null });
+      expect(e.netPriceCents).toBe(e.listPriceCents);
+    }
+    const may31 = ev.find((e) => e.periodStart!.toISOString().startsWith('2033-05-31'))!;
+    expect(may31.occurredAt.toISOString()).toBe('2033-05-31T05:00:00.000Z');        // local midnight (CDT): May at the clinic, not June
+    expect(may31.listPriceCents).toBe(ctx.restore.priceCents);
+  });
+
+  it('shows by month, beside the monthly-by-service view, with its own totals row', async () => {
+    const t = await duesTable({ range: WHOLE }, 'serviceMonth');
+    expect(t.columns.map((c) => c.label)).toEqual(['Month', 'Months billed', 'Dues billed']);
+    expect(t.rows).toEqual([{ month: '2033-05', ...total(duesIn('2033-05-01', '2033-05-31')) }, { month: '2033-06', ...total(duesIn('2033-06-01', '2033-06-30')) }]);
+    expect(t.rows).toEqual([{ month: '2033-05', duesCount: 3, duesCents: 39600 }, { month: '2033-06', duesCount: 2, duesCents: 24600 }]);
+    expect(t.totals).toEqual({ month: 'Total', duesCount: 5, duesCents: 64200 });
+    expect(t.note).toBeNull();
+  });
+
+  it('shows by day, and by tier for the member split', async () => {
+    const day = await duesTable({ range: WHOLE }, 'day');
+    expect(day.rows).toEqual([
+      { day: '2033-05-01', duesCount: 1, duesCents: 12300 }, { day: '2033-05-03', duesCount: 1, duesCents: 15000 },
+      { day: '2033-05-31', duesCount: 1, duesCents: 12300 }, { day: '2033-06-01', duesCount: 2, duesCents: 24600 },
+    ]);
+    for (const g of ['tier', 'bucket'] as const) {
+      const t = await duesTable({ range: WHOLE }, g);
+      expect(row(t, 'tier', ctx.restore.code)).toMatchObject({ duesCount: 4, duesCents: 49200 });
+      expect(row(t, 'tier', ctx.prevent.code)).toMatchObject({ duesCount: 1, duesCents: 15000 });
+    }
+  });
+
+  it('is one line when the view totals by something dues do not have (service, provider, payment type …)', async () => {
+    for (const g of ['service', 'provider', 'paymentType', 'category', 'discountCategory'] as const) {
+      const t = await duesTable({ range: WHOLE }, g);
+      expect(t.columns.map((c) => c.key), g).toEqual(['line', 'duesCount', 'duesCents']);
+      expect(t.rows, g).toEqual([{ line: 'Membership dues (billed)', duesCount: 5, duesCents: 64200 }]);
+    }
+  });
+
+  it('respects the range: both ends inclusive, nothing outside, and a month with none is an empty table', async () => {
+    expect((await duesTable({ range: { from: '2033-05-31', to: '2033-05-31' } }, 'day')).rows).toEqual([{ day: '2033-05-31', duesCount: 1, duesCents: 12300 }]);
+    const none = await duesTable({ range: { from: '2033-07-01', to: '2033-07-31' } }, 'day');
+    expect(none.rows).toEqual([]);
+    expect(none.totals).toEqual({ day: 'Total', duesCount: 0, duesCents: 0 });
+  });
+
+  it('is left out when you filter by a service, a provider, or cash/credits — and is all that remains for the DUES payment type', async () => {
+    for (const f of [{ serviceId: ctx.s100.service.id }, { providerId: sales[0]!.staffId }, { paymentType: 'CASH' as const }, { paymentType: 'MEMBER' as const }]) {
+      const t = await duesTable({ range: WHOLE, ...f }, 'month');
+      expect(t.rows, JSON.stringify(f)).toEqual([]);
+      expect(t.note).toMatch(/left out when you filter/);
+    }
+    const onlyDues = { range: WHOLE, paymentType: 'DUES' as const };
+    expect((await revenueTable(onlyDues, 'service')).rows).toEqual([]);
+    expect((await revenueTable(onlyDues, 'service')).totals).toMatchObject({ visits: 0, listCents: 0, netCents: 0 });
+    expect((await duesTable(onlyDues, 'month')).totals).toEqual({ month: 'Total', duesCount: 5, duesCents: 64200 });
+  });
+
+  it('is in every Accounting view as its own section — JSON and CSV — and in no Report', async () => {
+    for (const v of ['monthly', 'daily', 'members', 'custom']) {
+      const r = await get(ctx.admin, `/api/accounting/${v}?from=${WHOLE.from}&to=${WHOLE.to}`);
+      expect(r.body.dues, v).toMatchObject({ totals: { duesCount: 5, duesCents: 64200 }, note: null });
+      expect(r.body.totals, v).toMatchObject(metrics(sales));                          // the service totals are untouched
+      const csv = await get(ctx.admin, `/api/accounting/${v}?from=${WHOLE.from}&to=${WHOLE.to}&format=csv`);
+      expect(csv.text, v).toContain('Service revenue\r\n');
+      expect(csv.text, v).toContain('Membership dues (billed)\r\n');
+    }
+    for (const v of ['signups', 'walkins-day', 'walkins-hour', 'weekend', 'demand']) {
+      expect((await get(ctx.admin, `/api/reports/${v}?from=${WHOLE.from}&to=${WHOLE.to}`)).body.dues, v).toBeNull();
+    }
+  });
+
+  it('the custom view can total by any grouping with the dues beside it, and a DUES payment filter shows only dues', async () => {
+    const byMonth = await get(ctx.admin, `/api/accounting/custom?from=${WHOLE.from}&to=${WHOLE.to}&group=month`);
+    expect(byMonth.body.dues.rows).toEqual([{ month: '2033-05', duesCount: 3, duesCents: 39600 }, { month: '2033-06', duesCount: 2, duesCents: 24600 }]);
+    const only = await get(ctx.admin, `/api/accounting/custom?from=${WHOLE.from}&to=${WHOLE.to}&paymentType=DUES&group=tier`);
+    expect(only.status).toBe(200);
+    expect(only.body.rows).toEqual([]);
+    expect(only.body.dues.totals).toMatchObject({ duesCount: 5, duesCents: 64200 });
+    const filtered = await get(ctx.admin, `/api/accounting/custom?from=${WHOLE.from}&to=${WHOLE.to}&serviceId=${ctx.s100.service.id}`);
+    expect(filtered.body.dues.rows).toEqual([]);
+    expect(filtered.body.dues.note).toMatch(/left out when you filter/);
   });
 });
 
@@ -475,7 +594,7 @@ describe('access', () => {
     for (const v of ACCOUNTING) expect((await get(ctx.admin, `/api/accounting/${v}`)).status, v).toBe(200);
     const o = await get(ctx.admin, '/api/accounting/options');
     expect(o.status).toBe(200);
-    expect(o.body.paymentTypes.map((p: { value: string }) => p.value)).toEqual(['CASH', 'MEMBER']);
+    expect(o.body.paymentTypes.map((p: { value: string }) => p.value)).toEqual(['CASH', 'MEMBER', 'DUES']);
     expect(o.body.services.length).toBeGreaterThan(0);
     expect(o.body.providers.every((p: object) => Object.keys(p).sort().join() === 'id,name')).toBe(true);   // an id and a name: staff, never patients
     expect(o.body.groups).toContain('provider');
@@ -499,7 +618,7 @@ describe('the endpoints', () => {
     expect(r.body.columns.map((c: { key: string }) => c.key)).toEqual(['month', 'service', 'visits', 'listCents', 'discountCents', 'netCents', 'coveredCents', 'credits']);
     expect(r.body.columns.find((c: { key: string }) => c.key === 'netCents').kind).toBe('money');
     expect(r.body.totals).toMatchObject({ month: 'Total', ...metrics(sales) });
-    expect(r.body.notes.join(' ')).toMatch(/Membership dues are collected outside this system/);
+    expect(r.body.notes.join(' ')).toMatch(/Membership dues are billed when each month's credits are granted and are shown below, separately/);
   });
 
   it('apply the custom view\'s filters and grouping, and refuse an unknown service or provider', async () => {
@@ -534,12 +653,19 @@ describe('the endpoints', () => {
     expect(r.headers['cache-control']).toBe('no-store');
     expect(r.text.charCodeAt(0)).toBe(0xfeff);          // a byte-order mark, so a spreadsheet reads the dashes in the labels as UTF-8
     const text = r.text.slice(1);
-    const lines = text.trim().split('\r\n');
-    expect(lines[0]).toBe('"Who paid, and how",Visits,List price,Discount,Net,Covered by membership,Credits redeemed');
-    expect(lines).toContain(`Member — credits,1,100.00,0.00,0.00,100.00,2`);
-    expect(lines.at(-1)).toBe(`Total,${sales.length},${dollars(sum(sales, 'list'))},${dollars(sum(sales, 'discount'))},${dollars(sum(sales, 'net'))},${dollars(sum(sales, 'covered'))},${sum(sales, 'credits')}`);
-    expect(lines.some((l) => l.startsWith('All members,'))).toBe(true);
-    expect(lines.some((l) => l.startsWith('Non-members,'))).toBe(true);
+    // Two tables, a blank line apart: service revenue, then the dues billed, each with its own header and totals.
+    const [serviceTable, duesTable_] = text.trim().split('\r\n\r\n').map((t) => t.split('\r\n'));
+    expect(serviceTable![0]).toBe('Service revenue');
+    expect(serviceTable![1]).toBe('"Who paid, and how",Visits,List price,Discount,Net,Covered by membership,Credits redeemed');
+    expect(serviceTable).toContain(`Member — credits,1,100.00,0.00,0.00,100.00,2`);
+    expect(serviceTable!.at(-1)).toBe(`Total,${sales.length},${dollars(sum(sales, 'list'))},${dollars(sum(sales, 'discount'))},${dollars(sum(sales, 'net'))},${dollars(sum(sales, 'covered'))},${sum(sales, 'credits')}`);
+    expect(serviceTable!.some((l) => l.startsWith('All members,'))).toBe(true);
+    expect(serviceTable!.some((l) => l.startsWith('Non-members,'))).toBe(true);
+    expect(duesTable_![0]).toBe('Membership dues (billed)');
+    expect(duesTable_![1]).toBe('Tier,Months billed,Dues billed');
+    expect(duesTable_).toContain(`${ctx.restore.code},4,492.00`);
+    expect(duesTable_).toContain(`${ctx.prevent.code},1,150.00`);
+    expect(duesTable_!.at(-1)).toBe('Total,5,642.00');
   });
 
   it('defuse a service name that starts like a formula in the exported file', async () => {
@@ -596,7 +722,8 @@ describe('audit', () => {
     expect((await get(admin, `/api/accounting/custom?${q}`)).status).toBe(200);
     expect((await get(admin, `/api/accounting/custom?${q}&format=csv`)).status).toBe(200);
 
-    const where = { resourceType: 'accounting_report', resourceId: 'custom', meta: { path: ['serviceId'], equals: ctx.s100.service.id } };
+    // Specific to this request (other tests also ask the custom view about this service), so match on two of its parameters.
+    const where = { resourceType: 'accounting_report', resourceId: 'custom', AND: [{ meta: { path: ['serviceId'], equals: ctx.s100.service.id } }, { meta: { path: ['paymentType'], equals: 'MEMBER' } }] };
     const [view] = await auditRows({ ...where, action: 'READ' });
     const [exp] = await auditRows({ ...where, action: 'EXPORT' });
     const asked = { view: 'custom', from: WHOLE.from, to: WHOLE.to, serviceId: ctx.s100.service.id, paymentType: 'MEMBER', group: 'month' };

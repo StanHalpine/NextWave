@@ -184,7 +184,8 @@ export async function checkoutVisit(tx: Tx, rec: Rec, a: { bookingId: string; ac
 async function summarise(tx: Tx, e: Prisma.RevenueEventGetPayload<object>, alreadyCheckedOut: boolean): Promise<CheckoutSummary> {
   const perk = e.memberBenefit === 'PERK' ? await tx.perkUsage.findFirst({ where: { revenueEventId: e.id }, include: { perk: { select: { label: true } } } }) : null;
   return {
-    paymentType: e.paymentType, memberBenefit: e.memberBenefit, listPriceCents: e.listPriceCents, discountPercent: e.discountPercent,
+    // Found by its encounter, so never dues (the RevenueEvent_kind CHECK: dues have no visit).
+    paymentType: e.paymentType as 'MEMBER' | 'CASH', memberBenefit: e.memberBenefit, listPriceCents: e.listPriceCents, discountPercent: e.discountPercent,
     discountCents: e.discountCents, netPriceCents: e.netPriceCents, creditsRedeemed: e.creditsRedeemed,
     balanceBefore: null, balanceAfter: null, perkLabel: perk?.perk.label ?? null,
     planName: null, recordedAt: e.occurredAt.toISOString(), alreadyCheckedOut,

@@ -80,6 +80,23 @@ export function toCsv(columns: Column[], rows: Array<Record<string, string | num
   return [columns.map((c) => csvCell(c.label)).join(','), ...rows.map(line), ...(totals ? [line(totals)] : [])].join('\r\n') + '\r\n';
 }
 
+export interface CsvSection {
+  /** A line above the section's header row (a file with two tables needs to say which is which). */
+  title?: string;
+  columns: Column[];
+  rows: Array<Record<string, string | number>>;
+  totals?: Record<string, string | number>;
+  /** A line after the totals. */
+  footer?: string | null;
+}
+
+/** Several tables in one file, each with its own header row and totals, separated by a blank line. */
+export function toCsvSections(sections: CsvSection[]): string {
+  return sections
+    .map((s) => (s.title ? `${csvCell(s.title)}\r\n` : '') + toCsv(s.columns, s.rows, s.totals) + (s.footer ? `${csvCell(s.footer)}\r\n` : ''))
+    .join('\r\n');
+}
+
 // ---- service demand categories -----------------------------------------------------------------------
 
 /**
