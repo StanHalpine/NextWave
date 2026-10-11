@@ -18,12 +18,15 @@ import { runAsSystem } from '../lib/audit.js';
 import { getIntegrations, integrationStatuses } from '../integrations/index.js';
 import { runAppointmentTexts, type TextRunResult } from './appointmentTexts.js';
 import { runCreditExpiry, runMembershipGrants, type ExpiryRunResult, type GrantRunResult } from './credits.js';
+import { runAudioRetention, type AudioRetentionResult } from './audioRetention.js';
 
 export interface JobsRunResult {
   appointmentTexts: TextRunResult | { disabled: true };
   /** Always runs — credits are not a messaging feature. null = the job itself failed (logged). */
   membershipGrants: GrantRunResult | null;
   creditExpiry: ExpiryRunResult | null;
+  /** Raw audio deleted AUDIO_RETENTION_DAYS after its note was signed. */
+  audioRetention: AudioRetentionResult | null;
 }
 
 /** Run every job once. Never throws. */
@@ -45,9 +48,10 @@ export async function runAllJobsOnce(): Promise<JobsRunResult> {
   };
   const membershipGrants = await guarded('membership-grants', () => runMembershipGrants());
   const creditExpiry = await guarded('credit-expiry', () => runCreditExpiry());
+  const audioRetention = await guarded('audio-retention', () => runAudioRetention());
 
-  logger.info('jobs_ran', { appointmentTexts, membershipGrants, creditExpiry });
-  return { appointmentTexts, membershipGrants, creditExpiry };
+  logger.info('jobs_ran', { appointmentTexts, membershipGrants, creditExpiry, audioRetention });
+  return { appointmentTexts, membershipGrants, creditExpiry, audioRetention };
 }
 
 /** Start the in-process timer. Returns a stop function. */

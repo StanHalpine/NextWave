@@ -220,6 +220,17 @@ workspace says why) and the rest of documentation keeps working. `ALLOW_STUB_INT
 write and are never logged — nor are adapter error messages, which can quote their input.
 `docs/PHASE4_NOTES.md` lists the AWS resources and variables the real adapters need.
 
+**Audio retention.** Raw visit audio is deleted `AUDIO_RETENTION_DAYS` (default 30) after the note is **signed**, by a
+step of `npm run jobs:run`. The transcript and the AI draft stay with the visit. Each deletion is audited (reason and
+period, never the key); a failed delete is retried on the next run and is never marked done; a visit whose note is
+unsigned is never purged. With the development stub storage a file lives on the disk of the process that wrote it,
+so a cron job cannot delete what the web service wrote — real storage has no such split.
+
+**Amendments and addenda.** Only the provider who **signed** a note can amend it (the amendment model itself is
+unchanged). Any other provider-role account adds an **addendum** instead: a new entry linked to the note, attributed to
+them, that never changes (the database refuses to edit or delete one) and changes nothing it is linked to. An
+administrator has no write path to either.
+
 ### Scheduled jobs
 
 Texts, the monthly credit grant and credit expiry are jobs, not part of any request, so something must run them. Pick one:

@@ -974,6 +974,9 @@ model ScribeSession {
   failureCode        String?
   appliedAt          DateTime?
   discardedAt        DateTime?
+  /// Set when the raw audio was deleted by the retention job (AUDIO_RETENTION_DAYS after the note was
+  /// signed). The transcript and the draft stay with the encounter.
+  audioPurgedAt      DateTime?
   createdAt          DateTime     @default(now())
   updatedAt          DateTime     @updatedAt
 
@@ -981,6 +984,7 @@ model ScribeSession {
 
   @@index([bookingId])
   @@index([status, updatedAt])
+  @@index([audioPurgedAt])
 }
 
 enum MacroScope {

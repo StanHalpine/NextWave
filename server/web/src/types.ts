@@ -164,7 +164,7 @@ export interface SignedNote {
   /** Notes other providers have added to it. They never change. */
   addenda: Addendum[];
 }
-export interface ScribeSessionView { id: string; status: 'RECORDING' | 'UPLOADED' | 'TRANSCRIBING' | 'DRAFTING' | 'READY' | 'FAILED'; failureCode: string | null; createdAt: string; applied: boolean; hasDraft: boolean }
+export interface ScribeSessionView { id: string; status: 'RECORDING' | 'UPLOADED' | 'TRANSCRIBING' | 'DRAFTING' | 'READY' | 'FAILED'; failureCode: string | null; createdAt: string; applied: boolean; hasDraft: boolean; audioPurged: boolean }
 export interface Workspace {
   booking: {
     id: string; localDate: string; localStart: string; localEnd: string;
@@ -177,7 +177,7 @@ export interface Workspace {
   draft: { version: number; subjective: string; objective: string; assessment: string; plan: string; notes: string; durationMin: number | null; aiDrafted: boolean; aiAppliedAt: string | null; updatedAt: string } | null;
   signature: { signedAt: string; signedBy: string | null; signedRole: string; aiAssisted: boolean; aiDraftUnchanged: boolean | null; amended: boolean } | null;
   notes: SignedNote[];
-  scribe: { applicable: boolean; available: boolean; unavailableReason: string | null; consentAt: string | null; sessions: ScribeSessionView[] };
+  scribe: { applicable: boolean; available: boolean; unavailableReason: string | null; consentAt: string | null; audioRetentionDays: number; sessions: ScribeSessionView[] };
 }
 
 export interface MacroLite { id: string; section: NoteSection; title: string; body: string; sortOrder: number }

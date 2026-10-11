@@ -20,6 +20,7 @@ function boot(overrides: { sslmode?: string | null; mfaKey?: string | null; base
   delete env.TWILIO_AUTH_TOKEN;
   delete env.CLINIC_PHONE;
   delete env.TWILIO_FROM_NUMBER;
+  delete env.AUDIO_RETENTION_DAYS;
   Object.assign(env, overrides.env ?? {});
 
   const r = spawnSync('npx', ['tsx', '-e', "import('./src/config.ts').catch((e) => { console.error('Error: ' + e.message); process.exit(1); })"], { env, encoding: 'utf8', timeout: 30_000 });
@@ -70,6 +71,15 @@ describe('production refuses to start when it is not safe', () => {
       expect(r.out, bad).toMatch(/TWILIO_FROM_NUMBER must be a phone number in E\.164 form/);
     }
     expect(boot({ sslmode: 'require', mfaKey: KEY, baseUrl: HTTPS, env: { TWILIO_FROM_NUMBER: '+18005550199' } }).status).toBe(0);
+  });
+  it('with an audio retention period that is not a whole number of days from 1 to 3650', () => {
+    for (const bad of ['0', '-5', '1.5', 'thirty', '3651']) {
+      const r = boot({ sslmode: 'require', mfaKey: KEY, baseUrl: HTTPS, env: { AUDIO_RETENTION_DAYS: bad } });
+      expect(r.status, bad).not.toBe(0);
+      expect(r.out, bad).toMatch(/AUDIO_RETENTION_DAYS/);
+    }
+    expect(boot({ sslmode: 'require', mfaKey: KEY, baseUrl: HTTPS, env: { AUDIO_RETENTION_DAYS: '7' } }).status).toBe(0);
+    expect(boot({ sslmode: 'require', mfaKey: KEY, baseUrl: HTTPS, env: { AUDIO_RETENTION_DAYS: '3650' } }).status).toBe(0);
   });
   it('and starts when everything is in order', () => {
     expect(boot({ sslmode: 'require', mfaKey: KEY, baseUrl: HTTPS }).status).toBe(0);

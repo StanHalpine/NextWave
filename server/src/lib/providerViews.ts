@@ -8,6 +8,7 @@
  */
 
 import type { AccountRole, Prisma } from '@prisma/client';
+import { config } from '../config.js';
 import { scribeAvailability } from '../integrations/index.js';
 import { colorHexFor } from './serviceColors.js';
 import { docStatus, type DocStatus } from './documentation.js';
@@ -172,9 +173,11 @@ export async function loadWorkspace(a: { bookingId: string; role: ProviderRole |
       available: scribe.available,
       unavailableReason: scribe.reason,
       consentAt: b.encounter?.scribeConsentAt ?? null,
+      /** Raw audio is deleted this many days after the note is signed; the transcript and draft stay. */
+      audioRetentionDays: config.audioRetentionDays,
       sessions: b.scribeSessions
         .filter((s) => s.status !== 'DISCARDED')
-        .map((s) => ({ id: s.id, status: s.status, failureCode: s.failureCode, createdAt: s.createdAt, applied: !!s.appliedAt, hasDraft: !!draftOf(s) })),
+        .map((s) => ({ id: s.id, status: s.status, failureCode: s.failureCode, createdAt: s.createdAt, applied: !!s.appliedAt, hasDraft: !!draftOf(s), audioPurged: !!s.audioPurgedAt })),
     },
   };
 }

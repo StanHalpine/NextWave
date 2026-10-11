@@ -8,6 +8,7 @@ import { errorText, Modal, Notice } from '../ui';
 import { emptySoap, insertMacro, macrosFor, parseMinutes, ROLE_NAME, roleName, SECTIONS, signBlockers, STATUS_LABEL, STATUS_PILL, type SoapFields } from '../provider/docs';
 import { MacroEditor, type MacroOps } from '../provider/MacroEditor';
 import { ScribePanel } from '../provider/ScribePanel';
+import { Recordings } from '../provider/Recordings';
 import { SignedNotes } from '../provider/SignedNotes';
 import type { MacroLibrary, MacroLite, ProviderRole, Section, Workspace } from '../types';
 
@@ -211,6 +212,9 @@ export default function Documentation() {
           </div>
           <SignedNotes notes={ws.notes} canAddend={ws.access.canAddend} tz={tz} onAmended={async () => { await load(); }} />
         </section>
+      )}
+      {signedView && ws.signature && (
+        <Recordings visitId={id} sessions={ws.scribe.sessions} signedAt={ws.signature.signedAt} retentionDays={ws.scribe.audioRetentionDays} tz={tz} />
       )}
 
       {!signedView && (

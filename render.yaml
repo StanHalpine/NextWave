@@ -162,6 +162,9 @@ services:
       #     sync: false
       #   - key: TWILIO_AUTH_TOKEN   # with the web service's, once Twilio exists
       #     sync: false
+      # Optional: days after a note is signed that raw visit audio is deleted (this job does it). Default 30.
+      #   - key: AUDIO_RETENTION_DAYS
+      #     value: "30"
       # Optional: the sender number (E.164). Defaults to the registered toll-free +18665241007.
       #   - key: TWILIO_FROM_NUMBER
       #     value: "+18665241007"

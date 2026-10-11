@@ -50,6 +50,14 @@ function assertDatabaseTls(url: string): void {
   }
 }
 
+/** A whole number and nothing else: "1.5", "30days" and "thirty" are errors, not 1, 30 and NaN. */
+function strictInt(name: string, fallback: number): number {
+  const raw = process.env[name]?.trim();
+  if (!raw) return fallback;
+  if (!/^-?\d+$/.test(raw)) throw new Error(`Refusing to start: ${name} must be a whole number of days from 1 to 3650.`);
+  return Number(raw);
+}
+
 function int(name: string, fallback: number): number {
   const v = process.env[name];
   if (!v) return fallback;
@@ -185,6 +193,13 @@ export const config = {
    */
   allowStubIntegrations: flag('ALLOW_STUB_INTEGRATIONS', false),
 
+  /**
+   * How long after a note is SIGNED its visit's raw audio is kept before the retention job deletes it
+   * (jobs/audioRetention.ts). The transcript and the AI draft stay with the encounter. A whole number of
+   * days, 1 or more; anything else stops the app at start-up rather than silently keeping or losing audio.
+   */
+  audioRetentionDays: strictInt('AUDIO_RETENTION_DAYS', 30),
+
   /** Booking grid granularity. Slots start on multiples of this. */
   slotGranularityMin: 15,
 
@@ -199,6 +214,9 @@ if (isProduction && !config.appBaseUrl.startsWith('https://')) {
 // Real text messaging is switched on by giving the app the provider's auth token (it also
 // verifies the inbound STOP/HELP webhook). A HELP reply must tell the patient how to reach the
 // clinic, so refuse to run that way without the phone number.
+if (!Number.isInteger(config.audioRetentionDays) || config.audioRetentionDays < 1 || config.audioRetentionDays > 3650) {
+  throw new Error('Refusing to start: AUDIO_RETENTION_DAYS must be a whole number of days from 1 to 3650.');
+}
 if (!isE164(config.twilioFromNumber)) {
   throw new Error('Refusing to start: TWILIO_FROM_NUMBER must be a phone number in E.164 form, such as +18665241007.');
 }
