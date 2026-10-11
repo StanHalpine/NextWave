@@ -19,6 +19,7 @@ function boot(overrides: { sslmode?: string | null; mfaKey?: string | null; base
   if (overrides.baseUrl) env.APP_BASE_URL = overrides.baseUrl;
   delete env.TWILIO_AUTH_TOKEN;
   delete env.CLINIC_PHONE;
+  delete env.TWILIO_FROM_NUMBER;
   Object.assign(env, overrides.env ?? {});
 
   const r = spawnSync('npx', ['tsx', '-e', "import('./src/config.ts').catch((e) => { console.error('Error: ' + e.message); process.exit(1); })"], { env, encoding: 'utf8', timeout: 30_000 });
@@ -55,12 +56,20 @@ describe('production refuses to start when it is not safe', () => {
     expect(boot({ sslmode: 'require', mfaKey: KEY, baseUrl: null }).status).not.toBe(0);
     expect(boot({ sslmode: 'require', mfaKey: KEY, baseUrl: 'http://staff.example.test' }).status).not.toBe(0);
   });
-  it('with real text messaging switched on (a provider token) but no clinic phone for the HELP reply', () => {
-    const r = boot({ sslmode: 'require', mfaKey: KEY, baseUrl: HTTPS, env: { TWILIO_AUTH_TOKEN: 'x'.repeat(32) } });
-    expect(r.status).not.toBe(0);
-    expect(r.out).toMatch(/CLINIC_PHONE is not set/);
-    expect(r.out).not.toContain('x'.repeat(32));                  // the token is never echoed
-    expect(boot({ sslmode: 'require', mfaKey: KEY, baseUrl: HTTPS, env: { TWILIO_AUTH_TOKEN: 'x'.repeat(32), CLINIC_PHONE: '(612) 555-0100' } }).status).toBe(0);
+  it('with real text messaging switched on, falls back to the published clinic phone for the HELP reply — and still honours an override', () => {
+    const token = 'x'.repeat(32);
+    const r = boot({ sslmode: 'require', mfaKey: KEY, baseUrl: HTTPS, env: { TWILIO_AUTH_TOKEN: token } });
+    expect(r.status, r.out).toBe(0);                              // (308) 830-1951 is the default, so a missing CLINIC_PHONE is not fatal
+    expect(r.out).not.toContain(token);                          // the token is never echoed
+    expect(boot({ sslmode: 'require', mfaKey: KEY, baseUrl: HTTPS, env: { TWILIO_AUTH_TOKEN: token, CLINIC_PHONE: '(612) 555-0100' } }).status).toBe(0);
+  });
+  it('with a sender number that is not E.164 (TWILIO_FROM_NUMBER)', () => {
+    for (const bad of ['866-524-1007', '8665241007', '+0123456', 'call me', '+1 866 524 1007']) {
+      const r = boot({ sslmode: 'require', mfaKey: KEY, baseUrl: HTTPS, env: { TWILIO_FROM_NUMBER: bad } });
+      expect(r.status, bad).not.toBe(0);
+      expect(r.out, bad).toMatch(/TWILIO_FROM_NUMBER must be a phone number in E\.164 form/);
+    }
+    expect(boot({ sslmode: 'require', mfaKey: KEY, baseUrl: HTTPS, env: { TWILIO_FROM_NUMBER: '+18005550199' } }).status).toBe(0);
   });
   it('and starts when everything is in order', () => {
     expect(boot({ sslmode: 'require', mfaKey: KEY, baseUrl: HTTPS }).status).toBe(0);

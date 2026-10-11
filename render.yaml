@@ -104,10 +104,10 @@ services:
       - key: APP_BASE_URL
         sync: false
 
-      # The clinic's phone number, shown in the reply to a patient who texts HELP
-      # (e.g. "(612) 555-0100"). Required in production as soon as TWILIO_AUTH_TOKEN is set.
-      - key: CLINIC_PHONE
-        sync: false
+      # The clinic's phone number, shown in the reply to a patient who texts HELP. Optional: it defaults
+      # to the number published on the website, (308) 830-1951 (server/src/clinicContact.ts).
+      #   - key: CLINIC_PHONE
+      #     sync: false
 
       # Add when the Twilio account exists. It both enables real messaging and is the key the
       # inbound webhook's signature is checked against; with NODE_ENV=production and no token
@@ -158,7 +158,10 @@ services:
         sync: false
       - key: MFA_ENCRYPTION_KEY
         sync: false
-      - key: CLINIC_PHONE
-        sync: false
+      #   - key: CLINIC_PHONE      # optional override; defaults to the published number
+      #     sync: false
       #   - key: TWILIO_AUTH_TOKEN   # with the web service's, once Twilio exists
       #     sync: false
+      # Optional: the sender number (E.164). Defaults to the registered toll-free +18665241007.
+      #   - key: TWILIO_FROM_NUMBER
+      #     value: "+18665241007"

@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { randomBytes } from 'node:crypto';
 import { logger } from './lib/logger.js';
-import { PUBLISHED_CLINIC_PHONE } from './clinicContact.js';
+import { DEFAULT_SMS_FROM_NUMBER, PUBLISHED_CLINIC_PHONE, isE164 } from './clinicContact.js';
 
 function required(name: string): string {
   const v = process.env[name];
@@ -172,6 +172,12 @@ export const config = {
   get clinicPhone(): string { return (process.env.CLINIC_PHONE ?? '').trim() || PUBLISHED_CLINIC_PHONE || ''; },
 
   /**
+   * The number appointment texts are sent from (the registered toll-free number). TWILIO_FROM_NUMBER
+   * overrides it; a value that is not E.164 stops the app at start-up rather than at the first text.
+   */
+  get twilioFromNumber(): string { return (process.env.TWILIO_FROM_NUMBER ?? '').trim() || DEFAULT_SMS_FROM_NUMBER; },
+
+  /**
    * The AI scribe records visits and sends the audio and transcripts through FileStorage and AiScribe.
    * While either is the local STUB (which writes to the server's own unencrypted disk) the scribe is
    * switched OFF in production, so real patient audio can never land there. This lifts that, for a
@@ -193,6 +199,9 @@ if (isProduction && !config.appBaseUrl.startsWith('https://')) {
 // Real text messaging is switched on by giving the app the provider's auth token (it also
 // verifies the inbound STOP/HELP webhook). A HELP reply must tell the patient how to reach the
 // clinic, so refuse to run that way without the phone number.
+if (!isE164(config.twilioFromNumber)) {
+  throw new Error('Refusing to start: TWILIO_FROM_NUMBER must be a phone number in E.164 form, such as +18665241007.');
+}
 if (isProduction && process.env.TWILIO_AUTH_TOKEN && !config.clinicPhone) {
   throw new Error('Refusing to start: CLINIC_PHONE is not set. The text-message HELP reply must give the clinic\'s phone number.');
 }

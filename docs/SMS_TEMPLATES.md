@@ -6,6 +6,8 @@
 Every text may contain only the patient's **first name**, the appointment **day** and **time** — never a
 service, provider, room or any clinical detail. Texts are sent only between 8:00 a.m. and 9:00 p.m. clinic time.
 
+Texts are sent from the registered toll-free number **+18665241007** (override: `TWILIO_FROM_NUMBER`). The HELP reply gives the clinic's number, **(308) 830-1951** (override: `CLINIC_PHONE`).
+
 ## Opt-in
 
 A checkbox on the public booking page, **unchecked by default**, immediately above the "Request appointment" button:
@@ -86,7 +88,7 @@ Matched against the whole message, ignoring case and surrounding punctuation.
 
     NextWave Wellness: This number sends appointment texts only. Call {phone} for help. Reply STOP to opt out.
 
-**Example:** NextWave Wellness: This number sends appointment texts only. Call (XXX) XXX-XXXX for help. Reply STOP to opt out.
+**Example:** NextWave Wellness: This number sends appointment texts only. Call (308) 830-1951 for help. Reply STOP to opt out.
 
 **Size:** 113 characters · GSM-7 · 1 segment — longest realistic: 113 characters · 1 segment
 

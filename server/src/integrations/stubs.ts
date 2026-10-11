@@ -15,6 +15,7 @@ import { logger } from '../lib/logger.js';
 import type { AiScribe, FileStorage, Messaging, SoapDraft, UploadTarget } from './types.js';
 import { renderTemplate } from './templates.js';
 import { signUpload } from './uploadToken.js';
+import { config } from '../config.js';
 
 // Overridable so the test run writes its fake texts and files to a throwaway folder
 // instead of the developer's real local outbox.
@@ -117,7 +118,7 @@ export class StubMessaging implements Messaging {
     await mkdir(DEV_DATA_DIR, { recursive: true });
     await appendFile(
       path.join(DEV_DATA_DIR, 'sms-outbox.jsonl'),
-      JSON.stringify({ at: new Date().toISOString(), providerMessageId, to: input.to, templateId: input.templateId, body }) + '\n',
+      JSON.stringify({ at: new Date().toISOString(), providerMessageId, from: config.twilioFromNumber, to: input.to, templateId: input.templateId, body }) + '\n',
     );
     logger.info('stub_sms_queued', { templateId: input.templateId, providerMessageId });
     return { providerMessageId };

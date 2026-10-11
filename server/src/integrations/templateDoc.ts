@@ -5,11 +5,12 @@
  */
 import { ACCEPTED_SMS_CONSENT_LABELS, KEYWORDS, SMS_CONSENT_LABEL, allMessages, renderTemplate } from './templates.js';
 import { smsInfo } from './smsEncoding.js';
+import { DEFAULT_SMS_FROM_NUMBER, PUBLISHED_CLINIC_PHONE } from '../clinicContact.js';
 
-// The phone is shown as a visible placeholder: the real number is the clinic's (CLINIC_PHONE), not a sample.
-const SAMPLE = { first: 'Ingrid', day: 'Saturday, Oct 10', time: '9:00 AM', phone: '(XXX) XXX-XXXX' };
+// The example shows the clinic's real number (the one the HELP reply gives), not a placeholder.
+const SAMPLE = { first: 'Ingrid', day: 'Saturday, Oct 10', time: '9:00 AM', phone: '(308) 830-1951' };
 /** Longest realistic values: a 30-character first name, the longest weekday + month, the widest time. */
-const WORST = { first: 'Wolfeschlegelsteinhausenberge', day: 'Wednesday, Sep 30', time: '12:45 PM', phone: '(XXX) XXX-XXXX' };
+const WORST = { first: 'Wolfeschlegelsteinhausenberge', day: 'Wednesday, Sep 30', time: '12:45 PM', phone: '(308) 830-1951' };
 
 function fill(vars: string[], from: Record<string, string>): Record<string, string> {
   return Object.fromEntries(vars.map((v) => [v, from[v]!]));
@@ -24,6 +25,9 @@ export function renderTemplatesDoc(): string {
   out.push('');
   out.push('Every text may contain only the patient\'s **first name**, the appointment **day** and **time** — never a');
   out.push('service, provider, room or any clinical detail. Texts are sent only between 8:00 a.m. and 9:00 p.m. clinic time.');
+  out.push('');
+  out.push(`Texts are sent from the registered toll-free number **${DEFAULT_SMS_FROM_NUMBER}** (override: \`TWILIO_FROM_NUMBER\`). `
+    + `The HELP reply gives the clinic's number, **${PUBLISHED_CLINIC_PHONE ?? '(set CLINIC_PHONE)'}** (override: \`CLINIC_PHONE\`).`);
   out.push('');
   out.push('## Opt-in');
   out.push('');
