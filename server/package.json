@@ -19,6 +19,7 @@
     "jobs:run": "tsx scripts/run-jobs.ts",
     "sms:templates": "tsx scripts/sms-templates.ts",
     "perf:reports": "node scripts/perf-reports.mjs",
+    "discounts:apply": "tsx scripts/apply-discount-table.ts",
     "gen-secrets": "tsx scripts/gen-secrets.ts",
     "web:install": "npm --prefix web install",
     "web:build": "npm --prefix web run build",
