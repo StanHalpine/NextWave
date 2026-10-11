@@ -75,7 +75,9 @@ export default function CreditTracker({ patientId }: { patientId: string }) {
               <dl className="facts">
                 <dt>Dues</dt><dd>{fmtMoney(m.plan.priceCents, { whole: true })} / month <span className="muted small">(collected outside this system)</span></dd>
                 <dt>Credits</dt><dd>{m.plan.creditsPerMonth} each month · roll over {m.plan.rolloverDays} days</dd>
-                <dt>Discount</dt><dd>{m.plan.discountPercent > 0 ? <>{m.plan.discountPercent}% off list price when paying cash{m.status !== 'ACTIVE' && <span className="muted small"> (not while {m.status.toLowerCase()})</span>}</> : <span className="muted">none set for this tier</span>}</dd>
+                <dt>Discounts</dt><dd>{m.plan.discounts.length > 0
+                  ? <>{m.plan.discounts.map((d) => `${d.percent}% off ${d.category}`).join(' · ')}<span className="muted small"> — when paying cash{m.status !== 'ACTIVE' ? `, not while ${m.status.toLowerCase()}` : ''}</span></>
+                  : <span className="muted">none set for this tier</span>}</dd>
                 <dt>Member since</dt><dd>{fmtDayLong(m.startedOn)}</dd>
                 <dt>Next grant</dt><dd>{m.status === 'ACTIVE' ? fmtDayLong(m.nextGrantOn) : <span className="muted">none while {m.status.toLowerCase()}</span>}</dd>
               </dl>

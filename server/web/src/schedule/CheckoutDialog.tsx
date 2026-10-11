@@ -101,7 +101,7 @@ export function CheckoutDialog({ appt, onClose, onDone }: { appt: Appt; onClose:
               <span>
                 <strong>Paid at the desk</strong>{cashSplit && <> — {fmtMoney(cashSplit.netCents)}</>}
                 {cashSplit && cashPct > 0 && (
-                  <><br /><span className="small">{fmtMoney(cashList)} list − {cashPct}% {pv.membership?.planName} member discount ({fmtMoney(cashSplit.discountCents)}) = <strong>{fmtMoney(cashSplit.netCents)}</strong></span></>
+                  <><br /><span className="small">{fmtMoney(cashList)} list − {cashPct}% {pv.membership?.planName} member discount{pv.cash.discountCategory ? ` on ${pv.cash.discountCategory}` : ''} ({fmtMoney(cashSplit.discountCents)}) = <strong>{fmtMoney(cashSplit.netCents)}</strong></span></>
                 )}
                 <br /><span className="muted small">Recorded only — nothing is charged from here.</span>
               </span>

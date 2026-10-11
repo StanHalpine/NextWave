@@ -66,11 +66,17 @@ creditsRouter.get('/fd/patients/:id/credits', requireFrontDesk, async (req, res)
     ORDER BY t.id::bigint DESC
     LIMIT ${PAGE + 1}`;
 
+  // What this tier takes off cash prices, per category (only the discounts that are actually on).
+  const discounts = m ? (await basePrisma.planCategoryDiscount.findMany({
+    where: { planId: m.planId, percent: { gt: 0 }, category: { active: true } },
+    include: { category: { select: { name: true, sortOrder: true } } },
+  })).sort((a, b) => a.category.sortOrder - b.category.sortOrder).map((d) => ({ category: d.category.name, percent: d.percent })) : [];
+
   audit.read('credit_ledger', patientId, { section: 'credits' });
   res.json({
     membership: m && {
       id: m.id, status: m.status, startedOn: fromDateOnly(m.startedOn), nextGrantOn: fromDateOnly(m.nextGrantOn),
-      plan: { code: m.plan.code, name: m.plan.name, priceCents: m.plan.priceCents, creditsPerMonth: m.plan.creditsPerMonth, rolloverDays: m.plan.rolloverDays, discountPercent: m.plan.discountPercent },
+      plan: { code: m.plan.code, name: m.plan.name, priceCents: m.plan.priceCents, creditsPerMonth: m.plan.creditsPerMonth, rolloverDays: m.plan.rolloverDays, discounts },
     },
     balance: spendable(lots),
     expiringSoon: expiringSoon(lots, today),
@@ -180,6 +186,6 @@ creditsRouter.post('/fd/patients/:id/perks/:perkId/use', requireFrontDesk, async
 
 creditsRouter.get('/membership-plans', requireRole(), async (_req, res) => {
   const plans = await prisma.membershipPlan.findMany({ where: { active: true }, orderBy: { sortOrder: 'asc' } });
-  res.json({ plans: plans.map((p) => ({ code: p.code, name: p.name, priceCents: p.priceCents, creditsPerMonth: p.creditsPerMonth, rolloverDays: p.rolloverDays, discountPercent: p.discountPercent })) });
+  res.json({ plans: plans.map((p) => ({ code: p.code, name: p.name, priceCents: p.priceCents, creditsPerMonth: p.creditsPerMonth, rolloverDays: p.rolloverDays })) });
 });
 

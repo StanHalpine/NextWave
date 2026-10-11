@@ -154,6 +154,10 @@ model Service {
   /// (a member pays cash). Editable by an admin next to the price.
   creditCost Int?
 
+  /// The discount category this service belongs to (at most one). A member's cash discount is the percent
+  /// their tier has set for this category; a service with no category is never discounted.
+  discountCategoryId String?
+
   /// Swatch key into SERVICE_COLOR_PALETTE (src/lib/serviceColors.ts), not a
   /// hex value — the palette is a fixed library grouped by discipline, and a
   /// service may only be assigned a swatch from its own category's family.
@@ -178,9 +182,11 @@ model Service {
   rooms            ServiceRoom[]
   staff            ServiceStaff[]
   planPerkServices PlanPerkService[]
+  discountCategory DiscountCategory? @relation(fields: [discountCategoryId], references: [id], onDelete: SetNull)
 
   @@index([slug])
   @@index([category])
+  @@index([discountCategoryId])
 }
 
 model Booking {
@@ -703,15 +709,13 @@ model MembershipPlan {
   creditsPerMonth Int
   /// A monthly grant is usable for this many days from the grant date.
   rolloverDays    Int     @default(90)
-  /// Whole percent taken off the LIST price when an ACTIVE member of this tier pays cash for a
-  /// visit. Credits and perks are not discounted (they are not priced in money). 0 = no discount,
-  /// which is how it starts: the owner has not yet said what each tier gets.
-  discountPercent Int     @default(0)
   active          Boolean @default(true)
   sortOrder       Int     @default(0)
 
-  perks       PlanPerk[]
-  memberships Membership[]
+  perks             PlanPerk[]
+  /// Percent off list, per service category, when an ACTIVE member of this tier pays cash. Empty until set.
+  categoryDiscounts PlanCategoryDiscount[]
+  memberships       Membership[]
 }
 
 /// An entitlement a tier includes that is COUNTED, not paid for in credits: a monthly vitamin
@@ -841,33 +845,35 @@ model PerkUsage {
 /// paid — the data Accounting and Reports (Phase 5) read, from day one. No payment is processed
 /// here: `netPriceCents` is what the desk recorded collecting. list − discount = net, enforced.
 model RevenueEvent {
-  id              String         @id @default(uuid())
-  encounterId     String         @unique
-  bookingId       String
-  patientId       String?
-  serviceId       String
+  id               String         @id @default(uuid())
+  encounterId      String         @unique
+  bookingId        String
+  patientId        String?
+  serviceId        String
   /// Snapshots, so a later rename or re-price does not rewrite history.
-  serviceName     String
-  serviceCategory String
-  subOption       String?
+  serviceName      String
+  serviceCategory  String
+  subOption        String?
   /// What the visit is worth at list price. NULL only when it has none and was paid with credits.
-  listPriceCents  Int?
+  listPriceCents   Int?
   /// MEMBER = covered by the membership (credits or a perk); CASH = paid at the desk.
-  paymentType     PaymentType
-  memberBenefit   MemberBenefit?
-  creditsRedeemed Int            @default(0)
+  paymentType      PaymentType
+  memberBenefit    MemberBenefit?
+  creditsRedeemed  Int            @default(0)
   /// The tier's discount in force at check-out, and the cents it took off the list price. Both 0
   /// unless an ACTIVE member paid cash and their tier has a discount.
-  discountPercent Int            @default(0)
-  discountCents   Int            @default(0)
+  discountPercent  Int            @default(0)
+  discountCents    Int            @default(0)
   /// What the patient owes in money: listPrice − discount for a cash payment, 0 for a visit the
   /// membership covered. Recorded only — nothing is charged from here.
-  netPriceCents   Int            @default(0)
+  netPriceCents    Int            @default(0)
+  /// The discount category (its code) the discount came from, when one applied: a snapshot.
+  discountCategory String?
   /// The member's tier at the time (code): set for a member event and for a discounted cash one.
-  planCode        String?
-  occurredAt      DateTime
-  recordedById    String
-  createdAt       DateTime       @default(now())
+  planCode         String?
+  occurredAt       DateTime
+  recordedById     String
+  createdAt        DateTime       @default(now())
 
   encounter Encounter @relation(fields: [encounterId], references: [id])
 
@@ -1052,4 +1058,38 @@ model NoteAddendum {
 
   @@index([bookingId, createdAt])
   @@index([noteId])
+}
+
+// =============================================================================
+// Member discounts: a percentage per tier per SERVICE CATEGORY
+// =============================================================================
+
+/// A group of services that earn the same member discount ("Spinal X-rays", "Supplements", …). Data, edited by an
+/// admin: a different grouping or percentage is a change on a screen, not a deploy. Each service is in at most one
+/// (Service.discountCategoryId). There are none until the owner approves the mapping (docs/DISCOUNT_MAPPING.md).
+model DiscountCategory {
+  id        String  @id @default(uuid())
+  /// Stable key, A–Z / 0–9 / _ (copied onto a RevenueEvent so history survives a rename).
+  code      String  @unique
+  name      String
+  /// Off = no discount from this category, whatever the tiers say.
+  active    Boolean @default(true)
+  sortOrder Int     @default(0)
+
+  services  Service[]
+  discounts PlanCategoryDiscount[]
+}
+
+/// Percent off the LIST price for one tier in one category. A missing row is 0%.
+model PlanCategoryDiscount {
+  planId     String
+  categoryId String
+  /// Whole percent, 0–100 (a CHECK in the migration).
+  percent    Int
+
+  plan     MembershipPlan   @relation(fields: [planId], references: [id], onDelete: Cascade)
+  category DiscountCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@id([planId, categoryId])
+  @@index([categoryId])
 }

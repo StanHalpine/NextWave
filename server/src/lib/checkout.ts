@@ -63,12 +63,27 @@ function listPrice(service: { priceCents: number | null; options: Array<{ label:
   return opt?.priceCents ?? service.priceCents ?? null;
 }
 
+/** What an ACTIVE member of `planId` gets off the list price of a service in this category: the tier's percent for it, else 0. */
+async function categoryDiscount(
+  tx: Tx, planId: string,
+  category: { id: string; code: string; name: string; active: boolean } | null,
+): Promise<{ percent: number; code: string | null; name: string | null }> {
+  if (!category || !category.active) return { percent: 0, code: null, name: null };
+  const row = await tx.planCategoryDiscount.findUnique({ where: { planId_categoryId: { planId, categoryId: category.id } } });
+  return { percent: row?.percent ?? 0, code: category.code, name: category.name };
+}
+
+const SERVICE_INCLUDE = {
+  options: { select: { label: true, priceCents: true } },
+  discountCategory: { select: { id: true, code: true, name: true, active: true } },
+} as const;
+
 async function loadVisit(tx: Tx, bookingId: string) {
   return tx.booking.findUniqueOrThrow({
     where: { id: bookingId },
     include: {
       encounter: true,
-      service: { include: { options: { select: { label: true, priceCents: true } } } },
+      service: { include: SERVICE_INCLUDE },
     },
   });
 }
@@ -105,6 +120,7 @@ export async function checkoutVisit(tx: Tx, rec: Rec, a: { bookingId: string; ac
   let memberBenefit: 'CREDITS' | 'PERK' | null = null;
   let credits = 0;
   let discountPercent = 0;
+  let discountCategory: string | null = null;
   let discountCents = 0;
   let netCents = 0;
   let recordedPrice = price;
@@ -133,7 +149,10 @@ export async function checkoutVisit(tx: Tx, rec: Rec, a: { bookingId: string; ac
     if (recordedPrice == null || !Number.isInteger(recordedPrice) || recordedPrice <= 0) throw fail(400, 'bad_price', 'Enter the amount as a whole number of cents above zero.');
     // Only an ACTIVE member is discounted (paused and cancelled are not), and only on what they pay
     // in money: credits and perks are not priced in dollars, so there is nothing to take a percent of.
-    discountPercent = membership?.status === 'ACTIVE' ? membership.plan.discountPercent : 0;
+    // The percent is the member's TIER's for this service's CATEGORY; a service in no category is not discounted.
+    const found = membership?.status === 'ACTIVE' ? await categoryDiscount(tx, membership.planId, b.service.discountCategory) : { percent: 0, code: null, name: null };
+    discountPercent = found.percent;
+    discountCategory = found.percent > 0 ? found.code : null;
     ({ discountCents, netCents } = memberDiscount(recordedPrice, discountPercent));
     if (a.expectedNetCents != null && a.expectedNetCents !== netCents) {
       throw fail(409, 'price_changed', 'The price changed since this screen opened (the membership or its discount was edited). Review the new amount and check out again.',
@@ -146,12 +165,12 @@ export async function checkoutVisit(tx: Tx, rec: Rec, a: { bookingId: string; ac
       id: eventId, encounterId: enc.id, bookingId: b.id, patientId, serviceId: b.serviceId,
       serviceName: b.service.name, serviceCategory: b.service.category, subOption: b.subOption,
       listPriceCents: recordedPrice, paymentType, memberBenefit, creditsRedeemed: credits,
-      discountPercent, discountCents, netPriceCents: netCents,
+      discountPercent, discountCents, netPriceCents: netCents, discountCategory,
       planCode: membership && (paymentType === 'MEMBER' || membership.status === 'ACTIVE') ? membership.plan.code : null,
       occurredAt: a.now, recordedById: a.accountId,
     },
   });
-  await rec({ action: 'CREATE', resourceType: 'revenue_event', resourceId: row.id, meta: { paymentType, memberBenefit, credits, discountPercent, discountCents, netPriceCents: netCents } });
+  await rec({ action: 'CREATE', resourceType: 'revenue_event', resourceId: row.id, meta: { paymentType, memberBenefit, credits, discountPercent, discountCategory, discountCents, netPriceCents: netCents } });
 
   await checkOut(tx, rec, { bookingId: a.bookingId, accountId: a.accountId, now: a.now });
 
@@ -190,8 +209,10 @@ export interface CheckoutPreview {
     /** The list price (what a non-member pays). */
     priceCents: number | null;
     priceKnown: boolean;
-    /** The member discount that WOULD apply to cash (0 for a non-member or a paused membership). */
+    /** The member discount that WOULD apply to cash (0 for a non-member, a paused membership, or a service in no discounted category). */
     discountPercent: number;
+    /** Which category it comes from (its name), when one applies. */
+    discountCategory: string | null;
     discountCents: number | null;
     /** What the patient owes after the discount; null while the amount is still to be entered. */
     netPriceCents: number | null;
@@ -203,7 +224,7 @@ export async function checkoutPreview(tx: Tx, bookingId: string, now: Date): Pro
     where: { id: bookingId },
     include: {
       encounter: { select: { id: true, status: true } },
-      service: { include: { options: { select: { label: true, priceCents: true } } } },
+      service: { include: SERVICE_INCLUDE },
       patient: { select: { id: true, firstName: true, lastName: true } },
     },
   });
@@ -230,7 +251,8 @@ export async function checkoutPreview(tx: Tx, bookingId: string, now: Date): Pro
       if (p.serviceIds.includes(b.serviceId) && p.remaining > 0) perks.push({ perkId: p.perkId, label: p.label, remaining: p.remaining, period: p.period });
     }
   }
-  const discountPercent = membership?.status === 'ACTIVE' ? membership.plan.discountPercent : 0;
+  const found = membership?.status === 'ACTIVE' ? await categoryDiscount(tx, membership.planId, b.service.discountCategory) : { percent: 0, code: null, name: null };
+  const discountPercent = found.percent;
   const disc = price != null ? memberDiscount(price, discountPercent) : null;
   return {
     alreadyCheckedOut: done,
@@ -241,6 +263,6 @@ export async function checkoutPreview(tx: Tx, bookingId: string, now: Date): Pro
     balance: bal,
     credits: { available: reason === null, cost, balanceAfter: reason === null && bal != null && cost != null ? bal - cost : null, reason },
     perks,
-    cash: { priceCents: price, priceKnown: price != null, discountPercent, discountCents: disc?.discountCents ?? null, netPriceCents: disc?.netCents ?? null },
+    cash: { priceCents: price, priceKnown: price != null, discountPercent, discountCategory: found.percent > 0 ? found.name : null, discountCents: disc?.discountCents ?? null, netPriceCents: disc?.netCents ?? null },
   };
 }

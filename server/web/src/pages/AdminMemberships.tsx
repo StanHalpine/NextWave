@@ -3,9 +3,10 @@ import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { errorText, Notice } from '../ui';
 import { fmtMoney, parseDollars } from '../lib';
+import { DiscountCategories } from './DiscountCategories';
 
 interface Perk { id: string; key: string; label: string; period: 'MONTHLY' | 'QUARTERLY' | 'ANNUAL'; quantity: number; active: boolean; serviceIds: string[] }
-interface Plan { id: string; code: string; name: string; priceCents: number; creditsPerMonth: number; rolloverDays: number; discountPercent: number; active: boolean; members: number; perks: Perk[] }
+interface Plan { id: string; code: string; name: string; priceCents: number; creditsPerMonth: number; rolloverDays: number; active: boolean; members: number; perks: Perk[] }
 interface Svc { id: string; name: string; durationMin: number; creditCost: number | null; priceCents: number | null }
 
 const PERIOD = { MONTHLY: 'per month', QUARTERLY: 'per quarter', ANNUAL: 'per year' } as const;
@@ -22,15 +23,16 @@ export default function AdminMemberships() {
     <>
       <p><Link to="/admin">← Admin</Link></p>
       <h1>Memberships</h1>
-      <p className="lede">The tiers are data: change a price or a monthly credit count here without a deploy. A credit change applies from the <strong>next grant</strong> — credits already granted are never touched, and nothing is prorated. A discount change applies from the <strong>next check-out</strong>.</p>
+      <p className="lede">The tiers are data: change a price or a monthly credit count here without a deploy. A change applies from the <strong>next grant</strong> — credits already granted are never touched, and nothing is prorated. Member discounts are set by service category, further down.</p>
       <Notice kind="warn">
-        <strong>Member discounts start at 0%.</strong> Set each tier’s percentage below; until you do, members pay list price in cash.<br />
+        <strong>Nothing is discounted yet.</strong> Member discounts are set per tier per <em>service category</em> at the bottom of this page; until you set some, members pay list price in cash.<br />
         <strong>Perks start switched off.</strong> They are pre-filled from your tier copy (a monthly shot or IV, a quarterly body-composition analysis, guest passes) but nothing offers them at check-out until you confirm the quantities and switch them on.
         Each service’s price and credit cost are edited on <a href="/admin.html">Catalogue &amp; staff</a>.
       </Notice>
       {error && <Notice kind="error">{error}</Notice>}
       {!plans && !error && <p className="muted">Loading…</p>}
       {plans?.map((p) => <PlanCard key={p.id} plan={p} services={services} onSaved={load} />)}
+      {plans && <DiscountCategories />}
     </>
   );
 }
@@ -40,21 +42,19 @@ function PlanCard({ plan, services, onSaved }: { plan: Plan; services: Svc[]; on
   const [dues, setDues] = useState((plan.priceCents / 100).toFixed(2));
   const [credits, setCredits] = useState(String(plan.creditsPerMonth));
   const [rollover, setRollover] = useState(String(plan.rolloverDays));
-  const [discount, setDiscount] = useState(String(plan.discountPercent));
   const [active, setActive] = useState(plan.active);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ kind: 'error' | 'ok'; text: string } | null>(null);
 
   const cents = parseDollars(dues) ?? (dues.trim() === '0' || dues.trim() === '0.00' ? 0 : null);
-  const dirty = name !== plan.name || cents !== plan.priceCents || Number(credits) !== plan.creditsPerMonth || Number(rollover) !== plan.rolloverDays || Number(discount) !== plan.discountPercent || active !== plan.active;
-  const valid = name.trim() !== '' && cents !== null && Number.isInteger(Number(credits)) && Number(credits) >= 0 && Number.isInteger(Number(rollover)) && Number(rollover) >= 1
-    && discount.trim() !== '' && Number.isInteger(Number(discount)) && Number(discount) >= 0 && Number(discount) <= 100;
+  const dirty = name !== plan.name || cents !== plan.priceCents || Number(credits) !== plan.creditsPerMonth || Number(rollover) !== plan.rolloverDays || active !== plan.active;
+  const valid = name.trim() !== '' && cents !== null && Number.isInteger(Number(credits)) && Number(credits) >= 0 && Number.isInteger(Number(rollover)) && Number(rollover) >= 1;
 
   async function save() {
     setBusy(true); setMsg(null);
     try {
-      await api(`/api/admin/membership-plans/${plan.id}`, { method: 'PATCH', body: { name: name.trim(), priceCents: cents, creditsPerMonth: Number(credits), rolloverDays: Number(rollover), discountPercent: Number(discount), active } });
-      setMsg({ kind: 'ok', text: 'Saved. A new discount applies from the next check-out; credits apply from the next grant.' }); await onSaved();
+      await api(`/api/admin/membership-plans/${plan.id}`, { method: 'PATCH', body: { name: name.trim(), priceCents: cents, creditsPerMonth: Number(credits), rolloverDays: Number(rollover), active } });
+      setMsg({ kind: 'ok', text: 'Saved. Applies from the next grant.' }); await onSaved();
     } catch (e) { setMsg({ kind: 'error', text: errorText(e) }); }
     finally { setBusy(false); }
   }
@@ -70,8 +70,6 @@ function PlanCard({ plan, services, onSaved }: { plan: Plan; services: Svc[]; on
         <label>Dues ($ / month)<input inputMode="decimal" value={dues} onChange={(e) => setDues(e.target.value)} /><span className="hint">Collected outside this system. Currently {fmtMoney(plan.priceCents, { whole: true })}.</span></label>
         <label>Credits each month<input type="number" min={0} max={100} value={credits} onChange={(e) => setCredits(e.target.value)} /></label>
         <label>Rollover (days)<input type="number" min={1} max={730} value={rollover} onChange={(e) => setRollover(e.target.value)} /><span className="hint">A grant is usable this many days.</span></label>
-        <label>Member discount (%)<input type="number" min={0} max={100} step={1} value={discount} onChange={(e) => setDiscount(e.target.value)} />
-          <span className="hint">Taken off the list price when an <strong>active</strong> {plan.name} member pays cash at check-out. Credits and perks are not discounted. {plan.discountPercent === 0 ? 'Currently none.' : `Currently ${plan.discountPercent}%.`}</span></label>
         <label className="check span2"><input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} /> Offered for new enrolments</label>
       </div>
       {msg && <p className={msg.kind === 'error' ? 'error' : 'ok-text'} role={msg.kind === 'error' ? 'alert' : 'status'}>{msg.text}</p>}

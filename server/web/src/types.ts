@@ -77,7 +77,7 @@ export const CANCEL_REASON_LABEL: Record<string, string> = {
 
 // ---- Phase 3: credits, memberships, check-out ----------------------------------------------------
 
-export interface PlanLite { code: string; name: string; priceCents: number; creditsPerMonth: number; rolloverDays: number; discountPercent: number }
+export interface PlanLite { code: string; name: string; priceCents: number; creditsPerMonth: number; rolloverDays: number; /** What this tier takes off cash prices, by service category (only those switched on). */ discounts: Array<{ category: string; percent: number }> }
 export interface MembershipView {
   id: string; status: 'ACTIVE' | 'PAUSED' | 'CANCELLED'; startedOn: string; nextGrantOn: string; plan: PlanLite;
 }
@@ -110,8 +110,8 @@ export interface CheckoutPreview {
   cash: {
     /** The list price. */
     priceCents: number | null; priceKnown: boolean;
-    /** The member discount that applies to a cash payment (0 for a non-member or a paused membership). */
-    discountPercent: number; discountCents: number | null; netPriceCents: number | null;
+    /** The member discount that applies to a cash payment (0 for a non-member, a paused member, or a service in no discounted category). */
+    discountPercent: number; discountCategory: string | null; discountCents: number | null; netPriceCents: number | null;
   };
 }
 export interface CheckoutResult {

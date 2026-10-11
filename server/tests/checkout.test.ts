@@ -5,8 +5,10 @@ import { basePrisma } from '../src/lib/prismaBase.js';
 import { setClockForTests } from '../src/lib/clock.js';
 import { memberDiscount } from '../src/lib/pricing.js';
 import { app, auditRows, blob, chiroStaff, makeAccount, signInFully } from './helpers.js';
-import { makePatient, patch, post, TUESDAY_1007 } from './phase2.js';
-import { checkedInVisit, creditService, grantLot, ledgerSum, makeMembership, makePlan } from './phase3.js';
+import { del, makePatient, patch, post, TUESDAY_1007 } from './phase2.js';
+import { put } from './phase4.js';
+import { codeFromName } from '../src/routes/discountAdmin.js';
+import { checkedInVisit, creditService, grantLot, ledgerSum, makeCategory, makeMembership, makePlan } from './phase3.js';
 
 beforeAll(() => setClockForTests(TUESDAY_1007));
 afterAll(() => setClockForTests(null));
@@ -79,7 +81,7 @@ describe('the check-out screen\'s preview', () => {
     const withOption = await checkedInVisit(clinic, null, { subOption: 'Methyl B12' });
     expect((await preview(fd, withOption.booking.id)).body.preview).toMatchObject({ listPriceCents: 2500, cash: { priceCents: 2500, priceKnown: true } });
     const noPrice = await checkedInVisit(clinic, null);
-    expect((await preview(fd, noPrice.booking.id)).body.preview.cash).toEqual({ priceCents: null, priceKnown: false, discountPercent: 0, discountCents: null, netPriceCents: null });
+    expect((await preview(fd, noPrice.booking.id)).body.preview.cash).toEqual({ priceCents: null, priceKnown: false, discountPercent: 0, discountCategory: null, discountCents: null, netPriceCents: null });
 
     expect((await out(fd, withOption.booking.id, { payment: 'CASH' })).status).toBe(200);
     expect((await preview(fd, withOption.booking.id)).body.preview.alreadyCheckedOut).toBe(true);
@@ -463,38 +465,66 @@ describe('memberDiscount (whole cents, halves round up)', () => {
   });
 });
 
-describe('paying cash with a member discount', () => {
+describe('paying cash with a member discount (a percentage per tier per service category)', () => {
+  /** A member of a private tier whose discount for ONE category is `percent`; `give(serviceId)` puts a service in it. */
   async function discounted(percent: number, status: 'ACTIVE' | 'PAUSED' = 'ACTIVE') {
-    const { plan } = await makePlan({ discountPercent: percent });
+    const { plan } = await makePlan();
     const p = await makePatient();
     const m = await makeMembership(p.id, plan.code, '2026-10-13', { status });
-    return { plan, p, m };
+    const category = await makeCategory({ percents: { [plan.id]: percent } });
+    const give = (serviceId: string) => prisma.service.update({ where: { id: serviceId }, data: { discountCategoryId: category.id } });
+    return { plan, p, m, category, give };
   }
 
-  it('takes the tier percentage off the list price for an active member, and records all three figures', async () => {
+  it('takes the tier\'s percent for the service\'s category off the list price for an active member, and records all of it', async () => {
     const fd = await fdLogin();
     const clinic = await creditService({ priceCents: 5500, creditCost: 2 });
-    const { plan, p } = await discounted(10);
+    const { plan, p, category, give } = await discounted(10);
+    await give(clinic.service.id);
     const v = await checkedInVisit(clinic, p.id);
 
     const pv = (await preview(fd, v.booking.id)).body.preview;
-    expect(pv.cash).toEqual({ priceCents: 5500, priceKnown: true, discountPercent: 10, discountCents: 550, netPriceCents: 4950 });
+    expect(pv.cash).toEqual({ priceCents: 5500, priceKnown: true, discountPercent: 10, discountCategory: category.name, discountCents: 550, netPriceCents: 4950 });
 
     const r = await out(fd, v.booking.id, { payment: 'CASH', expectedNetCents: 4950 });
     expect(r.status).toBe(200);
     expect(r.body.checkout).toMatchObject({ paymentType: 'CASH', memberBenefit: null, listPriceCents: 5500, discountPercent: 10, discountCents: 550, netPriceCents: 4950, creditsRedeemed: 0 });
     expect((await events(v.encounter.id))[0]).toMatchObject({
-      paymentType: 'CASH', listPriceCents: 5500, discountPercent: 10, discountCents: 550, netPriceCents: 4950, planCode: plan.code,
+      paymentType: 'CASH', listPriceCents: 5500, discountPercent: 10, discountCategory: category.code, discountCents: 550, netPriceCents: 4950, planCode: plan.code,
     });
     const audit = await auditRows({ resourceType: 'revenue_event', action: 'CREATE' });
-    expect(JSON.stringify(audit.find((a) => JSON.stringify(a.meta).includes('"discountCents":550'))?.meta)).toMatch(/"netPriceCents":4950/);
+    expect(JSON.stringify(audit.find((a) => JSON.stringify(a.meta).includes('"discountCents":550'))?.meta)).toMatch(/"discountCategory":"T/);
+  });
+
+  it('gives the SAME tier different percents in different categories, and a different tier a different percent in the same one', async () => {
+    const fd = await fdLogin();
+    const { plan: gold } = await makePlan();
+    const { plan: silver } = await makePlan();
+    const xrays = await creditService({ priceCents: 25000, creditCost: null });
+    const supplements = await creditService({ priceCents: 4000, creditCost: null });
+    const consult = await creditService({ priceCents: 15000, creditCost: null });          // in no category
+    await makeCategory({ name: 'X-rays', serviceIds: [xrays.service.id], percents: { [gold.id]: 20, [silver.id]: 20 } });
+    await makeCategory({ name: 'Supplements', serviceIds: [supplements.service.id], percents: { [gold.id]: 15, [silver.id]: 10 } });
+    const goldMember = await makePatient();
+    const silverMember = await makePatient();
+    await makeMembership(goldMember.id, gold.code);
+    await makeMembership(silverMember.id, silver.code);
+
+    const pay = async (clinic: Awaited<ReturnType<typeof creditService>>, patientId: string) =>
+      (await out(fd, (await checkedInVisit(clinic, patientId)).booking.id, { payment: 'CASH' })).body.checkout;
+    expect(await pay(xrays, goldMember.id)).toMatchObject({ discountPercent: 20, discountCents: 5000, netPriceCents: 20000 });
+    expect(await pay(xrays, silverMember.id)).toMatchObject({ discountPercent: 20, netPriceCents: 20000 });
+    expect(await pay(supplements, goldMember.id)).toMatchObject({ discountPercent: 15, discountCents: 600, netPriceCents: 3400 });
+    expect(await pay(supplements, silverMember.id)).toMatchObject({ discountPercent: 10, discountCents: 400, netPriceCents: 3600 });
+    expect(await pay(consult, goldMember.id)).toMatchObject({ discountPercent: 0, discountCents: 0, netPriceCents: 15000 });   // no category: list price
   });
 
   it('applies to a credit-eligible service paid in cash, and to one with no credit cost', async () => {
     const fd = await fdLogin();
-    const { p } = await discounted(20);
+    const { p, give } = await discounted(20);
     for (const creditCost of [2, null]) {
       const clinic = await creditService({ priceCents: 18500, creditCost });
+      await give(clinic.service.id);
       const v = await checkedInVisit(clinic, p.id);
       const r = await out(fd, v.booking.id, { payment: 'CASH' });
       expect(r.body.checkout, String(creditCost)).toMatchObject({ listPriceCents: 18500, discountPercent: 20, discountCents: 3700, netPriceCents: 14800 });
@@ -504,28 +534,42 @@ describe('paying cash with a member discount', () => {
   it('rounds half a cent up', async () => {
     const fd = await fdLogin();
     const clinic = await creditService({ priceCents: 1999 });
-    const { p } = await discounted(15);
+    const { p, give } = await discounted(15);
+    await give(clinic.service.id);
     const v = await checkedInVisit(clinic, p.id);
     expect((await out(fd, v.booking.id, { payment: 'CASH' })).body.checkout).toMatchObject({ listPriceCents: 1999, discountCents: 300, netPriceCents: 1699 });
   });
 
-  it('does not discount a non-member, a visit with no patient record, a paused member, or a tier set to 0%', async () => {
+  it('does not discount a non-member, a visit with no patient record, a paused member, a tier set to 0%, a tier with no row, a service in no category, or a category switched off', async () => {
     const fd = await fdLogin();
     const clinic = await creditService({ priceCents: 5500 });
     const nonMember = await makePatient();
-    const paused = (await discounted(20, 'PAUSED')).p;
-    const zero = (await discounted(0)).p;
-    for (const patientId of [nonMember.id, null, paused.id, zero.id]) {
-      const v = await checkedInVisit(clinic, patientId);
+    const paused = await discounted(20, 'PAUSED');
+    const zero = await discounted(0);
+    const noRow = await discounted(20);                                                   // a category exists, but THIS tier has no percent for it
+    await prisma.planCategoryDiscount.deleteMany({ where: { planId: noRow.plan.id } });
+    const off = await discounted(20);
+    await prisma.discountCategory.update({ where: { id: off.category.id }, data: { active: false } });
+    const uncategorised = await discounted(20);                                           // a 20% member, but the service is put in NO category below
+    const cases: Array<[string, string | null, { id: string } | null]> = [
+      ['non-member', zero.category.id, nonMember], ['no patient record', zero.category.id, null],
+      ['paused', paused.category.id, paused.p], ['0%', zero.category.id, zero.p], ['no row for the tier', noRow.category.id, noRow.p],
+      ['category off', off.category.id, off.p], ['no category', null, uncategorised.p],
+    ];
+    for (const [label, categoryId, patient] of cases) {
+      await prisma.service.update({ where: { id: clinic.service.id }, data: { discountCategoryId: categoryId } });
+      const v = await checkedInVisit(clinic, patient?.id ?? null);
       const r = await out(fd, v.booking.id, { payment: 'CASH' });
-      expect(r.body.checkout, String(patientId)).toMatchObject({ listPriceCents: 5500, discountPercent: 0, discountCents: 0, netPriceCents: 5500 });
+      expect(r.body.checkout, label).toMatchObject({ listPriceCents: 5500, discountPercent: 0, discountCents: 0, netPriceCents: 5500 });
+      expect((await events(v.encounter.id))[0]!.discountCategory, label).toBeNull();
     }
   });
 
   it('never discounts credits or a perk — those events carry a zero discount and no money due', async () => {
     const fd = await fdLogin();
     const clinic = await creditService({ priceCents: 4500, creditCost: 2 });
-    const { plan } = await makePlan({ discountPercent: 20, perks: [{ key: 'shot', label: 'Monthly shot', quantity: 1, serviceIds: [clinic.service.id] }] });
+    const { plan } = await makePlan({ perks: [{ key: 'shot', label: 'Monthly shot', quantity: 1, serviceIds: [clinic.service.id] }] });
+    await makeCategory({ serviceIds: [clinic.service.id], percents: { [plan.id]: 20 } });
     const perkId = (await prisma.planPerk.findFirstOrThrow({ where: { planId: plan.id } })).id;
     const p = await makePatient();
     const m = await makeMembership(p.id, plan.code, '2026-10-13');
@@ -540,9 +584,10 @@ describe('paying cash with a member discount', () => {
   it('treats the amount typed for an unpriced service as the LIST price and discounts it', async () => {
     const fd = await fdLogin();
     const clinic = await creditService({ priceCents: null, creditCost: null });
-    const { p } = await discounted(10);
+    const { p, give, category } = await discounted(10);
+    await give(clinic.service.id);
     const v = await checkedInVisit(clinic, p.id);
-    expect((await preview(fd, v.booking.id)).body.preview.cash).toEqual({ priceCents: null, priceKnown: false, discountPercent: 10, discountCents: null, netPriceCents: null });
+    expect((await preview(fd, v.booking.id)).body.preview.cash).toEqual({ priceCents: null, priceKnown: false, discountPercent: 10, discountCategory: category.name, discountCents: null, netPriceCents: null });
     expect((await out(fd, v.booking.id, { payment: 'CASH' })).body.code).toBe('price_required');
     const r = await out(fd, v.booking.id, { payment: 'CASH', priceCents: 7300, expectedNetCents: 6570 });
     expect(r.body.checkout).toMatchObject({ listPriceCents: 7300, discountPercent: 10, discountCents: 730, netPriceCents: 6570 });
@@ -551,7 +596,8 @@ describe('paying cash with a member discount', () => {
   it('refuses, and records nothing, when the net the desk was shown is not what the server works out', async () => {
     const fd = await fdLogin();
     const clinic = await creditService({ priceCents: 5500 });
-    const { p } = await discounted(10);
+    const { p, give } = await discounted(10);
+    await give(clinic.service.id);
     const v = await checkedInVisit(clinic, p.id);
     const r = await out(fd, v.booking.id, { payment: 'CASH', expectedNetCents: 5500 });   // the desk saw no discount
     expect(r.status).toBe(409);
@@ -560,60 +606,176 @@ describe('paying cash with a member discount', () => {
     expect((await prisma.encounter.findUniqueOrThrow({ where: { id: v.encounter.id } })).status).toBe('CHECKED_IN');
   });
 
-  it('uses the percentage in force at check-out, so an admin edit between preview and submit is caught, not silently applied', async () => {
+  it('uses what is in force at check-out: an admin changing a percent, or moving the service, between preview and submit is caught', async () => {
     const fd = await fdLogin();
     const admin = await signInFully((await makeAccount({ roles: ['ADMIN'] })).email);
     const clinic = await creditService({ priceCents: 5500 });
-    const { plan, p } = await discounted(10);
+    const { plan, p, give, category } = await discounted(10);
+    await give(clinic.service.id);
     const v = await checkedInVisit(clinic, p.id);
     const shown = (await preview(fd, v.booking.id)).body.preview.cash.netPriceCents;
     expect(shown).toBe(4950);
-    expect((await patch(admin, `/api/admin/membership-plans/${plan.id}`, { discountPercent: 20 })).status).toBe(200);
+    expect((await put(admin, `/api/admin/discount-categories/${category.id}/discounts`, { percents: { [plan.id]: 20 } })).status).toBe(200);
     expect((await out(fd, v.booking.id, { payment: 'CASH', expectedNetCents: shown })).body.code).toBe('price_changed');
-    const r = await out(fd, v.booking.id, { payment: 'CASH', expectedNetCents: 4400 });
-    expect(r.body.checkout).toMatchObject({ discountPercent: 20, discountCents: 1100, netPriceCents: 4400 });
+    // …and moving the service out of the category does the same.
+    expect((await patch(admin, `/api/admin/discount-categories/${category.id}`, { serviceIds: [] })).status).toBe(200);
+    expect((await out(fd, v.booking.id, { payment: 'CASH', expectedNetCents: 4400 })).body).toMatchObject({ code: 'price_changed', discountPercent: 0, netPriceCents: 5500 });
+    const r = await out(fd, v.booking.id, { payment: 'CASH', expectedNetCents: 5500 });
+    expect(r.body.checkout).toMatchObject({ discountPercent: 0, netPriceCents: 5500 });
   });
 
   it('replays the original figures on a second submit instead of recomputing them', async () => {
     const fd = await fdLogin();
     const admin = await signInFully((await makeAccount({ roles: ['ADMIN'] })).email);
     const clinic = await creditService({ priceCents: 5500 });
-    const { plan, p } = await discounted(10);
+    const { plan, p, give, category } = await discounted(10);
+    await give(clinic.service.id);
     const v = await checkedInVisit(clinic, p.id);
     await out(fd, v.booking.id, { payment: 'CASH' });
-    await patch(admin, `/api/admin/membership-plans/${plan.id}`, { discountPercent: 50 });
+    await put(admin, `/api/admin/discount-categories/${category.id}/discounts`, { percents: { [plan.id]: 50 } });
     const again = await out(fd, v.booking.id, { payment: 'CASH' });
     expect(again.body.checkout).toMatchObject({ alreadyCheckedOut: true, listPriceCents: 5500, discountPercent: 10, discountCents: 550, netPriceCents: 4950 });
     expect(await events(v.encounter.id)).toHaveLength(1);
   });
 });
 
-describe('the tier discount in the admin screen\'s API', () => {
-  it('starts at 0% on all three seeded tiers', async () => {
-    const admin = await signInFully((await makeAccount({ roles: ['ADMIN'] })).email);
-    const plans = (await admin.agent.get('/api/admin/membership-plans')).body.plans.filter((x: any) => ['PREVENT', 'RESTORE', 'OPTIMIZE'].includes(x.code));
-    expect(plans).toHaveLength(3);
-    expect(plans.map((x: any) => x.discountPercent)).toEqual([0, 0, 0]);
+describe('discount categories: the admin API', () => {
+  const adminLogin = async () => signInFully((await makeAccount({ roles: ['ADMIN'] })).email);
+  const SEEDED = ['PREVENT', 'RESTORE', 'OPTIMIZE'];
+
+  it('starts empty: no category, and no tier has a percent, until the owner approves the mapping', async () => {
+    expect(await prisma.planCategoryDiscount.count({ where: { plan: { code: { in: SEEDED } } } })).toBe(0);
+    expect(await prisma.service.count({ where: { slug: { in: ['spinal-xrays', 'supplementation', 'manual-adjustment'] }, discountCategoryId: { not: null } } })).toBe(0);
+    const admin = await adminLogin();
+    const body = (await admin.agent.get('/api/admin/discount-categories')).body;
+    expect(body.plans.map((x: any) => x.code).slice(0, 3)).toEqual(SEEDED);
+    expect(body.services.length).toBeGreaterThan(5);
+    // …and the old one-percentage-per-tier field is gone from the tier screen's API.
+    const tiers = (await admin.agent.get('/api/admin/membership-plans')).body.plans;
+    expect(tiers.every((t: any) => !('discountPercent' in t))).toBe(true);
+    expect((await patch(admin, `/api/admin/membership-plans/${tiers[0].id}`, { discountPercent: 10 })).status).toBe(400);
   });
 
-  it('can be edited by an admin only, whole percent 0–100, and the change is audited with before and after', async () => {
-    const admin = await signInFully((await makeAccount({ roles: ['ADMIN'] })).email);
+  it('creates a category (code derived from the name), rejects a duplicate and bad names', async () => {
+    const admin = await adminLogin();
+    const name = `Spinal X-rays ${Date.now()}`;
+    const r = await post(admin, '/api/admin/discount-categories', { name });
+    expect(r.status).toBe(201);
+    expect(r.body.category.code).toMatch(/^SPINAL_X_RAYS_\d+$/);
+    expect((await post(admin, '/api/admin/discount-categories', { name })).body.code).toBe('duplicate');
+    for (const bad of [{}, { name: '' }, { name: '   ' }, { name: 'x'.repeat(81) }, { name, extra: 1 }]) {
+      expect((await post(admin, '/api/admin/discount-categories', bad)).status, JSON.stringify(bad).slice(0, 30)).toBe(400);
+    }
+    expect(codeFromName('Spinal X-rays')).toBe('SPINAL_X_RAYS');
+    expect(codeFromName('  Supplements & more!  ')).toBe('SUPPLEMENTS_MORE');
+    expect(codeFromName('3D scans')).toBe('C_3D_SCANS');
+    expect(/^[A-Z][A-Z0-9_]{1,39}$/.test(codeFromName('é'))).toBe(true);
+  });
+
+  it('sets which services are in a category (a service is in one at a time), renames, switches off, and audits before and after', async () => {
+    const admin = await adminLogin();
+    const a = await creditService({}); const b = await creditService({}); const c = await creditService({});
+    const one = (await post(admin, '/api/admin/discount-categories', { name: `One ${Date.now()}` })).body.category;
+    const two = (await post(admin, '/api/admin/discount-categories', { name: `Two ${Date.now()}` })).body.category;
+
+    let view = (await patch(admin, `/api/admin/discount-categories/${one.id}`, { serviceIds: [a.service.id, b.service.id] })).body;
+    expect(view.categories.find((x: any) => x.id === one.id).serviceIds.sort()).toEqual([a.service.id, b.service.id].sort());
+    // moving b to the other category takes it out of the first
+    view = (await patch(admin, `/api/admin/discount-categories/${two.id}`, { serviceIds: [b.service.id, c.service.id] })).body;
+    expect(view.categories.find((x: any) => x.id === one.id).serviceIds).toEqual([a.service.id]);
+    expect(view.categories.find((x: any) => x.id === two.id).serviceIds.sort()).toEqual([b.service.id, c.service.id].sort());
+    expect((await prisma.service.findUniqueOrThrow({ where: { id: b.service.id } })).discountCategoryId).toBe(two.id);
+    // replacing with a smaller set lets the rest go
+    await patch(admin, `/api/admin/discount-categories/${two.id}`, { serviceIds: [c.service.id] });
+    expect((await prisma.service.findUniqueOrThrow({ where: { id: b.service.id } })).discountCategoryId).toBeNull();
+
+    const renamed = (await patch(admin, `/api/admin/discount-categories/${one.id}`, { name: 'Renamed', active: false, sortOrder: 7 })).body.categories.find((x: any) => x.id === one.id);
+    expect(renamed).toMatchObject({ name: 'Renamed', active: false, sortOrder: 7, code: one.code });          // the code never changes with the name
+    const rows = await auditRows({ resourceType: 'discount_category', resourceId: one.id, action: 'UPDATE' }, 2);
+    expect(JSON.stringify(rows[rows.length - 1]!.meta)).toMatch(/"from":\{"name":"One/);
+    expect(JSON.stringify(rows[rows.length - 1]!.meta)).toMatch(/"to":\{"name":"Renamed","active":false/);
+  });
+
+  it('sets each tier\'s percent for a category (whole percent, 0 to 100), audited with before and after', async () => {
+    const admin = await adminLogin();
+    const { plan: p1 } = await makePlan(); const { plan: p2 } = await makePlan();
+    const cat = (await post(admin, '/api/admin/discount-categories', { name: `Percents ${Date.now()}` })).body.category;
+    const url = `/api/admin/discount-categories/${cat.id}/discounts`;
+    const view = (await put(admin, url, { percents: { [p1.id]: 20, [p2.id]: 10 } })).body.categories.find((x: any) => x.id === cat.id);
+    expect(view.percents).toMatchObject({ [p1.id]: 20, [p2.id]: 10 });
+    expect((await prisma.planCategoryDiscount.findMany({ where: { categoryId: cat.id } })).length).toBe(2);
+    await put(admin, url, { percents: { [p1.id]: 25 } });                                                   // a partial update leaves the other tier alone
+    expect((await prisma.planCategoryDiscount.findUniqueOrThrow({ where: { planId_categoryId: { planId: p2.id, categoryId: cat.id } } })).percent).toBe(10);
+    const rows = await auditRows({ resourceType: 'discount_category', resourceId: cat.id, action: 'UPDATE' }, 2);
+    expect((rows[rows.length - 1]!.meta as any).changes[p1.id]).toEqual({ from: 20, to: 25 });
+    for (const bad of [{ [p1.id]: -1 }, { [p1.id]: 101 }, { [p1.id]: 12.5 }, { [p1.id]: '10' }, { [p1.id]: null }]) {
+      expect((await put(admin, url, { percents: bad })).status, JSON.stringify(bad)).toBe(400);
+    }
+    expect((await put(admin, url, { percents: { 'no-such-tier': 5 } })).status).toBe(400);
+    expect((await put(admin, url, {})).status).toBe(400);
+    expect((await put(admin, '/api/admin/discount-categories/nope/discounts', { percents: {} })).status).toBe(404);
+  });
+
+  it('deletes a category: its services become uncategorised, its percents go, and past revenue keeps what was applied', async () => {
+    const fd = await fdLogin();
+    const admin = await adminLogin();
+    const clinic = await creditService({ priceCents: 5500 });
+    const { plan } = await makePlan();
+    const cat = await makeCategory({ serviceIds: [clinic.service.id], percents: { [plan.id]: 10 } });
+    const p = await makePatient();
+    await makeMembership(p.id, plan.code);
+    const v = await checkedInVisit(clinic, p.id);
+    await out(fd, v.booking.id, { payment: 'CASH' });
+
+    expect((await del(admin, `/api/admin/discount-categories/${cat.id}`)).status).toBe(200);
+    expect((await prisma.service.findUniqueOrThrow({ where: { id: clinic.service.id } })).discountCategoryId).toBeNull();
+    expect(await prisma.planCategoryDiscount.count({ where: { categoryId: cat.id } })).toBe(0);
+    expect((await events(v.encounter.id))[0]).toMatchObject({ discountPercent: 10, discountCents: 550, discountCategory: cat.code });
+    expect((await del(admin, `/api/admin/discount-categories/${cat.id}`)).status).toBe(404);
+    expect((await auditRows({ resourceType: 'discount_category', resourceId: cat.id, action: 'DELETE' })).length).toBe(1);
+  });
+
+  it('is for administrators only, and validates what it is given', async () => {
+    const admin = await adminLogin();
+    const fd = await fdLogin();
+    const prov = await signInFully((await makeAccount({ roles: ['PROVIDER_CHIRO'], staffId: (await chiroStaff()).id })).email);
+    const cat = (await post(admin, '/api/admin/discount-categories', { name: `Guard ${Date.now()}` })).body.category;
+    for (const s of [fd, prov]) {
+      expect((await s.agent.get('/api/admin/discount-categories')).status).toBe(403);
+      expect((await post(s, '/api/admin/discount-categories', { name: 'x' })).status).toBe(403);
+      expect((await patch(s, `/api/admin/discount-categories/${cat.id}`, { name: 'x' })).status).toBe(403);
+      expect((await put(s, `/api/admin/discount-categories/${cat.id}/discounts`, { percents: {} })).status).toBe(403);
+      expect((await del(s, `/api/admin/discount-categories/${cat.id}`)).status).toBe(403);
+    }
+    expect((await request(app).get('/api/admin/discount-categories')).status).toBe(401);
+    for (const bad of [{}, { name: '' }, { sortOrder: -1 }, { serviceIds: 'x' }, { extra: 1 }]) {
+      expect((await patch(admin, `/api/admin/discount-categories/${cat.id}`, bad)).status, JSON.stringify(bad)).toBe(400);
+    }
+    expect((await patch(admin, `/api/admin/discount-categories/${cat.id}`, { serviceIds: ['no-such-service'] })).status).toBe(400);
+    expect((await patch(admin, '/api/admin/discount-categories/nope', { name: 'x' })).status).toBe(404);
+  });
+
+  it('is enforced by the database as well: a percent 0 to 100, a code of capitals and digits', async () => {
+    const { plan } = await makePlan();
+    const cat = await makeCategory();
+    for (const percent of [-1, 101]) {
+      await expect(basePrisma.planCategoryDiscount.create({ data: { planId: plan.id, categoryId: cat.id, percent } })).rejects.toThrow();
+    }
+    for (const code of ['lower', '1ABC', 'A', 'HAS SPACE', 'X'.repeat(41)]) {
+      await expect(basePrisma.discountCategory.create({ data: { code, name: 'x' } }), code).rejects.toThrow();
+    }
+    await expect(basePrisma.discountCategory.create({ data: { code: cat.code, name: 'dup' } })).rejects.toThrow();
+  });
+
+  it('shows a patient\'s tier discounts on their credit tracker: only those switched on and above zero', async () => {
     const fd = await fdLogin();
     const { plan } = await makePlan();
-    const url = `/api/admin/membership-plans/${plan.id}`;
-    for (const bad of [{ discountPercent: -1 }, { discountPercent: 101 }, { discountPercent: 12.5 }, { discountPercent: '10' }, { discountPercent: null }]) {
-      expect((await patch(admin, url, bad)).status, JSON.stringify(bad)).toBe(400);
-    }
-    expect((await patch(fd, url, { discountPercent: 10 })).status).toBe(403);
-    expect((await patch(admin, url, { discountPercent: 15 })).status).toBe(200);
-    expect((await prisma.membershipPlan.findUniqueOrThrow({ where: { id: plan.id } })).discountPercent).toBe(15);
-    const rows = await auditRows({ resourceType: 'membership_plan', resourceId: plan.id, action: 'UPDATE' });
-    expect((rows[0]!.meta as any).changes.discountPercent).toEqual({ from: 0, to: 15 });
-  });
-
-  it('is enforced by the database as well: a tier cannot be set above 100%', async () => {
-    const { plan } = await makePlan();
-    await expect(prisma.membershipPlan.update({ where: { id: plan.id }, data: { discountPercent: 101 } })).rejects.toThrow();
-    await expect(prisma.membershipPlan.update({ where: { id: plan.id }, data: { discountPercent: -1 } })).rejects.toThrow();
+    await makeCategory({ name: 'On', percents: { [plan.id]: 20 } });
+    await makeCategory({ name: 'Zero', percents: { [plan.id]: 0 } });
+    await makeCategory({ name: 'Off', active: false, percents: { [plan.id]: 30 } });
+    const p = await makePatient();
+    await makeMembership(p.id, plan.code);
+    const body = (await fd.agent.get(`/api/fd/patients/${p.id}/credits`)).body;
+    expect(body.membership.plan.discounts).toEqual([{ category: 'On', percent: 20 }]);
   });
 });

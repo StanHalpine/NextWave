@@ -64,14 +64,14 @@ export async function checkedInVisit(clinic: Awaited<ReturnType<typeof creditSer
 /** A private plan (and perks) for a test, so editing it cannot disturb the seeded tiers other tests read. */
 let planN = 0;
 export async function makePlan(opts: {
-  credits?: number; rolloverDays?: number; priceCents?: number; active?: boolean; discountPercent?: number;
+  credits?: number; rolloverDays?: number; priceCents?: number; active?: boolean;
   perks?: Array<{ key: string; label?: string; period?: 'MONTHLY' | 'QUARTERLY' | 'ANNUAL'; quantity: number; active?: boolean; serviceIds?: string[] }>;
 } = {}) {
   const code = `T${Date.now().toString(36).toUpperCase()}${++planN}`;
   const plan = await prisma.membershipPlan.create({
     data: {
       code, name: `Test plan ${code}`, priceCents: opts.priceCents ?? 12300, creditsPerMonth: opts.credits ?? 5, rolloverDays: opts.rolloverDays ?? 90,
-      discountPercent: opts.discountPercent ?? 0, active: opts.active ?? true, sortOrder: 99,
+      active: opts.active ?? true, sortOrder: 99,
     },
   });
   const perks = [];
@@ -83,4 +83,19 @@ export async function makePlan(opts: {
     perks.push(perk);
   }
   return { plan, perks };
+}
+
+/**
+ * A discount category of a test's own, with the services in it and each tier's percent. Nothing is discounted
+ * unless a test builds one (the seeded tiers have no categories until the owner approves the mapping).
+ */
+let catN = 0;
+export async function makeCategory(opts: { name?: string; active?: boolean; serviceIds?: string[]; percents?: Record<string, number> } = {}) {
+  const code = `T${Date.now().toString(36).toUpperCase()}${++catN}`;
+  const cat = await prisma.discountCategory.create({ data: { code, name: opts.name ?? `Test category ${code}`, active: opts.active ?? true } });
+  for (const id of opts.serviceIds ?? []) await prisma.service.update({ where: { id }, data: { discountCategoryId: cat.id } });
+  for (const [planId, percent] of Object.entries(opts.percents ?? {})) {
+    await prisma.planCategoryDiscount.create({ data: { planId, categoryId: cat.id, percent } });
+  }
+  return cat;
 }

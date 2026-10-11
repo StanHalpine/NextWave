@@ -288,3 +288,9 @@ textarea[readonly] { background: #f3f1ec; }
 .note-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .addenda { list-style: none; margin: 4px 0 0; padding: 0 0 0 14px; border-left: 3px solid var(--brass); display: grid; gap: 10px; }
 .addendum-form { padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); width: 100%; }
+
+.discount-section { margin-top: 28px; }
+.category-row { border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; display: grid; gap: 12px; background: #fff; }
+.category-row.off { opacity: .65; }
+.percent-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px 14px; }
+.new-category { display: flex; gap: 12px; align-items: end; flex-wrap: wrap; } .new-category label { min-width: 260px; }

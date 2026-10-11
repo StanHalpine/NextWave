@@ -183,13 +183,15 @@ the perk, or record the cash price), write exactly **one `RevenueEvent`** (servi
 cash, encounter — the data Accounting reads from day one), and check the patient out. It is
 idempotent: a repeat or a double-click returns what was recorded and changes nothing.
 
-**Member discount.** Each tier has a `discountPercent` (0 until the owner sets it; edited on Admin →
-Memberships). It comes off the **list price** when an **active** member pays **cash**, in whole cents with
-halves rounding up. Credits and perks are not priced in money and are never discounted; a paused member, a
-non-member and a visit with no patient record pay list. The desk is shown list, discount and net, and the
-server refuses the check-out if the net the desk saw differs from what it computes (`price_changed`).
-`RevenueEvent` records `listPriceCents`, `discountPercent`, `discountCents` and `netPriceCents`; a database
-CHECK enforces `net = list − discount`.
+**Member discount.** A percentage **per tier per service category** (`PlanCategoryDiscount`; a service is in at most
+one `DiscountCategory`; both edited on Admin → Memberships → *Member discounts by service category*). It comes off the
+**list price** when an **active** member pays **cash**, in whole cents with halves rounding up. Credits and perks are not
+priced in money and are never discounted; a paused member, a non-member, a visit with no patient record, a service in no
+category, a category switched off and a tier with no percent for the category all pay list. **There are no categories
+until the owner approves the mapping** (`docs/DISCOUNT_MAPPING.md`), so nothing is discounted today. The desk is shown
+list, discount and net, and the server refuses the check-out if the net the desk saw differs from what it computes
+(`price_changed`). `RevenueEvent` records `listPriceCents`, `discountPercent`, `discountCategory` (the code),
+`discountCents` and `netPriceCents`; a database CHECK enforces `net = list − discount`.
 
 ### Provider, documentation and the AI scribe (Phase 4)
 
