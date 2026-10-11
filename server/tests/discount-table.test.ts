@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, it } from 'vitest';
+import { execFileSync } from 'node:child_process';
 import { prisma } from '../src/lib/prisma.js';
 import { basePrisma } from '../src/lib/prismaBase.js';
 import { runAsSystem } from '../src/lib/audit.js';
@@ -81,6 +82,27 @@ describe('the approved table', () => {
       for (const r of discounts) expect(Object.values((r.meta as { changes: Record<string, { from: number; to: number }> }).changes).map((c) => [c.from, c.to]).sort()).toEqual([[0, 10], [0, 15], [0, 20]]);
       expect(new Set(rows.map((r) => r.actorRoles))).toEqual(new Set(['system:apply-discount-table']));
       expect(blob(rows)).not.toMatch(/@|firstName|phone/i);
+    });
+  });
+});
+
+describe('the script (npm run discounts:apply)', () => {
+  const run = () => execFileSync('npx', ['tsx', 'scripts/apply-discount-table.ts'], { cwd: process.cwd(), env: process.env, encoding: 'utf8', timeout: 60_000 });
+
+  it('enters the table as the system actor, says what it did without printing the connection string, and says so when there is nothing to do', async () => {
+    await withTable(async () => {
+      const out = run();
+      expect(out).toMatch(/created\s+Spinal X-rays\s+—\s+Prevent 10% · Restore 15% · Optimize 20%\s+—\s+services: spinal-xrays/);
+      expect(out).toMatch(/created\s+Supplements\s+—\s+Prevent 10% · Restore 15% · Optimize 20%\s+—\s+services: supplementation/);
+      expect(out).toMatch(/created\s+Special services\s+—.*services: \(none yet\)/);
+      expect(out).toContain('Discounts are now enabled. Perks are unchanged (off).');
+      expect(out).not.toMatch(/postgres|DATABASE_URL|password/i);
+      expect(await percentsOf('SPINAL_X_RAYS')).toEqual({ PREVENT: 10, RESTORE: 15, OPTIMIZE: 20 });
+      const cats = await prisma.discountCategory.findMany({ where: { code: { in: CODES } } });
+      const rows = (await Promise.all(cats.map((c) => auditRows({ resourceType: 'discount_category', resourceId: c.id })))).flat();
+      expect(new Set(rows.map((r) => r.actorRoles))).toEqual(new Set(['system:apply-discount-table']));
+
+      expect(run()).toContain('Nothing to do: every category was already there.');
     });
   });
 });
