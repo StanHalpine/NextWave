@@ -24,6 +24,7 @@ import { smsPublicRouter } from './routes/smsPublic.js';
 import { creditsRouter } from './routes/credits.js';
 import { membershipAdminRouter } from './routes/membershipAdmin.js';
 import { discountAdminRouter } from './routes/discountAdmin.js';
+import { reportsRouter } from './routes/reports.js';
 import { smsInboundRouter } from './routes/smsInbound.js';
 import { providerRouter } from './routes/provider.js';
 import { macrosRouter } from './routes/macros.js';
@@ -130,6 +131,7 @@ export function buildApp() {
   app.use('/api', creditsRouter);
   app.use('/api', membershipAdminRouter);
   app.use('/api', discountAdminRouter);
+  app.use('/api', reportsRouter);  // Accounting (admin) and Reports (front desk, admin): aggregates only
   // Phase 4: provider queue + documentation workspace + AI scribe, macros, and the stub's upload target.
   app.use('/api', providerRouter);
   app.use('/api', macrosRouter);

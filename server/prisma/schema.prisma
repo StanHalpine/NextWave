@@ -247,6 +247,8 @@ model Booking {
   @@index([status, startTime])
   @@index([startTime])
   @@index([patientId])
+  // Reports: walk-in volume by day and hour reads one source over a date range.
+  @@index([source, startTime])
 }
 
 /// A specific variant of a service that a patient picks on the service page —
@@ -771,6 +773,7 @@ model Membership {
 
   @@index([patientId])
   @@index([status, nextGrantOn])
+  @@index([startedOn])
 }
 
 /// APPEND-ONLY (database triggers reject UPDATE, DELETE and TRUNCATE). Balance = SUM(delta).
@@ -871,6 +874,9 @@ model RevenueEvent {
   discountCategory String?
   /// The member's tier at the time (code): set for a member event and for a discounted cash one.
   planCode         String?
+  /// The provider the visit was booked with at check-out (a snapshot, for the Accounting provider filter).
+  /// Null for a room-only service with no provider assigned.
+  staffId          String?
   occurredAt       DateTime
   recordedById     String
   createdAt        DateTime       @default(now())
@@ -880,6 +886,7 @@ model RevenueEvent {
   @@index([occurredAt])
   @@index([serviceId, occurredAt])
   @@index([patientId])
+  @@index([staffId, occurredAt])
 }
 
 // =============================================================================

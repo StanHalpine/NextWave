@@ -165,7 +165,7 @@ export async function checkoutVisit(tx: Tx, rec: Rec, a: { bookingId: string; ac
       id: eventId, encounterId: enc.id, bookingId: b.id, patientId, serviceId: b.serviceId,
       serviceName: b.service.name, serviceCategory: b.service.category, subOption: b.subOption,
       listPriceCents: recordedPrice, paymentType, memberBenefit, creditsRedeemed: credits,
-      discountPercent, discountCents, netPriceCents: netCents, discountCategory,
+      discountPercent, discountCents, netPriceCents: netCents, discountCategory, staffId: b.staffId,
       planCode: membership && (paymentType === 'MEMBER' || membership.status === 'ACTIVE') ? membership.plan.code : null,
       occurredAt: a.now, recordedById: a.accountId,
     },
