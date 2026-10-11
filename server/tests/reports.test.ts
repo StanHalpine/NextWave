@@ -10,7 +10,7 @@ import { memberSplit, revenueTable, serviceDemand, signupsByMonth, walkIns, week
 import { DEMAND_CATEGORIES, ReportError, csvCell, currentMonth, demandCategoryOf, dollars, eachDay, eachMonth, resolveRange, toCsv } from '../src/lib/reportFormat.js';
 import { app, auditRows, blob, makeAccount, signInFully, type Signed } from './helpers.js';
 import { makeClinic, makePatient } from './phase2.js';
-import { checkedInVisit, creditService, grantLot, makeCategory, makeMembership, makePlan, planByCode } from './phase3.js';
+import { checkedInVisit, creditService, grantLot, makeCategory, makeMembership, makePlan } from './phase3.js';
 
 afterAll(() => setClockForTests(null));
 
@@ -92,8 +92,8 @@ describe('service demand categories', () => {
     expect(demandCategoryOf('something-new').key).toBe('other');
   });
 
-  it('leaves exactly two seeded services in Other, on purpose — adding a service fails this until someone decides', async () => {
-    const slugs = (await basePrisma.service.findMany({ where: { NOT: { slug: { startsWith: 't-' } } }, select: { slug: true } })).map((s) => s.slug);
+  it('leaves exactly two seeded services in Other (the seed\'s own ids, not other tests\' fixtures), on purpose — adding a service fails this until someone decides', async () => {
+    const slugs = (await basePrisma.service.findMany({ where: { id: { startsWith: '5e401ce0-' } }, select: { slug: true } })).map((s) => s.slug);
     expect(slugs.length).toBeGreaterThan(10);
     const other = [...new Set(slugs.filter((s) => demandCategoryOf(s).key === 'other'))].sort();
     // Vitamin shots and body composition belong to none of the six categories the owner named (PHASE5_NOTES, "Decisions for you").
@@ -107,7 +107,7 @@ describe('service demand categories', () => {
 
 interface Sale { key: string; at: Date; local: string; month: string; staffId: string; service: string; planCode: string | null; bucket: string; payment: 'CASH' | 'MEMBER'; list: number; discount: number; net: number; credits: number; covered: number }
 const sales: Sale[] = [];
-const ctx = {} as { accountId: string; s100: Awaited<ReturnType<typeof creditService>>; s1999: Awaited<ReturnType<typeof creditService>>; cat: { id: string; code: string }; admin: Signed; fd: Signed };
+const ctx = {} as { accountId: string; s100: Awaited<ReturnType<typeof creditService>>; s1999: Awaited<ReturnType<typeof creditService>>; cat: { id: string; code: string }; restore: { id: string; code: string }; prevent: { id: string; code: string }; admin: Signed; fd: Signed };
 const MAY = { from: '2033-05-01', to: '2033-05-31' };
 const WHOLE = { from: '2033-05-01', to: '2033-06-30' };
 
@@ -120,7 +120,10 @@ beforeAll(async () => {
   ctx.accountId = (await makeAccount({ roles: ['FRONT_DESK'] })).id;
   ctx.s100 = await creditService({ priceCents: 10000, creditCost: 2 });
   ctx.s1999 = await creditService({ priceCents: 1999, creditCost: 1 });
-  ctx.cat = await makeCategory({ serviceIds: [ctx.s100.service.id, ctx.s1999.service.id], percents: { [(await planByCode('RESTORE')).id]: 15, [(await planByCode('PREVENT')).id]: 10 } });
+  // Tiers of this file's own: the seeded Prevent / Restore / Optimize must stay free of discounts for the tests that assert they start empty.
+  ctx.restore = (await makePlan({ credits: 4 })).plan;
+  ctx.prevent = (await makePlan({ credits: 4 })).plan;
+  ctx.cat = await makeCategory({ serviceIds: [ctx.s100.service.id, ctx.s1999.service.id], percents: { [ctx.restore.id]: 15, [ctx.prevent.id]: 10 } });
 
   const memberOf = async (code: string, status: 'ACTIVE' | 'PAUSED' = 'ACTIVE', credits = 0) => {
     const p = await makePatient();
@@ -136,11 +139,11 @@ beforeAll(async () => {
     sales.push({ key, at: when, local, month: local.slice(0, 7), staffId: booking.staffId!, service: clinic.service.name, ...expect_ });
   };
 
-  const restore = await memberOf('RESTORE');
-  const restoreB = await memberOf('RESTORE');
-  const restoreC = await memberOf('RESTORE');
-  const prevent = await memberOf('PREVENT', 'ACTIVE', 6);
-  const paused = await memberOf('RESTORE', 'PAUSED');
+  const restore = await memberOf(ctx.restore.code);
+  const restoreB = await memberOf(ctx.restore.code);
+  const restoreC = await memberOf(ctx.restore.code);
+  const prevent = await memberOf(ctx.prevent.code, 'ACTIVE', 6);
+  const paused = await memberOf(ctx.restore.code, 'PAUSED');
 
   const { plan, perks } = await makePlan({ perks: [{ key: 'monthly', label: 'Monthly shot', quantity: 1, serviceIds: [ctx.s1999.service.id] }] });
   const perkPatient = await makePatient();
@@ -148,17 +151,17 @@ beforeAll(async () => {
 
   // 3 May, morning — a non-member, and a Restore member, both paying cash for the $100.00 service.
   await sale('nonmember-cash', ctx.s100, CDT('2033-05-03T10:00:00'), null, { payment: 'CASH' }, { planCode: null, bucket: 'Non-member — cash', payment: 'CASH', list: 10000, discount: 0, net: 10000, credits: 0, covered: 0 });
-  await sale('restore-cash', ctx.s100, CDT('2033-05-03T10:30:00'), restore.id, { payment: 'CASH' }, { planCode: 'RESTORE', bucket: 'Member — cash', payment: 'CASH', list: 10000, discount: 1500, net: 8500, credits: 0, covered: 0 });
+  await sale('restore-cash', ctx.s100, CDT('2033-05-03T10:30:00'), restore.id, { payment: 'CASH' }, { planCode: ctx.restore.code, bucket: 'Member — cash', payment: 'CASH', list: 10000, discount: 1500, net: 8500, credits: 0, covered: 0 });
   // 3 May, 23:30 local (04:30Z on the 4th): still the 3rd at the clinic. A Prevent member pays with credits.
-  await sale('prevent-credits', ctx.s100, CDT('2033-05-03T23:30:00'), prevent.id, { payment: 'CREDITS' }, { planCode: 'PREVENT', bucket: 'Member — credits', payment: 'MEMBER', list: 10000, discount: 0, net: 0, credits: 2, covered: 10000 });
+  await sale('prevent-credits', ctx.s100, CDT('2033-05-03T23:30:00'), prevent.id, { payment: 'CREDITS' }, { planCode: ctx.prevent.code, bucket: 'Member — credits', payment: 'MEMBER', list: 10000, discount: 0, net: 0, credits: 2, covered: 10000 });
   // 4 May, 00:15 local: the next day. 15% of $19.99 = $2.9985 → $3.00 off, $16.99 net.
-  await sale('restore-odd-cents', ctx.s1999, CDT('2033-05-04T00:15:00'), restoreB.id, { payment: 'CASH' }, { planCode: 'RESTORE', bucket: 'Member — cash', payment: 'CASH', list: 1999, discount: 300, net: 1699, credits: 0, covered: 0 });
+  await sale('restore-odd-cents', ctx.s1999, CDT('2033-05-04T00:15:00'), restoreB.id, { payment: 'CASH' }, { planCode: ctx.restore.code, bucket: 'Member — cash', payment: 'CASH', list: 1999, discount: 300, net: 1699, credits: 0, covered: 0 });
   // 4 May, daytime — an included perk (worth $19.99, collects nothing), and a PAUSED member (no discount, counts as a non-member).
   await sale('perk', ctx.s1999, CDT('2033-05-04T11:00:00'), perkPatient.id, { payment: 'PERK', perkId: perks[0]!.id }, { planCode: plan.code, bucket: 'Member — included perk', payment: 'MEMBER', list: 1999, discount: 0, net: 0, credits: 0, covered: 1999 });
   await sale('paused-cash', ctx.s100, CDT('2033-05-04T11:30:00'), paused.id, { payment: 'CASH' }, { planCode: null, bucket: 'Non-member — cash', payment: 'CASH', list: 10000, discount: 0, net: 10000, credits: 0, covered: 0 });
   // The month boundary, in both directions: 23:59 on 31 May is May at the clinic (June in UTC); 00:00 on 1 June is June.
   await sale('may-31-late', ctx.s100, CDT('2033-05-31T23:59:00'), null, { payment: 'CASH' }, { planCode: null, bucket: 'Non-member — cash', payment: 'CASH', list: 10000, discount: 0, net: 10000, credits: 0, covered: 0 });
-  await sale('june-1-midnight', ctx.s1999, CDT('2033-06-01T00:00:00'), restoreC.id, { payment: 'CASH' }, { planCode: 'RESTORE', bucket: 'Member — cash', payment: 'CASH', list: 1999, discount: 300, net: 1699, credits: 0, covered: 0 });
+  await sale('june-1-midnight', ctx.s1999, CDT('2033-06-01T00:00:00'), restoreC.id, { payment: 'CASH' }, { planCode: ctx.restore.code, bucket: 'Member — cash', payment: 'CASH', list: 1999, discount: 300, net: 1699, credits: 0, covered: 0 });
   await sale('june-late', ctx.s1999, CDT('2033-06-20T09:00:00'), null, { payment: 'CASH' }, { planCode: null, bucket: 'Non-member — cash', payment: 'CASH', list: 1999, discount: 0, net: 1999, credits: 0, covered: 0 });
 
   ctx.admin = await adminLogin();
@@ -239,8 +242,8 @@ describe('Accounting: the arithmetic', () => {
     expect(only(pay, 'paymentType', 'Cash')).toMatchObject(metrics(sales.filter((s) => s.payment === 'CASH')));
     expect(only(pay, 'paymentType', 'Covered by membership')).toMatchObject(metrics(sales.filter((s) => s.payment === 'MEMBER')));
     const tier = await revenueTable({ range: WHOLE }, 'tier');
-    expect(only(tier, 'tier', 'RESTORE')).toMatchObject(metrics(sales.filter((s) => s.planCode === 'RESTORE')));
-    expect(only(tier, 'tier', 'PREVENT')).toMatchObject(metrics(sales.filter((s) => s.planCode === 'PREVENT')));
+    expect(only(tier, 'tier', ctx.restore.code)).toMatchObject(metrics(sales.filter((s) => s.planCode === ctx.restore.code)));
+    expect(only(tier, 'tier', ctx.prevent.code)).toMatchObject(metrics(sales.filter((s) => s.planCode === ctx.prevent.code)));
     expect(only(tier, 'tier', 'Non-member')).toMatchObject(metrics(sales.filter((s) => s.planCode === null)));
     const dc = await revenueTable({ range: WHOLE }, 'discountCategory');
     // Three sales were discounted ($15.00, $3.00, $3.00); the other six carry no category.
