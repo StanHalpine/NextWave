@@ -40,6 +40,10 @@ export const TEMPLATES = {
     when: 'When an appointment is confirmed, to a patient who consented to texts',
     text: "NextWave Wellness: Hi {first}, you're confirmed for {day} at {time}. Reply C to confirm or call us to change. Reply STOP to opt out.",
   },
+  appt_reminder_today_v1: {
+    when: 'Instead of the "tomorrow" reminder, when the appointment is TODAY and the patient was not told of it in the last 24 hours (the reminder was missed, or consent arrived late)',
+    text: 'NextWave Wellness: Reminder for {first}: see you today at {time}. Reply STOP to opt out.',
+  },
   appt_reminder_24h_v3: {
     when: 'The day before the appointment (within 24 hours of it), to a patient who consented to texts',
     text: 'NextWave Wellness: Reminder for {first}: see you tomorrow at {time}. Reply STOP to opt out.',

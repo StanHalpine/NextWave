@@ -42,6 +42,18 @@ Matched against the whole message, ignoring case and surrounding punctuation.
 
 **Size:** 143 characters · GSM-7 · 1 segment — longest realistic: 168 characters · 2 segments
 
+### `appt_reminder_today_v1`
+
+**When:** Instead of the "tomorrow" reminder, when the appointment is TODAY and the patient was not told of it in the last 24 hours (the reminder was missed, or consent arrived late)
+
+**Text (exactly as stored):**
+
+    NextWave Wellness: Reminder for {first}: see you today at {time}. Reply STOP to opt out.
+
+**Example:** NextWave Wellness: Reminder for Ingrid: see you today at 9:00 AM. Reply STOP to opt out.
+
+**Size:** 88 characters · GSM-7 · 1 segment — longest realistic: 112 characters · 1 segment
+
 ### `appt_reminder_24h_v3`
 
 **When:** The day before the appointment (within 24 hours of it), to a patient who consented to texts

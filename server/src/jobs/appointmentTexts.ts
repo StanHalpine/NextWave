@@ -66,6 +66,8 @@ const TEMPLATE: Record<'CONFIRMATION' | 'REMINDER_24H', TemplateId> = {
   CONFIRMATION: 'appt_confirmation_v2',
   REMINDER_24H: 'appt_reminder_24h_v3',
 };
+/** The reminder's wording when the appointment is today, not tomorrow. Logged under the same kind (REMINDER_24H). */
+const REMINDER_TODAY: TemplateId = 'appt_reminder_today_v1';
 
 export interface TextRunResult {
   sent: number;
@@ -96,6 +98,8 @@ interface Target {
   patientId: string | null;
   kind: Kind;
   forStart: Date;
+  /** Which wording; the kind's own unless the reminder is the same-day one. */
+  templateId: TemplateId;
 }
 
 function isUniqueViolation(err: unknown): boolean {
@@ -150,7 +154,7 @@ export async function runAppointmentTexts(deps: TextRunDeps): Promise<TextRunRes
     if (has('CONFIRMATION')) continue;
     const to = resolveRecipient(b, suppressed);
     if (!to) { notEligible.add(b.id); continue; }
-    await deliver({ bookingId: b.id, patientId: b.patientId, kind: 'CONFIRMATION', forStart: b.startTime }, to, deps, at, result);
+    await deliver({ bookingId: b.id, patientId: b.patientId, kind: 'CONFIRMATION', forStart: b.startTime, templateId: TEMPLATE.CONFIRMATION }, to, deps, at, result);
   }
 
   // 3. Reminders, for what is now inside the 24-hour window. (A confirmation sent in
@@ -171,15 +175,14 @@ export async function runAppointmentTexts(deps: TextRunDeps): Promise<TextRunRes
       if (!to) { notEligible.add(b.id); continue; }
 
       const windowOpened = b.startTime.getTime() - 24 * 3_600_000;
-      const target: Target = { bookingId: b.id, patientId: b.patientId, kind: 'REMINDER_24H', forStart: b.startTime };
+      // The wording must be true: "tomorrow" for an appointment tomorrow, "today" for one today. Compared by
+      // clinic-local calendar date, so a 23- or 25-hour DST day cannot confuse it. (An appointment more than
+      // a calendar day away cannot be inside the 24-hour window.)
+      const today = toLocalDateISO(b.startTime) !== tomorrow;
+      const target: Target = { bookingId: b.id, patientId: b.patientId, kind: 'REMINDER_24H', forStart: b.startTime, templateId: today ? REMINDER_TODAY : TEMPLATE.REMINDER_24H };
       const confirmation = mine.find((m) => m.kind === 'CONFIRMATION');
-      if (toLocalDateISO(b.startTime) !== tomorrow) {
-        // The wording says "see you tomorrow". Within 24 hours of an appointment that is TODAY
-        // (the job was down overnight, or consent arrived late) that would be false — skip it.
-        // Compared by clinic-local calendar date, so a 23- or 25-hour DST day cannot confuse it.
-        await recordSkip(target, 'same_day', result);
-      } else if (confirmation && confirmation.queuedAt.getTime() >= windowOpened) {
-        await recordSkip(target, 'booked_inside_window', result); // they were told less than a day ago
+      if (confirmation && confirmation.queuedAt.getTime() >= windowOpened) {
+        await recordSkip(target, 'booked_inside_window', result); // they were told less than a day ago — a second text would be noise
       } else {
         await deliver(target, to, deps, at, result);
       }
@@ -200,7 +203,7 @@ async function deliver(t: Target, to: Recipient, deps: TextRunDeps, at: Date, ou
       const row = await tx.messageLog.create({
         data: {
           bookingId: t.bookingId, patientId: t.patientId, kind: t.kind, forStart: t.forStart,
-          templateId: TEMPLATE[t.kind], attempts: 1, nextAttemptAt: new Date(at.getTime() + LEASE_MS),
+          templateId: t.templateId, attempts: 1, queuedAt: at, nextAttemptAt: new Date(at.getTime() + LEASE_MS),   // the job's clock, as every other time here
         },
       });
       await rec({ action: 'CREATE', resourceType: 'message', resourceId: row.id, meta: { kind: t.kind, status: 'QUEUED' } });
@@ -213,7 +216,7 @@ async function deliver(t: Target, to: Recipient, deps: TextRunDeps, at: Date, ou
   await send(id, t, to, 1, deps, at, out);
 }
 
-async function retry(row: { id: string; bookingId: string; kind: Kind; forStart: Date; attempts: number; nextAttemptAt: Date | null }, deps: TextRunDeps, at: Date, out: TextRunResult) {
+async function retry(row: { id: string; bookingId: string; kind: Kind; templateId: string; forStart: Date; attempts: number; nextAttemptAt: Date | null }, deps: TextRunDeps, at: Date, out: TextRunResult) {
   // Compare-and-swap on (status, attempts): only one runner takes the retry.
   const claimed = await prisma.messageLog.updateMany({
     where: { id: row.id, status: 'QUEUED', attempts: row.attempts, nextAttemptAt: { lte: at } },
@@ -236,7 +239,7 @@ async function retry(row: { id: string; bookingId: string; kind: Kind; forStart:
     await finish(row.id, { status: 'SKIPPED', failureCode: stale ? 'superseded' : 'no_consent', nextAttemptAt: null }, out, 'skipped');
     return;
   }
-  const t: Target = { bookingId: row.bookingId, patientId: b.patientId, kind: row.kind, forStart: row.forStart };
+  const t: Target = { bookingId: row.bookingId, patientId: b.patientId, kind: row.kind, forStart: row.forStart, templateId: row.templateId as TemplateId };   // the wording it was queued with
   await send(row.id, t, to, row.attempts + 1, deps, at, out);
 }
 
@@ -247,7 +250,7 @@ async function send(id: string, t: Target, to: Recipient, attempt: number, deps:
     ? { first, day: formatApptDate(t.forStart), time: formatApptTime(t.forStart) }
     : { first, time: formatApptTime(t.forStart) };
   try {
-    const { providerMessageId } = await deps.messaging.sendSms({ to: to.to, templateId: TEMPLATE[t.kind], variables });
+    const { providerMessageId } = await deps.messaging.sendSms({ to: to.to, templateId: t.templateId, variables });
     await finish(id, { status: 'SENT', providerMessageId, sentAt: at, nextAttemptAt: null, failureCode: null }, out, 'sent');
   } catch (err) {
     const failure = err instanceof MessagingError ? err.failure : 'transient';
@@ -280,7 +283,7 @@ async function recordSkip(t: Target, code: string, out: TextRunResult) {
   try {
     await staffTransaction(async (tx, rec) => {
       const row = await tx.messageLog.create({
-        data: { bookingId: t.bookingId, patientId: t.patientId, kind: t.kind, forStart: t.forStart, templateId: TEMPLATE[t.kind], status: 'SKIPPED', failureCode: code },
+        data: { bookingId: t.bookingId, patientId: t.patientId, kind: t.kind, forStart: t.forStart, templateId: t.templateId, status: 'SKIPPED', failureCode: code },
       });
       await rec({ action: 'CREATE', resourceType: 'message', resourceId: row.id, meta: { kind: t.kind, status: 'SKIPPED', reason: code } });
     });

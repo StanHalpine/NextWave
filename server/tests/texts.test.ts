@@ -305,18 +305,66 @@ describe('24-hour reminders', () => {
     expect(callsFor(calls, p).map((c) => c.templateId)).toEqual(['appt_reminder_24h_v3']);
   });
 
-  it('is NEVER sent for an appointment that is today — "see you tomorrow" would be false', async () => {
-    // Wed 08:00, appointment Wed 10:00: inside 24 hours, but not tomorrow (the job was down overnight,
-    // or consent arrived late). The confirmation still says the day and time; the reminder is skipped.
+  it('is not repeated for an appointment booked today: the patient was just told, so no second text', async () => {
+    // Wed 08:00, appointment Wed 10:00, nobody has been told: the confirmation goes out in this pass, and a
+    // same-day reminder straight after it would be two texts in a minute.
     const p = await consenting();
     const b = await appt(p.id);
     const { m, calls } = fakeMessaging();
     await runAppointmentTexts({ messaging: m, now: slotAt('08:00', WED) });
     expect(callsFor(calls, p).map((c) => c.templateId)).toEqual(['appt_confirmation_v2']);
     const reminder = await prisma.messageLog.findFirstOrThrow({ where: { bookingId: b.id, kind: 'REMINDER_24H' } });
-    expect(reminder).toMatchObject({ status: 'SKIPPED', failureCode: 'same_day' });
+    expect(reminder).toMatchObject({ status: 'SKIPPED', failureCode: 'booked_inside_window' });
     await runAppointmentTexts({ messaging: m, now: slotAt('09:00', WED) });
     expect(callsFor(calls, p)).toHaveLength(1);
+  });
+
+  it('uses the SAME-DAY wording when the appointment is today and the patient was told earlier but the "tomorrow" reminder was missed', async () => {
+    // Told on Saturday; the job was down all Tuesday; it is Wednesday 08:00 and the appointment is at 10:00.
+    const p = await consenting();
+    const b = await appt(p.id);
+    const toldAt = slotAt('09:00', '2026-10-10');
+    await prisma.messageLog.create({
+      data: { bookingId: b.id, patientId: p.id, kind: 'CONFIRMATION', forStart: APPT, templateId: 'appt_confirmation_v2', status: 'SENT', queuedAt: toldAt, sentAt: toldAt },
+    });
+    const { m, calls } = fakeMessaging();
+    await runAppointmentTexts({ messaging: m, now: slotAt('08:00', WED) });
+    expect(callsFor(calls, p)).toEqual([{ to: to(p), templateId: 'appt_reminder_today_v1', variables: { first: 'Ingrid', time: '10:00 AM' } }]);
+    expect(renderTemplate('appt_reminder_today_v1', { first: 'Ingrid', time: '10:00 AM' }))
+      .toBe('NextWave Wellness: Reminder for Ingrid: see you today at 10:00 AM. Reply STOP to opt out.');
+    const row = await prisma.messageLog.findFirstOrThrow({ where: { bookingId: b.id, kind: 'REMINDER_24H' } });
+    expect(row).toMatchObject({ status: 'SENT', templateId: 'appt_reminder_today_v1' });
+    await runAppointmentTexts({ messaging: m, now: slotAt('09:00', WED) });
+    expect(callsFor(calls, p)).toHaveLength(1);                                          // once
+  });
+
+  it('keeps the same-day wording when a send has to be retried', async () => {
+    const p = await consenting();
+    const b = await appt(p.id);
+    const toldAt = slotAt('09:00', '2026-10-10');
+    await prisma.messageLog.create({
+      data: { bookingId: b.id, patientId: p.id, kind: 'CONFIRMATION', forStart: APPT, templateId: 'appt_confirmation_v2', status: 'SENT', queuedAt: toldAt, sentAt: toldAt },
+    });
+    let failures = 1;
+    const { m, calls } = fakeMessaging(() => { if (failures-- > 0) throw new MessagingError('transient'); });
+    await runAppointmentTexts({ messaging: m, now: slotAt('08:00', WED) });               // first try fails (transient)
+    await runAppointmentTexts({ messaging: m, now: slotAt('08:30', WED) });               // the retry succeeds
+    expect(callsFor(calls, p).map((c) => c.templateId)).toEqual(['appt_reminder_today_v1', 'appt_reminder_today_v1']);
+    expect((await prisma.messageLog.findFirstOrThrow({ where: { bookingId: b.id, kind: 'REMINDER_24H' } })).status).toBe('SENT');
+  });
+
+  it('never says "today" for an appointment that is tomorrow, nor "tomorrow" for one that is today', async () => {
+    const p = await consenting();
+    const b = await appt(p.id);                                                            // Wed 10:00
+    const toldAt = slotAt('09:00', '2026-10-10');
+    await prisma.messageLog.create({
+      data: { bookingId: b.id, patientId: p.id, kind: 'CONFIRMATION', forStart: APPT, templateId: 'appt_confirmation_v2', status: 'SENT', queuedAt: toldAt, sentAt: toldAt },
+    });
+    const { m, calls } = fakeMessaging();
+    await runAppointmentTexts({ messaging: m, now: T1 });                                 // Tue 10:07: Wednesday is tomorrow
+    await runAppointmentTexts({ messaging: m, now: slotAt('08:00', WED) });
+    const reminders = callsFor(calls, p).filter((c) => c.templateId !== 'appt_confirmation_v2');
+    expect(reminders.map((c) => c.templateId)).toEqual(['appt_reminder_24h_v3']);          // Tuesday's "tomorrow"; Wednesday's pass adds nothing
   });
 
   it('is not sent for an appointment that was cancelled in the meantime', async () => {

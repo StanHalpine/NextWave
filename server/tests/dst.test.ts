@@ -312,16 +312,28 @@ describe('DST: the 24-hour reminder window', () => {
     const clinic = await makeClinic({ weekdays: sevenDays });
     const p = await consenting();
     const b = await booking(p.id, clinic, '2026-11-01T18:00:00Z');                   // Sun 12:00 CST
+    const earlier = new Date('2026-10-29T15:00:00Z');                                // told on Thursday, so Saturday's reminder is due
+    await prisma.messageLog.create({ data: { bookingId: b.id, patientId: p.id, kind: 'CONFIRMATION', forStart: b.startTime, templateId: 'appt_confirmation_v2', status: 'SENT', queuedAt: earlier, sentAt: earlier } });
     const { m, calls } = fakeMessaging();
     await runAppointmentTexts({ messaging: m, now: new Date('2026-10-31T23:00:00Z') });   // Sat 18:00 CDT: tomorrow ✓ (18 h away)
-    expect(remindersFor(calls, p.phone)).toHaveLength(1);
+    expect(remindersFor(calls, p.phone).map((c) => c.templateId)).toEqual(['appt_reminder_24h_v3']);
 
     const q = await consenting();
     const b2 = await booking(q.id, clinic, '2026-11-01T18:00:00Z');
     const fresh = fakeMessaging();
-    await runAppointmentTexts({ messaging: fresh.m, now: new Date('2026-11-01T14:30:00Z') }); // Sun 08:30 CST: the same day → no "tomorrow"
-    expect(remindersFor(fresh.calls, q.phone)).toHaveLength(0);
-    expect((await prisma.messageLog.findFirstOrThrow({ where: { bookingId: b2.id, kind: 'REMINDER_24H' } })).failureCode).toBe('same_day');
+    await runAppointmentTexts({ messaging: fresh.m, now: new Date('2026-11-01T14:30:00Z') }); // Sun 08:30 CST: the same day → never "tomorrow"
+    expect(remindersFor(fresh.calls, q.phone)).toHaveLength(0);                                // just told by the confirmation: no second text
+    expect((await prisma.messageLog.findFirstOrThrow({ where: { bookingId: b2.id, kind: 'REMINDER_24H' } })).failureCode).toBe('booked_inside_window');
+
+    // Told on Thursday, the Saturday reminder missed: Sunday morning says "today", at the long day's own 12:00 CST.
+    const r = await consenting();
+    const b3 = await booking(r.id, clinic, '2026-11-01T18:00:00Z');
+    const thu = new Date('2026-10-29T15:00:00Z');
+    await prisma.messageLog.create({ data: { bookingId: b3.id, patientId: r.id, kind: 'CONFIRMATION', forStart: b3.startTime, templateId: 'appt_confirmation_v2', status: 'SENT', queuedAt: thu, sentAt: thu } });
+    const missed = fakeMessaging();
+    await runAppointmentTexts({ messaging: missed.m, now: new Date('2026-11-01T14:30:00Z') });
+    const sent = mine(missed.calls, r.phone).filter((c) => c.templateId !== 'appt_confirmation_v2');
+    expect(sent).toEqual([{ to: expect.any(String), templateId: 'appt_reminder_today_v1', variables: { first: 'Ingrid', time: '12:00 PM' } }]);
     void b;
   });
 
