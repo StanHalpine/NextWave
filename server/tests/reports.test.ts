@@ -80,24 +80,25 @@ describe('CSV', () => {
 });
 
 describe('service demand categories', () => {
-  it('maps the six categories the owner named, and sends anything else to Other', () => {
-    expect(DEMAND_CATEGORIES.map((c) => c.key)).toEqual(['chiropractic', 'hbot', 'red_light', 'iv', 'consult', 'bloodwork']);
+  it('maps the categories the owner named, and sends anything else to Other', () => {
+    expect(DEMAND_CATEGORIES.map((c) => c.key)).toEqual(['chiropractic', 'hbot', 'red_light', 'iv', 'injections', 'consult', 'bloodwork']);
     expect(demandCategoryOf('manual-adjustment').key).toBe('chiropractic');
     expect(demandCategoryOf('spinal-xrays').key).toBe('chiropractic');
     expect(demandCategoryOf('hyperbaric-oxygen-therapy').key).toBe('hbot');
     expect(demandCategoryOf('red-light-therapy').key).toBe('red_light');
     expect(demandCategoryOf('iv-therapy').key).toBe('iv');
+    expect(demandCategoryOf('vitamin-shots').key).toBe('injections');
     expect(demandCategoryOf('functional-medicine-consult').key).toBe('consult');
     expect(demandCategoryOf('biomarker-testing').key).toBe('bloodwork');
     expect(demandCategoryOf('something-new').key).toBe('other');
   });
 
-  it('leaves exactly two seeded services in Other (the seed\'s own ids, not other tests\' fixtures), on purpose — adding a service fails this until someone decides', async () => {
+  it('leaves exactly one seeded service in Other (the seed\'s own ids, not other tests\' fixtures), on purpose — adding a service fails this until someone decides', async () => {
     const slugs = (await basePrisma.service.findMany({ where: { id: { startsWith: '5e401ce0-' } }, select: { slug: true } })).map((s) => s.slug);
     expect(slugs.length).toBeGreaterThan(10);
     const other = [...new Set(slugs.filter((s) => demandCategoryOf(s).key === 'other'))].sort();
-    // SPEC A-6: vitamin shots and body composition are in none of the six categories the owner named — they are "Other".
-    expect(other, `services in "Other" — map them in lib/reportFormat.ts: ${other.join(', ')}`).toEqual(['body-composition', 'vitamin-shots']);
+    // Body composition is in none of the named categories (SPEC A-6); vitamin shots moved out at Phase 5 approval.
+    expect(other, `services in "Other" — map them in lib/reportFormat.ts: ${other.join(', ')}`).toEqual(['body-composition']);
   });
 });
 
@@ -409,7 +410,7 @@ describe('Reports: weekend visits', () => {
 });
 
 describe('Reports: service demand', () => {
-  it('counts booked, attended and no-shows in the six categories, with Other for the rest', async () => {
+  it('counts booked, attended and no-shows in each category, with Other for the rest', async () => {
     const day = (h: string) => CDT(`2034-09-12T${h}:00`);
     const other = (await creditService()).service;                                       // slug "t-…": not in any category
     await visit({ slug: 'manual-adjustment', when: day('08:00') });                      // attended
@@ -418,6 +419,8 @@ describe('Reports: service demand', () => {
     await visit({ slug: 'hyperbaric-oxygen-therapy', when: day('11:00') });
     await visit({ slug: 'red-light-therapy', when: day('12:00') });
     await visit({ slug: 'iv-therapy', when: day('13:00'), encounter: 'SCHEDULED' });     // booked, not yet arrived
+    await visit({ slug: 'vitamin-shots', when: day('13:30') });
+    await visit({ slug: 'vitamin-shots', when: day('13:45'), encounter: 'NO_SHOW' });
     await visit({ slug: 'functional-medicine-consult', when: day('14:00') });
     await visit({ slug: 'biomarker-testing', when: day('15:00') });
     await visit({ slug: 'biomarker-testing', when: day('15:30'), status: 'CANCELLED' }); // cancelled: not booked
@@ -429,11 +432,12 @@ describe('Reports: service demand', () => {
     expect(row('Hyperbaric oxygen (HBOT)')).toMatchObject({ booked: 1, attended: 1, noShows: 0 });
     expect(row('Red light')).toMatchObject({ booked: 1, attended: 1 });
     expect(row('IV therapy')).toMatchObject({ booked: 1, attended: 0, noShows: 0 });
+    expect(row('Vitamin shots & injections')).toMatchObject({ booked: 2, attended: 1, noShows: 1 });
     expect(row('Consults')).toMatchObject({ booked: 1, attended: 1 });
     expect(row('Bloodwork')).toMatchObject({ booked: 1, attended: 1 });
     expect(row('Other')).toMatchObject({ booked: 1, attended: 1 });
-    expect(t.rows.map((r) => r.category)).toEqual(['Chiropractic', 'Hyperbaric oxygen (HBOT)', 'Red light', 'IV therapy', 'Consults', 'Bloodwork', 'Other']);
-    expect(t.totals).toEqual({ category: 'Total', booked: 9, attended: 7, noShows: 1 });
+    expect(t.rows.map((r) => r.category)).toEqual(['Chiropractic', 'Hyperbaric oxygen (HBOT)', 'Red light', 'IV therapy', 'Vitamin shots & injections', 'Consults', 'Bloodwork', 'Other']);
+    expect(t.totals).toEqual({ category: 'Total', booked: 11, attended: 8, noShows: 2 });
   });
 });
 

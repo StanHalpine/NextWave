@@ -83,17 +83,19 @@ export function toCsv(columns: Column[], rows: Array<Record<string, string | num
 // ---- service demand categories -----------------------------------------------------------------------
 
 /**
- * The six demand categories the owner named, with the services in each — SPEC assumption A-6, by service slug. (The booking app's
- * `Service.category` has only three disciplines — Chiropractic, Functional Medicine, Longevity — too coarse for these six, and
- * the owner's rule groups across them: "Consult" is the five nurse-practitioner consult-room services.) Vitamin shots and body
- * composition are in none of the six: A-6 puts them in "Other", and so does any service added later, until it is listed here.
- * tests/reports.test.ts pins the seeded services that land in Other, so adding a service fails there until someone decides.
+ * The demand categories, with the services in each — SPEC assumption A-6 by service slug, plus the seventh the owner added at Phase 5
+ * approval. (The booking app's `Service.category` has only three disciplines — Chiropractic, Functional Medicine, Longevity — too
+ * coarse for these, and the owner's rule groups across them: "Consult" is the five nurse-practitioner consult-room services.)
+ * "Vitamin shots & injections" holds `vitamin-shots`, the one service the site calls an injection. Body composition is in none of
+ * them, and neither is any service added later: both are "Other" until listed here. tests/reports.test.ts pins the seeded services
+ * that land in Other, so adding a service fails there until someone decides.
  */
 export const DEMAND_CATEGORIES = [
   { key: 'chiropractic', label: 'Chiropractic', slugs: ['spinal-postural-exam', 'manual-adjustment', 'spinal-xrays'] },
   { key: 'hbot', label: 'Hyperbaric oxygen (HBOT)', slugs: ['hyperbaric-oxygen-therapy'] },
   { key: 'red_light', label: 'Red light', slugs: ['red-light-therapy'] },
   { key: 'iv', label: 'IV therapy', slugs: ['iv-therapy'] },
+  { key: 'injections', label: 'Vitamin shots & injections', slugs: ['vitamin-shots'] },
   { key: 'consult', label: 'Consults', slugs: ['functional-medicine-consult', 'hormone-optimization', 'peptide-therapy', 'personal-wellness-planning', 'supplementation'] },
   { key: 'bloodwork', label: 'Bloodwork', slugs: ['biomarker-testing'] },
 ] as const;
