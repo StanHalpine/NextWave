@@ -7,8 +7,8 @@ import { DbEnvError, isTransactionPooler, prismaCliEnv, urlRequiresTls } from '.
 /**
  * Migrations go through DIRECT_URL (a direct connection, or Supabase's session pooler); the app goes through DATABASE_URL (on Supabase,
  * the transaction pooler, which cannot run migrations). These tests pin that split: which URL the CLI gets, what it refuses, that the
- * wrapper behaves, that with-schema cannot send a test run's migrations to the real schema, and — against a real database — that
- * `migrate deploy` really connects with DIRECT_URL.
+ * raw Prisma CLI applies it (prisma.config.ts), that with-schema cannot send a test run's migrations to the real schema, and — against a
+ * real database — that `migrate deploy` connects with DIRECT_URL while the running app's client connects with DATABASE_URL.
  */
 
 const env = (o: Record<string, string>) => o as NodeJS.ProcessEnv;
@@ -108,14 +108,15 @@ describe('the URL the Prisma CLI is given', () => {
 });
 
 // ---------------------------------------------------------------------------------------------------
+/** The Prisma CLI exactly as the Render build, the pre-deploy step and a developer run it: `npx prisma …`, with prisma.config.ts in force. */
 const run = (args: string[], over: Record<string, string | undefined>, timeout = 60_000) => {
   const e: NodeJS.ProcessEnv = { ...process.env, DOTENV_CONFIG_PATH: '/dev/null', ...over };
   for (const k of Object.keys(over)) if (over[k] === undefined) delete e[k];
-  return spawnSync('npx', ['tsx', 'scripts/prisma.ts', ...args], { cwd: process.cwd(), env: e, encoding: 'utf8', timeout });
+  return spawnSync('npx', ['prisma', ...args], { cwd: process.cwd(), env: e, encoding: 'utf8', timeout });
 };
 
-describe('scripts/prisma.ts (npm run migrate:deploy …)', () => {
-  it('stops with a clear message and a non-zero exit — before touching Prisma — when production has no DIRECT_URL', () => {
+describe('the Prisma CLI, run raw (as the Render build and pre-deploy run it)', () => {
+  it('stops with a clear message and a non-zero exit — before it reads the schema or the database — when production has no DIRECT_URL', () => {
     const r = run(['migrate', 'deploy'], { NODE_ENV: 'production', DATABASE_URL: POOLER_6543, DIRECT_URL: undefined });
     expect(r.status).toBe(1);
     expect(r.stderr).toMatch(/prisma migrate: DIRECT_URL is not set\./);
@@ -128,8 +129,16 @@ describe('scripts/prisma.ts (npm run migrate:deploy …)', () => {
     expect(r.stderr).toMatch(/DIRECT_URL points at a transaction pooler/);
   });
 
-  it('wants arguments', () => {
-    expect(run([], { DATABASE_URL: LOCAL }).status).toBe(2);
+  it('still runs `prisma generate` in production with no DIRECT_URL and a pooled DATABASE_URL — the Render build step touches no database', () => {
+    const r = run(['generate'], { NODE_ENV: 'production', DATABASE_URL: POOLER_6543, DIRECT_URL: undefined }, 120_000);
+    expect(r.status, r.stdout + r.stderr).toBe(0);
+    expect(r.stdout).toMatch(/Generated Prisma Client/);
+  }, 150_000);
+
+  it('does not print the fallback note for a command that connects to nothing', () => {
+    const r = run(['--version'], { DATABASE_URL: LOCAL, DIRECT_URL: undefined });
+    expect(r.status).toBe(0);
+    expect(r.stderr).not.toContain('DIRECT_URL is not set');
   });
 });
 
@@ -180,6 +189,23 @@ describe('`migrate deploy` connects with DIRECT_URL, not DATABASE_URL (against a
     expect(r.stdout).toMatch(/No pending migrations|successfully applied/);
   }, 120_000);
 
+  // The other half: the RUNNING APP's client (src/lib/prismaBase.ts) connects with DATABASE_URL and never with DIRECT_URL.
+  const ping = (over: Record<string, string | undefined>) => {
+    const e: NodeJS.ProcessEnv = { ...process.env, ...over };
+    for (const k of Object.keys(over)) if (over[k] === undefined) delete e[k];
+    const code = "import('./src/lib/prismaBase.ts').then(async ({ basePrisma }) => { try { await basePrisma.$queryRawUnsafe('SELECT 1'); console.log('PING_OK'); } catch { console.log('PING_FAIL'); } finally { await basePrisma.$disconnect(); } })";
+    return spawnSync('npx', ['tsx', '-e', code], { cwd: process.cwd(), env: e, encoding: 'utf8', timeout: 60_000 }).stdout.match(/PING_(OK|FAIL)/)?.[1];
+  };
+
+  it('the app\'s client connects with DATABASE_URL: it works with DIRECT_URL dead, or unset', () => {
+    expect(ping({ DATABASE_URL: urlFor(SCHEMA), DIRECT_URL: urlFor(SCHEMA, '1') })).toBe('OK');
+    expect(ping({ DATABASE_URL: urlFor(SCHEMA), DIRECT_URL: undefined })).toBe('OK');
+  }, 120_000);
+
+  it('the app\'s client does NOT connect with DIRECT_URL: a dead DATABASE_URL fails even with a good DIRECT_URL', () => {
+    expect(ping({ DATABASE_URL: urlFor(SCHEMA, '1'), DIRECT_URL: urlFor(SCHEMA) })).toBe('FAIL');
+  }, 60_000);
+
   it('migrate status reads the same database through the same URL', () => {
     const r = run(['migrate', 'status'], { DATABASE_URL: urlFor(SCHEMA, '1'), DIRECT_URL: urlFor(SCHEMA) });
     expect(r.status, r.stdout + r.stderr).toBe(0);
@@ -202,12 +228,24 @@ describe('the wiring that makes production use it', () => {
     expect(blueprint.match(/buildCommand:.*prisma generate/g)).toHaveLength(2);       // `generate` needs no DIRECT_URL, so neither build does
   });
 
-  it('the npm scripts run the Prisma CLI through the wrapper, and the schema declares the direct URL', () => {
-    const scripts = JSON.parse(readFileSync('package.json', 'utf8')).scripts as Record<string, string>;
-    expect(scripts['migrate:deploy']).toBe('tsx scripts/prisma.ts migrate deploy');
-    expect(scripts['migrate:status']).toBe('tsx scripts/prisma.ts migrate status');
-    expect(scripts.migrate).toBe('tsx scripts/prisma.ts migrate dev');
-    expect(scripts.studio).toBe('tsx scripts/prisma.ts studio');
+  it('the free-plan build command in render.yaml and in the staging checklist is the blueprint\'s own build command plus migrate and seed — last, and identical in both places', () => {
+    const buildLine = webSection.match(/buildCommand: (.+)/)![1]!.trim();
+    const expected = `${buildLine} && npm run migrate:deploy && npm run seed`;
+    const inBlueprint = blueprint.match(/^ *# {3}(npm ci .+)$/m)?.[1]?.trim();
+    const inChecklist = readFileSync('../docs/STAGING_CHECKLIST.md', 'utf8').match(/Build Command\*\*, exactly \(one line\):\s*`([^`]+)`/)?.[1]?.trim();
+    expect(inBlueprint).toBe(expected);
+    expect(inChecklist).toBe(expected);
+    expect(expected.indexOf('npm run build ')).toBeLessThan(expected.indexOf('npm run migrate:deploy'));   // migrations after the compile
+  });
+
+  it('the schema declares the direct URL, and prisma.config.ts — which every Prisma command loads — applies the rules', () => {
+    const pkg = JSON.parse(readFileSync('package.json', 'utf8')) as { scripts: Record<string, string>; prisma?: unknown };
+    expect(pkg.scripts['migrate:deploy']).toBe('prisma migrate deploy');
+    expect(pkg.scripts['migrate:status']).toBe('prisma migrate status');
+    expect(pkg.prisma).toBeUndefined();                          // the deprecated package.json#prisma: its seed moved into the config
+    const config = readFileSync('prisma.config.ts', 'utf8');
+    expect(config).toMatch(/prismaCliEnv\(process\.env, command\)/);
+    expect(config).toContain("seed: 'tsx prisma/seed.ts'");
     expect(readFileSync('prisma/schema.prisma', 'utf8')).toMatch(/datasource db \{[^}]*url\s+= env\("DATABASE_URL"\)[^}]*directUrl\s+= env\("DIRECT_URL"\)/);
   });
 });

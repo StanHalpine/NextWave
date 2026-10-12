@@ -14,7 +14,8 @@
 # TWO connection strings, because they do different jobs. DATABASE_URL is what the APP connects with — on Supabase, the
 # TRANSACTION pooler (port 6543, ?pgbouncer=true). DIRECT_URL is what MIGRATIONS connect with — a direct connection or the
 # SESSION pooler (port 5432), never a transaction pooler, which cannot carry the advisory lock `prisma migrate` takes. The schema
-# declares `directUrl = env("DIRECT_URL")`; only the pre-deploy step reads it, so only the web service needs it.
+# declares `directUrl = env("DIRECT_URL")`; only a Prisma command that CONNECTS reads it (the pre-deploy step below — or, on the free
+# plan, the end of the build command), so only the web service needs it. The running app never reads it.
 #
 # This file does NOT affect the existing static site that serves
 # nextwave-wellness.com — manually created Render services ignore render.yaml.
@@ -56,10 +57,22 @@ services:
     # must be reachable from there. If your Postgres allow-lists IP addresses, run migrations from CI
     # instead and drop this line.
     #
-    # `npm run migrate:deploy` is `prisma migrate deploy` run through scripts/prisma.ts, which refuses — with a
-    # message, before touching the database — a missing DIRECT_URL in production, a DIRECT_URL that is a transaction
-    # pooler (port 6543 or ?pgbouncer=true), and one without ?sslmode=require. (In development it falls back to
-    # DATABASE_URL; production never does.) `npx prisma migrate deploy` directly would also work, but skips those checks.
+    # `npm run migrate:deploy` is `prisma migrate deploy`. Every Prisma command loads prisma.config.ts first, which refuses — with a
+    # message, before touching the database — a missing DIRECT_URL in production, a DIRECT_URL that is a transaction pooler (port 6543
+    # or ?pgbouncer=true), and one without ?sslmode=require. (In development it falls back to DATABASE_URL; production never does.)
+    # Without DIRECT_URL, migrating through a transaction pooler does not fail: it HANGS on the advisory lock. This turns that into a
+    # one-line error.
+    #
+    # FREE PLAN, or a service you created by hand in the dashboard: there is no `preDeployCommand`, so migrations and the seed run at
+    # the END OF THE BUILD instead. In the dashboard set Root Directory `server`, Start Command `npm start`, and Build Command EXACTLY:
+    #
+    #   npm ci --include=dev && npx prisma generate && npm --prefix web ci --include=dev && npm --prefix web run build && npm run build && npm run migrate:deploy && npm run seed
+    #
+    # with these Environment variables (build commands can read them): NODE_ENV=production, DATABASE_URL (the pooler, as below), and
+    # DIRECT_URL (REQUIRED: direct connection or session pooler on port 5432, ?sslmode=require — never the transaction pooler), plus
+    # APP_BASE_URL and MFA_ENCRYPTION_KEY. Migrations come last so a compile error never leaves the database migrated ahead of the code;
+    # a failed migration fails the build, so the old version keeps serving. The build must then reach the database (Supabase has no IP
+    # allow-list by default). The free plan sleeps when idle: see the plan note above for what that costs.
     # The staff app (React + Vite, in web/) is built into public/app, which
     # Express serves at /app. It has its own package.json, hence its own install.
     buildCommand: npm ci --include=dev && npx prisma generate && npm --prefix web ci --include=dev && npm --prefix web run build && npm run build

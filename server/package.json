@@ -9,11 +9,10 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "seed": "tsx prisma/seed.ts",
-    "prisma": "tsx scripts/prisma.ts",
-    "migrate": "tsx scripts/prisma.ts migrate dev",
-    "migrate:deploy": "tsx scripts/prisma.ts migrate deploy",
-    "migrate:status": "tsx scripts/prisma.ts migrate status",
-    "studio": "tsx scripts/prisma.ts studio",
+    "migrate": "prisma migrate dev",
+    "migrate:deploy": "prisma migrate deploy",
+    "migrate:status": "prisma migrate status",
+    "studio": "prisma studio",
     "typecheck": "tsc --noEmit -p tsconfig.check.json",
     "lint:logs": "node scripts/lint-logs.mjs",
     "test": "vitest run",
@@ -27,9 +26,6 @@
     "web:install": "npm --prefix web install",
     "web:build": "npm --prefix web run build",
     "web:dev": "npm --prefix web run dev"
-  },
-  "prisma": {
-    "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
     "@node-rs/argon2": "^2.2.2",

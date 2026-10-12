@@ -87,10 +87,20 @@ Secrets marked `sync: false` in `render.yaml` are entered in the dashboard, **se
 
 ## 3. First deploy
 
-- [ ] New → Blueprint → this repo → the branch. Wait for the web service to go live (`/health` returns 200) and the cron job to exist.
-- [ ] The pre-deploy log shows `npm run migrate:deploy` apply the migrations **without** a `DIRECT_URL is not set` or "transaction pooler" message, then the
-      seed run. From the web service's shell, `npm run migrate:status` ends with **"Database schema is up to date"**. *(Use the npm script, not `npx prisma …`: the
-      schema declares `directUrl`, and the script is what checks `DIRECT_URL` and refuses a pooler.)*
+- [ ] **Blueprint (paid plan):** New → Blueprint → this repo → the branch. Wait for the web service to go live (`/health` returns 200) and the cron job to exist.
+- [ ] **Or a service made by hand in the dashboard — the free plan** (there is no pre-deploy step, so migrations and the seed run **at the end of the build**). Set:
+  - **Root Directory** `server` · **Start Command** `npm start` · **Health Check Path** `/health`
+  - **Build Command**, exactly (one line):
+    `npm ci --include=dev && npx prisma generate && npm --prefix web ci --include=dev && npm --prefix web run build && npm run build && npm run migrate:deploy && npm run seed`
+  - **Environment variables**, which the build can read: `NODE_ENV=production`, `DATABASE_URL` (the pooler), **`DIRECT_URL` (required)**, `APP_BASE_URL`, `MFA_ENCRYPTION_KEY`, `CLINIC_TIMEZONE=America/Chicago`.
+  - Migrations come **last** so a compile error never leaves the database migrated ahead of the code, and a failed migration fails the build, so the old version keeps serving.
+  - **Why `DIRECT_URL` is required:** without it, `migrate deploy` through the transaction pooler does not fail — it **hangs** on the advisory lock (the symptom that started this). With the
+    build command above, a missing or pooled `DIRECT_URL` instead stops the build in a second with `prisma migrate: DIRECT_URL is not set` / `… is a transaction pooler`.
+  - The free plan **sleeps when idle** (a ~30 s wake): the first text-message webhook after a quiet spell can time out, and **there is no cron job on the free plan**, so no texts, credit grants, dues or
+    retention run until you move to the paid blueprint. Fine for walking through stages 4–5; not for stage 6–7.
+- [ ] The pre-deploy log (or, on the free plan, the **end of the build log**) shows `npm run migrate:deploy` apply the migrations **without** a `DIRECT_URL is not set` or "transaction pooler" message, then the
+      seed run. From the web service's shell, `npm run migrate:status` ends with **"Database schema is up to date"**. *(`npx prisma migrate status` works
+      the same: the schema declares `directUrl`, and `prisma.config.ts` — loaded by every Prisma command — is what checks `DIRECT_URL` and refuses a pooler.)*
 - [ ] **The app works through the transaction pooler.** The booking engine's row locks (`SELECT … FOR UPDATE`) run inside transactions, which a transaction pooler
       keeps on one connection, so they should hold — but this has been tested only against a direct Postgres, never through Supavisor. Stage 5's booking and check-out
       steps are where to see it: place a booking (hold → confirm), and check one out; both must complete. And run the concurrency proof against staging:

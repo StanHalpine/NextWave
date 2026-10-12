@@ -312,6 +312,9 @@ it provisions no database. It builds the server and the staff app.
    - `DIRECT_URL` — **web service only**: what migrations connect with. A direct connection or Supabase's session
      pooler (port 5432), **ending `?sslmode=require`**, and **not** a transaction pooler. Required in production: the pre-deploy
      step refuses to run without it, and refuses a pooler or a non-TLS URL, before touching the database.
+   **On the free plan there is no pre-deploy step**: put `&& npm run migrate:deploy && npm run seed` at the end of the dashboard's Build
+   Command (exact line in `render.yaml`; `docs/STAGING_CHECKLIST.md` stage 3), and set `NODE_ENV=production`, `DATABASE_URL` and
+   `DIRECT_URL` as Environment variables so the build can read them.
    - `APP_BASE_URL` — the public `https://` origin (used for setup links).
    - `MFA_ENCRYPTION_KEY` — from `npm run gen-secrets`. **Keep a copy**: losing
      it invalidates every enrolled authenticator.
@@ -574,7 +577,7 @@ time-off/blackout dates. (Automated tests now exist — `npm test` — covering 
 |---|---|
 | `npm run dev` | Watch mode |
 | `npm run seed` | Load services/rooms/staff into an EMPTY database (one transaction) |
-| `npm run migrate:deploy` / `migrate:status` / `migrate` | Prisma Migrate through `DIRECT_URL`, falling back to `DATABASE_URL` in development only (`scripts/prisma.ts`; refuses a transaction pooler, and a missing `DIRECT_URL` in production). `npm run prisma -- <anything>` runs any other Prisma CLI command the same way |
+| `npm run migrate:deploy` / `migrate:status` / `migrate` | Prisma Migrate. Through `DIRECT_URL`, falling back to `DATABASE_URL` in development only: `prisma.config.ts`, which **every** Prisma command loads (so raw `npx prisma migrate …` behaves the same), refuses a transaction pooler, and a missing `DIRECT_URL` in production |
 | `npm run seed:admin` | Create the first admin from `ADMIN_EMAIL`; prints a one-time setup link |
 | `npm run gen-secrets` | Print a fresh `MFA_ENCRYPTION_KEY` |
 | `npm run typecheck` | `tsc --noEmit` over src, prisma, scripts and tests |
