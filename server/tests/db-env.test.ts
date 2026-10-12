@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { basePrisma } from '../src/lib/prismaBase.js';
 import { DbEnvError, isTransactionPooler, prismaCliEnv, urlRequiresTls } from '../src/lib/dbEnv.js';
 
@@ -121,12 +123,14 @@ describe('the Prisma CLI, run raw (as the Render build and pre-deploy run it)', 
     expect(r.status).toBe(1);
     expect(r.stderr).toMatch(/prisma migrate: DIRECT_URL is not set\./);
     for (const leak of ['s3cretpw', 'abcdefgh', 'supabase']) expect(r.stdout + r.stderr, leak).not.toContain(leak);
+    expect(r.stdout + r.stderr, 'Prisma must never have started').not.toMatch(/Prisma schema loaded|Datasource|migrations found|P1001|P1012/);
   });
 
   it('stops when DIRECT_URL is a transaction pooler', () => {
     const r = run(['migrate', 'deploy'], { DATABASE_URL: LOCAL, DIRECT_URL: POOLER_6543 });
     expect(r.status).toBe(1);
     expect(r.stderr).toMatch(/DIRECT_URL points at a transaction pooler/);
+    expect(r.stdout + r.stderr, 'Prisma must never have started: against a real pooler it would hang, not fail').not.toMatch(/Prisma schema loaded|Datasource|migrations found|P1001|P1012/);
   });
 
   it('still runs `prisma generate` in production with no DIRECT_URL and a pooled DATABASE_URL — the Render build step touches no database', () => {
@@ -187,6 +191,18 @@ describe('`migrate deploy` connects with DIRECT_URL, not DATABASE_URL (against a
     expect(r.status, r.stdout + r.stderr).toBe(0);
     expect(r.stderr).toContain('DIRECT_URL is not set: using DATABASE_URL');
     expect(r.stdout).toMatch(/No pending migrations|successfully applied/);
+  }, 120_000);
+
+  it('loads .env itself — Prisma skips its own once a config file exists — so a developer\'s .env still works, with DIRECT_URL left out of it', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'nw-dotenv-'));
+    const file = path.join(dir, 'dev.env');
+    writeFileSync(file, `DATABASE_URL="${urlFor(SCHEMA)}"\n`);              // a .env with only DATABASE_URL, as the example file describes
+    try {
+      const r = run(['migrate', 'status'], { DOTENV_CONFIG_PATH: file, DATABASE_URL: undefined, DIRECT_URL: undefined });
+      expect(r.status, r.stdout + r.stderr).toBe(0);
+      expect(r.stderr).toContain('DIRECT_URL is not set: using DATABASE_URL');
+      expect(r.stdout).toMatch(/Database schema is up to date/);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
   }, 120_000);
 
   // The other half: the RUNNING APP's client (src/lib/prismaBase.ts) connects with DATABASE_URL and never with DIRECT_URL.
