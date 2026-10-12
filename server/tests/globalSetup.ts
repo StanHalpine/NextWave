@@ -20,7 +20,12 @@ export async function setup() {
   if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is not set — tests need a database to create a scratch schema in.');
   run(['create', SCHEMA]);
   run(['run', SCHEMA, '--', 'npx', 'prisma', 'migrate', 'deploy']);
+  // The seed also creates the first administrator when ADMIN_EMAIL is set — a developer's own address, in their .env, must not
+  // put an administrator in the scratch schema (the first-admin tests assume there is none of their own making).
+  const adminEmail = process.env.ADMIN_EMAIL;
+  delete process.env.ADMIN_EMAIL;
   run(['run', SCHEMA, '--', 'npx', 'tsx', 'prisma/seed.ts']);
+  if (adminEmail !== undefined) process.env.ADMIN_EMAIL = adminEmail;
 
   const url = new URL(process.env.DATABASE_URL);
   url.searchParams.set('schema', SCHEMA);

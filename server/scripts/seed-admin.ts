@@ -17,63 +17,28 @@
  * The link is the only output a human needs to see. It is printed to the
  * terminal that ran the script and nowhere else (not to the audit log, which
  * records only that a link was issued).
+ *
+ * The logic lives in src/lib/bootstrapAdmin.ts, which `npm run seed` also runs on
+ * every deploy — so on a host with no shell (Render's free plan) setting ADMIN_EMAIL
+ * and redeploying does the same job and the link appears in the deploy log. This
+ * script remains for a shell, and is the only way to --reissue.
  */
 
-import { z } from 'zod';
 import { prisma } from '../src/lib/prisma.js';
-import { audit, runAsSystem } from '../src/lib/audit.js';
-import { issueSetupLink, SETUP_LINK_TTL_MS, unusableHash } from '../src/lib/accountSetup.js';
+import { bootstrapAdmin, type BootstrapStatus } from '../src/lib/bootstrapAdmin.js';
 
 const reissue = process.argv.includes('--reissue');
 
-async function main(): Promise<number> {
-  const raw = process.env.ADMIN_EMAIL;
-  if (!raw) {
-    console.error('ADMIN_EMAIL is not set. Run:  ADMIN_EMAIL=you@example.com npm run seed:admin');
-    return 1;
-  }
-  const parsed = z.string().trim().toLowerCase().email().max(254).safeParse(raw);
-  if (!parsed.success) {
-    console.error('ADMIN_EMAIL is not a valid email address.');
-    return 1;
-  }
-  const email = parsed.data;
-  const displayName = (process.env.ADMIN_NAME ?? 'Administrator').trim() || 'Administrator';
+/** 0 for "done or nothing to do"; 1 when the operator asked for something that did not happen. */
+const EXIT: Record<BootstrapStatus, number> = { created: 0, reissued: 0, exists: 0, unset: 1, invalid_email: 1, other_admin: 1 };
 
-  const existing = await prisma.account.findUnique({ where: { email } });
-  const otherAdmin = await prisma.account.findFirst({ where: { roles: { has: 'ADMIN' }, active: true, email: { not: email } } });
-  if (!existing && otherAdmin) {
-    console.error('An administrator already exists. Create further admins from the app (Admin → Accounts).');
-    return 1;
-  }
-
-  let accountId: string;
-  if (existing) {
-    if (!reissue) {
-      console.log('That account already exists. Nothing changed. Use --reissue for a fresh setup link.');
-      return 0;
-    }
-    accountId = existing.id;
-  } else {
-    const account = await prisma.account.create({
-      data: { email, displayName, roles: ['ADMIN'], passwordHash: await unusableHash(), mustChangePassword: true },
-    });
-    accountId = account.id;
-    audit.record({ action: 'CREATE', resourceType: 'account', resourceId: account.id, meta: { roles: ['ADMIN'], via: 'seed-admin' } });
-  }
-
-  const link = await issueSetupLink(accountId, existing ? 'RESET' : 'SETUP', null);
-  audit.record({ action: 'PASSWORD_RESET', resourceType: 'account', resourceId: accountId, meta: { via: 'seed-admin', linkIssued: true } });
-
-  console.log(existing ? 'Issued a fresh setup link.' : 'Created the first administrator.');
-  console.log(`\n  Open this link to choose a password (valid ${SETUP_LINK_TTL_MS / 3_600_000} hours, single use):\n`);
-  console.log(`  ${link}\n`);
-  console.log('  Then sign in and enrol an authenticator app when prompted.\n');
-  return 0;
-}
-
-runAsSystem('seed-admin', main)
-  .then(async (code) => { await prisma.$disconnect(); process.exit(code); })
+bootstrapAdmin({ email: process.env.ADMIN_EMAIL, name: process.env.ADMIN_NAME, reissue, via: 'seed-admin', out: (l) => console.log(l) })
+  .then(async (status) => {
+    if (status === 'unset') console.error('Run:  ADMIN_EMAIL=you@example.com npm run seed:admin');
+    if (status === 'exists') console.log('Use --reissue for a fresh setup link.');
+    await prisma.$disconnect();
+    process.exit(EXIT[status]);
+  })
   .catch(async (err) => {
     // Print the class only — never the message, which can echo query arguments.
     console.error('seed-admin failed:', err instanceof Error ? err.constructor.name : typeof err);

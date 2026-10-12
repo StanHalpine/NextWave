@@ -51,7 +51,9 @@ services:
     # services to offer. It only ever populates an EMPTY database (it skips when any Service
     # exists), so admin edits and deletions survive every deploy, and it runs in ONE transaction,
     # so a failure leaves the database empty and re-runnable rather than half-populated. It never
-    # touches Booking, User, VisitNote, Account or the audit log.
+    # touches Booking, User or VisitNote. The ONE thing it does on every run, skip or not, is the first administrator:
+    # if ADMIN_EMAIL is set and no Account has that address, it creates the account and prints a one-time setup link to
+    # THIS log (never a password) — see ADMIN_EMAIL below. It never fails the deploy.
     #
     # NOTE — the pre-deploy step runs on Render's infrastructure, so DIRECT_URL (the connection migrations use)
     # must be reachable from there. If your Postgres allow-lists IP addresses, run migrations from CI
@@ -163,8 +165,13 @@ services:
         sync: false
 
       # The FRONT_DESK_TOKEN that used to live here is gone: staff sign in
-      # individually. Create the first admin from the Render shell with
-      #   ADMIN_EMAIL=you@example.com npm run seed:admin
+      # individually. The FIRST admin comes from ADMIN_EMAIL: set it (and APP_BASE_URL / MFA_ENCRYPTION_KEY, above) and deploy.
+      # The seed step then creates the account if no account has that address — even when the services were seeded long ago —
+      # and prints a one-time setup link (24 hours, single use) in the deploy log: the pre-deploy log, or on the free plan the end
+      # of the build log. Search it for "FIRST ADMINISTRATOR SETUP LINK". No shell needed. It prints nothing once the account
+      # exists, and does nothing if a different administrator already does. Optional ADMIN_NAME sets the display name.
+      #   - key: ADMIN_EMAIL
+      #     sync: false
 
   # Scheduled jobs: appointment confirmation and reminder texts, and (Phase 3) the monthly credit
   # grant and credit expiry. One short process every five minutes; every job is idempotent, so an

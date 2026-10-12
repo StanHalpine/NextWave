@@ -1,3 +1,4 @@
+import type { Prisma } from '@prisma/client';
 import { prisma } from './prisma.js';
 import { config } from '../config.js';
 import { randomToken, sha256Hex } from './crypto.js';
@@ -13,12 +14,20 @@ export const SETUP_LINK_TTL_MS = 24 * 60 * 60_000;
  * The token rides in the URL FRAGMENT (#token=…), which browsers never send to
  * the server — so it cannot land in access logs, a proxy's logs, or a Referer
  * header. The setup page reads it client-side and POSTs it in a body.
+ *
+ * `db` is the client to write with: pass a transaction client when the link must commit (or not) together with the
+ * account it belongs to, as the first-admin bootstrap does.
  */
-export async function issueSetupLink(accountId: string, purpose: 'SETUP' | 'RESET', createdById: string | null): Promise<string> {
+export async function issueSetupLink(
+  accountId: string,
+  purpose: 'SETUP' | 'RESET',
+  createdById: string | null,
+  db: Pick<Prisma.TransactionClient, 'setupToken'> = prisma,
+): Promise<string> {
   // Supersede any outstanding links so only the newest works.
-  await prisma.setupToken.updateMany({ where: { accountId, usedAt: null }, data: { usedAt: new Date() } });
+  await db.setupToken.updateMany({ where: { accountId, usedAt: null }, data: { usedAt: new Date() } });
   const token = randomToken(32);
-  await prisma.setupToken.create({
+  await db.setupToken.create({
     data: { accountId, tokenHash: sha256Hex(token), purpose, expiresAt: new Date(Date.now() + SETUP_LINK_TTL_MS), createdById },
   });
   return `${config.appBaseUrl}/app/setup#token=${token}`;

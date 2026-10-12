@@ -268,6 +268,20 @@ with**, not necessarily who gave the treatment.
 - The custom view re-queries whenever a filter changes, so each change is its own audited view.
 - The Accounting and Reports tiles on the module home are now real (`built: true`); they were placeholders.
 
+### 3.8 The first administrator no longer needs a shell *(added after approval, for staging)*
+The seed used to skip a database that already had services, and the first-admin script was a separate command run by hand — so a database seeded before
+`ADMIN_EMAIL` was set never got an administrator, and Render's free plan has no shell to run it from. Now **every `npm run seed` ends with the admin step**
+(`src/lib/bootstrapAdmin.ts`), independent of the service seed's skip: `ADMIN_EMAIL` set and no account with that address → the account is created
+(`ADMIN`, no usable password, must change it) and the one-time link is printed to the deploy log — the link only, never a password. The account, its link and
+its two audit rows are written in **one transaction**, so there is never an account without a link that every later deploy would skip; two deploys racing each other
+create one account. `npm run seed:admin` is now a thin wrapper over the same code (it keeps `--reissue`).
+- **I kept the "a different admin exists → refuse" rule.** It is stricter than "no user with that email exists → create": without it, a stale or mistyped `ADMIN_EMAIL`
+  would mint a new administrator on every database that already has one. The log says so when it refuses. Say if you want it dropped.
+- **No automatic re-issue.** If the 24-hour link expires unused, a redeploy does not print another (that would put a fresh credential in the log on every deploy).
+  Recovery without a shell: delete that one `Account` row in Supabase and redeploy (stage 4 of the staging checklist). An opt-in re-issue for a still-never-used account
+  is a small addition if you would rather have it.
+- A problem in this step (bad address, a refused `APP_BASE_URL`) is reported by name in the log and **does not fail the deploy**; the catalogue seed has already run.
+
 ---
 
 ## 4. Indexes and speed

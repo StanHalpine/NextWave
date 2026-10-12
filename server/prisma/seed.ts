@@ -1,7 +1,13 @@
 /**
- * Seed the Resource / Staff / StaffSchedule / Service matrices.
+ * Seed the Resource / Staff / StaffSchedule / Service matrices, then make sure the first administrator exists.
  *
- * RUNS ONCE, ON AN EMPTY DATABASE ONLY.
+ * THE SERVICE SEED RUNS ONCE, ON AN EMPTY DATABASE ONLY.
+ *
+ * THE ADMIN STEP RUNS EVERY TIME, and is independent of the above: if ADMIN_EMAIL is set and no account has
+ * that email, the administrator is created and a one-time setup link is printed to this log (never a
+ * password). It cannot live inside the skip below — a database seeded before ADMIN_EMAIL was set would never
+ * get an administrator, and a host with no shell cannot run `npm run seed:admin` by hand. Everything else about
+ * it (the rules, why it is idempotent, what it prints) is in src/lib/bootstrapAdmin.ts.
  *
  * This executes on every deploy (see render.yaml), so it must not fight the
  * admin screen. Two earlier attempts were not enough:
@@ -201,7 +207,7 @@ const serviceOptions: Array<{ serviceId: string; label: string; priceCents: numb
   { serviceId: S(5), label: 'Galleri Cancer Test', priceCents: 105000, sortOrder: 5 },
 ];
 
-async function main() {
+async function seedCatalogue() {
   // The presence of ANY service means this database has been set up already —
   // either by a previous seed or by hand. Adding to it from here would undo
   // deletions and resurrect placeholders.
@@ -324,6 +330,41 @@ async function main() {
     }
     console.log(`  planPerkServices ${perkLinks}`);
   }, { timeout: 120_000, maxWait: 30_000 });
+}
+
+/**
+ * The first administrator, from ADMIN_EMAIL. Never throws and never fails the deploy: a problem here (a bad
+ * address, a missing APP_BASE_URL) must not undo or block the catalogue seed that already ran, and the line it
+ * prints says what to fix. It is imported only when ADMIN_EMAIL is set, so a deploy without it never loads the
+ * app's config (and its production guards) from the seed.
+ */
+async function ensureFirstAdmin() {
+  console.log('\nFirst administrator:');
+  if (!(process.env.ADMIN_EMAIL ?? '').trim()) {
+    console.log('  admin bootstrap: ADMIN_EMAIL is not set — nothing to do.');
+    return;
+  }
+  try {
+    const { bootstrapAdmin, BootstrapConfigError } = await import('../src/lib/bootstrapAdmin.js');
+    try {
+      await bootstrapAdmin({ email: process.env.ADMIN_EMAIL, name: process.env.ADMIN_NAME, via: 'seed', out: (l) => console.log(`  ${l}`) });
+    } catch (e) {
+      // A refused configuration names the setting, never a value, so its message is printed; any other error prints
+      // its class only, because a database error's message can echo the query's arguments.
+      const why = e instanceof BootstrapConfigError ? `the app's configuration was refused: ${e.message}` : e instanceof Error ? e.constructor.name : typeof e;
+      console.error(`  admin bootstrap FAILED (${why}) — no administrator was created. Fix it and redeploy.`);
+    } finally {
+      const { basePrisma } = await import('../src/lib/prismaBase.js');
+      await basePrisma.$disconnect();
+    }
+  } catch (e) {
+    console.error(`  admin bootstrap FAILED (${e instanceof Error ? e.constructor.name : typeof e}) — no administrator was created. Fix it and redeploy.`);
+  }
+}
+
+async function main() {
+  await seedCatalogue();
+  await ensureFirstAdmin();
 }
 
 main()

@@ -24,7 +24,7 @@ npm run web:install             # the staff app has its own package.json
 npm run migrate:deploy          # applies every migration (Prisma Migrate, through DIRECT_URL, which falls back to DATABASE_URL in development)
 npm run seed                    # services, rooms, staff — fills an EMPTY database only
 npm run gen-secrets             # prints MFA_ENCRYPTION_KEY=… ; paste it into .env
-ADMIN_EMAIL=you@example.com npm run seed:admin
+ADMIN_EMAIL=you@example.com npm run seed:admin   # or set ADMIN_EMAIL and re-run `npm run seed` — either prints the link
 npm run web:build               # builds the staff app into public/app
 npm run dev                     # API + pages on http://localhost:4000
 ```
@@ -325,8 +325,10 @@ it provisions no database. It builds the server and the staff app.
    transaction and skips otherwise, so admin edits survive every deploy and a failed seed leaves
    the database empty rather than half-populated. The pre-deploy step *does* run on Render's
    infrastructure, so if your Postgres allow-lists IP addresses, run migrations from CI instead.
-4. Open the service **Shell** and run `ADMIN_EMAIL=you@example.com npm run seed:admin`
-   to get the first administrator's setup link.
+4. Set **`ADMIN_EMAIL`** (and optionally `ADMIN_NAME`) on the web service and deploy. The seed step creates the first administrator
+   if no account has that address — whether or not the services were seeded before — and prints the **one-time setup link in the
+   deploy log** (search it for `FIRST ADMINISTRATOR SETUP LINK`). No shell is needed. (With a shell, `ADMIN_EMAIL=you@example.com npm run seed:admin`
+   does the same, and `--reissue` prints a fresh link.)
 5. The blueprint also creates **`nextwave-jobs`**, a Render Cron Job that runs `npm run jobs:run`
    every five minutes (see *Scheduled jobs*). Secrets can't live in an environment group, so enter
    `DATABASE_URL`, `APP_BASE_URL`, `MFA_ENCRYPTION_KEY` and `CLINIC_PHONE` on **both** services. (`DIRECT_URL` is the web service's alone:
@@ -578,7 +580,7 @@ time-off/blackout dates. (Automated tests now exist — `npm test` — covering 
 | `npm run dev` | Watch mode |
 | `npm run seed` | Load services/rooms/staff into an EMPTY database (one transaction) |
 | `npm run migrate:deploy` / `migrate:status` / `migrate` | Prisma Migrate. Through `DIRECT_URL`, falling back to `DATABASE_URL` in development only: `prisma.config.ts`, which **every** Prisma command loads (so raw `npx prisma migrate …` behaves the same), refuses a transaction pooler, and a missing `DIRECT_URL` in production |
-| `npm run seed:admin` | Create the first admin from `ADMIN_EMAIL`; prints a one-time setup link |
+| `npm run seed:admin` | Create the first admin from `ADMIN_EMAIL`; prints a one-time setup link (`npm run seed` does this too, on every run; this script adds `--reissue`) |
 | `npm run gen-secrets` | Print a fresh `MFA_ENCRYPTION_KEY` |
 | `npm run typecheck` | `tsc --noEmit` over src, prisma, scripts and tests |
 | `npm run lint:logs` | Fail if anything but `lib/logger.ts` writes to the console |

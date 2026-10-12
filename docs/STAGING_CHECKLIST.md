@@ -112,8 +112,36 @@ Secrets marked `sync: false` in `render.yaml` are entered in the dashboard, **se
 
 ## 4. The first administrator — `ADMIN_EMAIL`
 
-- [ ] In the web service's shell: `ADMIN_EMAIL=you@example.com npm run seed:admin`. It prints a **one-time setup link** (good for 24
-      hours; no password is ever created, stored or printed). `--reissue` prints a fresh one. It refuses if a *different* admin exists.
+**No shell needed.** The seed step runs on every deploy, and after the services it makes sure the first administrator exists: if `ADMIN_EMAIL` is set
+and **no account has that address**, it creates the administrator and prints a **one-time setup link** in the deploy log. It does this even when the
+services were seeded long ago and the seed skips them — that is the point. No password is ever created, stored or printed; only the link is.
+
+- [ ] In the web service → **Environment**, set `ADMIN_EMAIL` (your address) and, if you like, `ADMIN_NAME`. `APP_BASE_URL` and `MFA_ENCRYPTION_KEY` must be set
+      too (stage 2) — the link is built from `APP_BASE_URL`. Then **deploy** (Manual Deploy → *Deploy latest commit*, or any push).
+- [ ] **Find the link in that deploy's log.** Render dashboard → the web service → **Events** → the deploy → its log (labels may differ a little). On the **free
+      plan the seed is the last step of the Build Command**, so the link is in the *build* section, a few lines above `Seed complete.` and the
+      "Build successful" line; on the paid blueprint it is in the *pre-deploy* log. **Search the log for `FIRST ADMINISTRATOR SETUP LINK`.** You are looking for:
+
+      ```
+      First administrator:
+        admin bootstrap: created the first administrator.
+        ================ FIRST ADMINISTRATOR SETUP LINK ================
+          https://<your-app>/app/setup#token=…
+          Open it to choose a password (valid 24 hours, single use), then sign in and enrol an authenticator app when prompted.
+          Anyone who can read this log can use the link until it is used or expires.
+        ================================================================================
+      ```
+
+      Open the link once the deploy is **live** (it points at the new app). **It is a credential:** anyone who can read the log can use it until it is used or it expires,
+      so use it promptly. It is shown **once** — the database keeps only a hash, and later deploys print no link.
+- [ ] What the other lines mean, if that block is not there: `ADMIN_EMAIL is not set` → set it and redeploy. `an account with ADMIN_EMAIL already exists — nothing changed`
+      → already created (the link was printed on that earlier deploy). `an administrator already exists, so ADMIN_EMAIL was not used` → a *different* active admin
+      exists; further admins are made from **Admin → Accounts**, not from here. `ADMIN_EMAIL is not a valid email address` → fix the value. `admin bootstrap FAILED (the app's
+      configuration was refused: …)` → the message names the setting (usually `APP_BASE_URL` or `MFA_ENCRYPTION_KEY`). In every case **the deploy still succeeds** and the
+      catalogue is untouched; fix the setting and redeploy.
+- [ ] **If the link expires unused, or you lost it:** the seed will not issue a second link for an address that already has an account. In Supabase → *Table
+      Editor* → `Account`, **delete that one row** (its setup links go with it; nothing else has been created for it) and redeploy: a new account and a new link are made. (From a
+      shell, `ADMIN_EMAIL=… npm run seed:admin -- --reissue` prints a fresh link without deleting anything.)
 - [ ] Open the link, choose a password, **enrol an authenticator app** (mandatory for admins), and store the ten recovery codes.
 - [ ] Sign out and in again with the password and a code.
 - [ ] Create the other logins from **Admin → Accounts**: a front desk login, and one login per provider role you will test (a provider
