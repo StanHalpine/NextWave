@@ -8,9 +8,9 @@ import type { Appt, Dashboard, ServiceLite } from '../types';
 import { PatientPicker } from '../patients/PatientPicker';
 import { AppointmentDialog, LinkPatientDialog } from '../schedule/dialogs';
 import { CheckoutDialog } from '../schedule/CheckoutDialog';
+import { DeskActions } from '../schedule/DeskActions';
+import { deskActions, visitStateLabel, type DeskVerb } from '../frontdesk';
 import FrontDeskNav from './FrontDeskNav';
-
-type Verb = 'check-in' | 'undo-check-in' | 'no-show';
 
 export default function FrontDesk() {
   const [date, setDate] = useState<string | undefined>(undefined);   // undefined = today
@@ -36,7 +36,7 @@ export default function FrontDesk() {
   // Refresh every 30s. These are GETs, so they do not keep an unattended session alive.
   useInterval(() => { void load(); }, 30_000);
 
-  async function act(a: Appt, verb: Verb) {
+  async function act(a: Appt, verb: DeskVerb) {
     setBusyId(a.id); setRowError(null);
     try { await api(`/api/fd/appointments/${a.id}/${verb}`, { method: 'POST', body: {} }); await load(); }
     catch (e) { setRowError({ id: a.id, text: errorText(e) }); }
@@ -46,6 +46,11 @@ export default function FrontDesk() {
   const today = data?.today;
   const viewing = data?.date ?? date ?? '';
   const nowMin = data?.isToday ? toMinutes(nowHHMM(data.timezone)) : null;
+  const ctx = { isToday: !!data?.isToday, nowMin };
+  /** The buttons for a card — nothing at all (no empty strip) once the visit is checked out. */
+  const actions = (a: Appt) => deskActions(a, ctx).length === 0 ? undefined : (
+    <DeskActions a={a} ctx={ctx} busy={busyId === a.id} onVerb={(v) => void act(a, v)} onCheckout={() => setCheckout(a)} onLink={() => setLink(a)} />
+  );
 
   return (
     <>
@@ -76,20 +81,14 @@ export default function FrontDesk() {
       <div className="columns" aria-busy={!data}>
         <Column title="Today’s appointments" hint="Still to arrive" count={data?.scheduled.length ?? 0}>
           {data?.scheduled.map((a) => (
-            <Card key={a.id} a={a} onOpen={() => setOpen(a.id)} error={rowError?.id === a.id ? rowError.text : null}>
-              {!a.patient.linked && <button className="btn small" onClick={() => setLink(a)}>Link patient</button>}
-              <button className="btn small primary" disabled={busyId === a.id || !a.patient.linked || !data.isToday} title={!a.patient.linked ? 'Link a patient record first' : ''} onClick={() => void act(a, 'check-in')}>Check in</button>
-              {nowMin !== null && toMinutes(a.localStart) <= nowMin && <button className="btn small" disabled={busyId === a.id} onClick={() => void act(a, 'no-show')}>No-show</button>}
-            </Card>
+            <Card key={a.id} a={a} onOpen={() => setOpen(a.id)} error={rowError?.id === a.id ? rowError.text : null}>{actions(a)}</Card>
           ))}
           {data && data.scheduled.length === 0 && <Empty>No one else is expected{data.isToday ? ' today' : ''}.</Empty>}
           {data && data.noShows.length > 0 && (
             <details className="noshows">
               <summary>No-shows ({data.noShows.length})</summary>
               {data.noShows.map((a) => (
-                <Card key={a.id} a={a} muted onOpen={() => setOpen(a.id)} error={rowError?.id === a.id ? rowError.text : null}>
-                  <button className="btn small" disabled={busyId === a.id || !a.patient.linked || !data.isToday} onClick={() => void act(a, 'check-in')}>They arrived — check in</button>
-                </Card>
+                <Card key={a.id} a={a} muted onOpen={() => setOpen(a.id)} error={rowError?.id === a.id ? rowError.text : null}>{actions(a)}</Card>
               ))}
             </details>
           )}
@@ -99,17 +98,20 @@ export default function FrontDesk() {
           {data?.checkedIn.map((a) => (
             <Card key={a.id} a={a} onOpen={() => setOpen(a.id)} error={rowError?.id === a.id ? rowError.text : null}
               extra={a.encounter?.checkedInAt && <span className="wait">in at {fmtInstantTime(a.encounter.checkedInAt, data.timezone)}{waiting(a.encounter.checkedInAt, data.now)}</span>}>
-              <button className="btn small primary" disabled={busyId === a.id} onClick={() => setCheckout(a)}>Check out…</button>
-              <button className="btn small" disabled={busyId === a.id} onClick={() => void act(a, 'undo-check-in')}>Undo check-in</button>
+              {actions(a)}
             </Card>
           ))}
           {data && data.checkedIn.length === 0 && <Empty>No one is checked in.</Empty>}
         </Column>
 
-        <Column title="Seen / checked out" hint="Finished" count={data?.done.length ?? 0}>
+        <Column title="Seen / checked out" hint="Seen visits still need checking out" count={data?.done.length ?? 0}>
           {data?.done.map((a) => (
-            <Card key={a.id} a={a} muted onOpen={() => setOpen(a.id)} error={null}
-              extra={a.encounter?.checkedOutAt && <span className="wait">out at {fmtInstantTime(a.encounter.checkedOutAt, data.timezone)}</span>} />
+            <Card key={a.id} a={a} muted={a.encounter?.status === 'CHECKED_OUT'} onOpen={() => setOpen(a.id)} error={rowError?.id === a.id ? rowError.text : null}
+              extra={a.encounter?.status === 'SEEN'
+                ? <span className="pill warn" title="The provider has signed. Nothing is recorded, and the visit is not finished, until it is checked out.">{visitStateLabel(a)}</span>
+                : a.encounter?.checkedOutAt && <span className="wait">out at {fmtInstantTime(a.encounter.checkedOutAt, data.timezone)}</span>}>
+              {actions(a)}
+            </Card>
           ))}
           {data && data.done.length === 0 && <Empty>Nobody has finished yet.</Empty>}
         </Column>
@@ -118,7 +120,7 @@ export default function FrontDesk() {
       <p className="muted small updated">{updatedAt && `Updated ${updatedAt} · refreshes every 30 seconds · `}<button className="linklike" onClick={() => void load()}>Refresh now</button></p>
 
       {walkIn && today && <WalkInDialog tz={data!.timezone} onClose={() => setWalkIn(false)} onPlaced={() => { setWalkIn(false); void load(); }} />}
-      {open && <AppointmentDialog id={open} today={today ?? ''} onClose={() => setOpen(null)} onChanged={() => void load()} />}
+      {open && <AppointmentDialog id={open} today={today ?? ''} desk onClose={() => setOpen(null)} onChanged={() => void load()} />}
       {checkout && <CheckoutDialog appt={checkout} onClose={() => setCheckout(null)} onDone={() => void load()} />}
       {link && <LinkPatientDialog appt={link} onClose={() => setLink(null)} onLinked={() => { setLink(null); void load(); }} />}
     </>

@@ -151,6 +151,11 @@ services were seeded long ago and the seed skips them — that is the point. No 
 
 - [ ] Book a test appointment from the public page; approve it on the Schedule; check the patient in; check out **cash**, then another
       visit with **credits** (create a test membership first, Patients → profile → Credit Tracker).
+- [ ] **A signed visit is not a finished one.** After a provider signs the note, the visit sits in the Front Desk's third column as **"Seen — needs check-out"**
+      with a **Check out…** button (also in the dialog you get by clicking the card, which now has the desk actions itself: check in, undo check-in, check out,
+      no-show). Check it out: only then does the visit read "Checked out" and revenue appear in Accounting. If an earlier test visit was left stuck, see
+      `server/scripts/one-off/2026-10-12-reopen-unpaid-checkout.sql` (paste into the Supabase SQL editor; step 1 only looks).
+- [ ] **Editing your own roles** (Admin → Accounts) keeps you signed in and refreshes your roles in place; anyone else's sign-ins end at once.
 - [ ] **Enrolling that test membership billed its first month's dues.** Accounting → any view: under the service table there is a separate
       **Membership dues (billed)** table with one month at the tier's price, **not** added into the service totals above it.
 - [ ] **Accounting** (admin): *Monthly by service*, *Daily*, *Members vs. non-members* and *Custom* each show those two visits; the totals row

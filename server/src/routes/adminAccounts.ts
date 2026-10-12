@@ -152,10 +152,19 @@ adminAccountsRouter.patch('/admin/accounts/:id', async (req, res) => {
   if (active !== undefined) data.active = active;
   const updated = await prisma.account.update({ where: { id: target.id }, data });
 
-  // A change of role or status must take effect NOW, not at the next login.
-  if (active === false || parsed.data.roles) await revokeAllForAccount(target.id, active === false ? 'deactivated' : 'roles_changed');
+  // A change of role or status must take effect NOW, not at the next login — so every OTHER sign-in of that account ends.
+  // The administrator editing their OWN roles keeps the session they are making the change from (it re-reads the account on every
+  // request, so the new roles apply to it at once, and it is already signed in with its authenticator): ending it only dropped them to a
+  // generic "your session ended" with their change saved. The app refreshes its view of the roles from /api/auth/me.
+  // Deactivation is never spared — and cannot be self-inflicted (the 409 above).
+  const ownSession = target.id === me.id && active !== false ? req.auth!.session.id : undefined;
+  let sessionKept = false;
+  if (active === false || parsed.data.roles) {
+    await revokeAllForAccount(target.id, active === false ? 'deactivated' : 'roles_changed', ownSession);
+    sessionKept = ownSession !== undefined;
+  }
   audit.record({ action: 'UPDATE', resourceType: 'account', resourceId: target.id, meta: { fields: Object.keys(parsed.data) } });
-  res.json({ account: publicAccount(updated) });
+  res.json({ account: publicAccount(updated), sessionKept });
 });
 
 // ---- credential recovery (admin-initiated) ---------------------------------

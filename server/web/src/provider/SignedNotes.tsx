@@ -12,14 +12,19 @@ const KIND_LABEL: Record<string, string> = { ...Object.fromEntries(SECTIONS.map(
  * beside the old one (with the reason) and keeps both. Every earlier version stays readable below.
  */
 export function SignedNotes({ notes, canAddend, tz, onAmended }: { notes: SignedNote[]; canAddend: boolean; tz: string; onAmended: () => Promise<void> }) {
+  // An amendment gives the note a NEW id, so the block that was edited is replaced by a fresh one; what was done is kept here, above
+  // them, to say so. The provider stays on this note after saving — nothing here navigates away.
+  const [saved, setSaved] = useState<string | null>(null);
+  const after = (what: string) => async () => { await onAmended(); setSaved(what); };
   return (
     <div className="stack">
-      {inNoteOrder(notes).map((n) => <NoteBlock key={n.id} note={n} canAddend={canAddend} tz={tz} onAmended={onAmended} />)}
+      {saved && <p className="notice" role="status">{saved}</p>}
+      {inNoteOrder(notes).map((n) => <NoteBlock key={n.id} note={n} canAddend={canAddend} tz={tz} onAmended={after('Amendment saved. The earlier version stays in the note’s history.')} onAddended={after('Addendum added.')} />)}
     </div>
   );
 }
 
-function NoteBlock({ note, canAddend, tz, onAmended }: { note: SignedNote; canAddend: boolean; tz: string; onAmended: () => Promise<void> }) {
+function NoteBlock({ note, canAddend, tz, onAmended, onAddended }: { note: SignedNote; canAddend: boolean; tz: string; onAmended: () => Promise<void>; onAddended: () => Promise<void> }) {
   const canAmend = note.canAmend;                       // only the provider who signed it
   const [editing, setEditing] = useState(false);
   const [body, setBody] = useState(note.body);
@@ -64,7 +69,7 @@ function NoteBlock({ note, canAddend, tz, onAmended }: { note: SignedNote; canAd
       {!editing && (
         <div className="note-actions">
           {canAmend && <button className="btn small" onClick={() => setEditing(true)}>Amend…</button>}
-          {canAddend && <AddendumButton noteId={note.id} onAdded={onAmended} />}
+          {canAddend && <AddendumButton noteId={note.id} onAdded={onAddended} />}
           {!canAmend && canAddend && <span className="hint">Only {note.author.name} can amend this note; add an addendum instead.</span>}
         </div>
       )}

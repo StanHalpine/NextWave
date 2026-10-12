@@ -4,7 +4,7 @@
  * The dashboard's three columns come from the Encounter table (lib/encounters.ts):
  *   Today's appointments  → confirmed, no encounter yet (or still SCHEDULED)
  *   Checked in            → CHECKED_IN, IN_PROGRESS
- *   Seen / checked out    → SEEN, CHECKED_OUT
+ *   Seen / checked out    → SEEN, CHECKED_OUT   (SEEN = the provider signed; the visit is NOT finished until it is checked out)
  * No-shows are listed apart so they neither clutter nor vanish from the day.
  */
 
@@ -62,6 +62,9 @@ fdRouter.get('/fd/dashboard', requireFrontDesk, async (req, res) => {
   }
   // Longest-waiting first is what the desk needs for the checked-in column.
   checkedIn.sort((a, b) => (a.encounter?.checkedInAt?.getTime() ?? 0) - (b.encounter?.checkedInAt?.getTime() ?? 0));
+  // A SEEN visit still has to be checked out (nothing is recorded until it is): those lead the finished column, and stay in time order.
+  const unpaid = (v: ReturnType<typeof appointmentView>) => (v.encounter?.status === 'SEEN' ? 0 : 1);
+  done.sort((a, b) => unpaid(a) - unpaid(b));            // stable: the rows arrived in start-time order
 
   audit.read('appointment', null, { count: rows.length, scope: 'front_desk_dashboard' }, `dashboard:${date}`);
   res.json({

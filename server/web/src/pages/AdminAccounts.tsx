@@ -61,7 +61,8 @@ function RoleEditor(props: {
 }
 
 export default function AdminAccounts() {
-  const { me } = useAuth();
+  const { me, refresh } = useAuth();
+  const [notice, setNotice] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [linkable, setLinkable] = useState<LinkableStaff[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -81,7 +82,7 @@ export default function AdminAccounts() {
   useEffect(() => { void load(); }, [load]);
 
   const run = async (fn: () => Promise<unknown>) => {
-    setError(null);
+    setError(null); setNotice(null);
     try { await fn(); await load(); } catch (e) { setError(e instanceof ApiError ? e.message : 'Something went wrong.'); }
   };
 
@@ -99,6 +100,7 @@ export default function AdminAccounts() {
       <h1>Accounts</h1>
       <p className="lede">Each person signs in as themselves. You never see or set anyone's password — new and reset accounts get a one-time link.</p>
       {error && <p className="error" role="alert">{error}</p>}
+      {notice && <p className="notice" role="status">{notice}</p>}
       {link && <LinkBox link={link} onClose={() => setLink(null)} />}
 
       <table className="table">
@@ -117,7 +119,13 @@ export default function AdminAccounts() {
               </td>
               <td className="actions">
                 {editing === a.id ? (
-                  <form className="inline-edit" onSubmit={(e) => { e.preventDefault(); void run(async () => { await api(`/api/admin/accounts/${a.id}`, { method: 'PATCH', body: { roles: eRoles, staffId: eStaff } }); setEditing(null); }); }}>
+                  <form className="inline-edit" onSubmit={(e) => { e.preventDefault(); void run(async () => {
+                    const r = await api<{ sessionKept?: boolean }>(`/api/admin/accounts/${a.id}`, { method: 'PATCH', body: { roles: eRoles, staffId: eStaff } });
+                    setEditing(null);
+                    // Your own roles: the server kept this session (everyone else's ended). Re-read who you are now, so the menu and the
+                    // pages you may open match the new roles without signing in again.
+                    if (a.id === me?.account.id && r.sessionKept) { await refresh(); setNotice('Your roles were updated. You stay signed in, and the menu now shows what the new roles allow.'); }
+                  }); }}>
                     <RoleEditor roles={eRoles} staffId={eStaff} linkable={linkable.concat(a.staffId ? [{ id: a.staffId, name: '(current)', role: STAFF_ROLE_FOR[a.roles.find(isProvider) as Role] ?? '' }] : [])} onRoles={setERoles} onStaff={setEStaff} />
                     <button className="btn primary">Save</button> <button type="button" className="btn ghost" onClick={() => setEditing(null)}>Cancel</button>
                   </form>

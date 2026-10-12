@@ -3,9 +3,12 @@ import { Link, useNavigate } from 'react-router-dom';
 import { api, ApiError } from '../api';
 import { useClinicTz, todayIn } from '../clinic';
 import { errorText, Modal, Notice, ServiceDot, sourceLabel } from '../ui';
-import { fmtDayLong, fmtTime12, fmtInstantTime, fmtPhone, serviceLabel } from '../lib';
+import { fmtDayLong, fmtTime12, fmtInstantTime, fmtPhone, nowHHMM, serviceLabel, toMinutes } from '../lib';
 import { CANCEL_REASON_LABEL, type Appt, type PatientSummary, type ServiceLite, type SlotLite } from '../types';
 import { PatientPicker } from '../patients/PatientPicker';
+import { CheckoutDialog } from './CheckoutDialog';
+import { DeskActions } from './DeskActions';
+import { visitStateLabel, type DeskVerb } from '../frontdesk';
 
 interface SlotsResponse { date: string; durationMin: number; closedReason: string | null; slots: SlotLite[]; staff: Array<{ id: string; name: string }> }
 
@@ -336,13 +339,20 @@ function msgSummary(m: Detail['messages'][number], tz: string): string {
   return `failed (${(m.failureCode ?? 'error').replace(/_/g, ' ')})`;
 }
 
-export function AppointmentDialog({ id, today, onClose, onChanged }: { id: string; today: string; onClose: () => void; onChanged: () => void }) {
+/**
+ * One appointment: its details and what can be done with it.
+ *
+ * `desk` is set when the dialog is opened FROM the Front Desk page. There the front-desk actions (check in, undo check-in, check
+ * out, no-show) are the dialog's own buttons, and nothing links to the page it is already on. From the Schedule it is the calendar's
+ * dialog: it can check a patient in, and a visit that has started points to the Front Desk, where it is finished.
+ */
+export function AppointmentDialog({ id, today, desk = false, onClose, onChanged }: { id: string; today: string; desk?: boolean; onClose: () => void; onChanged: () => void }) {
   const tz = useClinicTz();
   const nav = useNavigate();
   const [d, setD] = useState<Detail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [sub, setSub] = useState<null | 'move' | 'cancel' | 'link'>(null);
+  const [sub, setSub] = useState<null | 'move' | 'cancel' | 'link' | 'checkout'>(null);
 
   const load = useCallback(() => api<Detail>(`/api/schedule/appointments/${id}`).then((r) => { setD(r); setError(null); }).catch((e) => setError(errorText(e))), [id]);
   useEffect(() => { void load(); }, [load]);
@@ -362,6 +372,7 @@ export function AppointmentDialog({ id, today, onClose, onChanged }: { id: strin
   if (sub === 'move' && a) return <MoveDialog appt={a} onClose={() => setSub(null)} onMoved={() => { setSub(null); changed(); }} />;
   if (sub === 'cancel' && a) return <CancelDialog appt={a} onClose={() => setSub(null)} onCancelled={() => { setSub(null); changed(); }} />;
   if (sub === 'link' && a) return <LinkPatientDialog appt={a} onClose={() => setSub(null)} onLinked={() => { setSub(null); changed(); }} />;
+  if (sub === 'checkout' && a) return <CheckoutDialog appt={a} onClose={() => setSub(null)} onDone={changed} />;
 
   return (
     <Modal title="Appointment" onClose={onClose}>
@@ -407,27 +418,43 @@ export function AppointmentDialog({ id, today, onClose, onChanged }: { id: strin
               <button className="btn primary" disabled={busy} onClick={() => void run(`/api/bookings/${a.id}`, 'PATCH', { status: 'CONFIRMED' })}>Approve</button>
               <button className="btn" disabled={busy} onClick={() => void run(`/api/bookings/${a.id}`, 'PATCH', { status: 'DECLINED' })}>Decline</button>
             </>)}
-            {a.status === 'CONFIRMED' && isToday && !a.encounter?.status.match(/CHECKED|SEEN|PROGRESS/) && (
+            {desk && (
+              <DeskActions a={a} ctx={{ isToday, nowMin: isToday ? toMinutes(nowHHMM(tz)) : null }} busy={busy}
+                onVerb={(v: DeskVerb) => void run(`/api/fd/appointments/${a.id}/${v}`)} onCheckout={() => setSub('checkout')} onLink={() => setSub('link')} />
+            )}
+            {!desk && a.status === 'CONFIRMED' && isToday && !a.encounter?.status.match(/CHECKED|SEEN|PROGRESS/) && (
               <button className="btn primary" disabled={busy || !a.patient.linked} title={a.patient.linked ? '' : 'Link a patient record first'} onClick={() => void run(`/api/fd/appointments/${a.id}/check-in`)}>Check in</button>
             )}
             {(a.status === 'CONFIRMED' || a.status === 'PENDING_REVIEW') && !started && (<>
               <button className="btn" disabled={busy} onClick={() => setSub('move')}>Move…</button>
               <button className="btn" disabled={busy} onClick={() => setSub('cancel')}>Cancel…</button>
             </>)}
-            {!a.patient.linked && a.status !== 'CANCELLED' && <button className="btn" disabled={busy} onClick={() => setSub('link')}>Link patient…</button>}
-            {started && <button className="btn" onClick={() => { onClose(); nav('/front-desk'); }}>Open on Front Desk</button>}
+            {!desk && !a.patient.linked && a.status !== 'CANCELLED' && <button className="btn" disabled={busy} onClick={() => setSub('link')}>Link patient…</button>}
+            {!desk && started && <button className="btn" onClick={() => { onClose(); nav('/front-desk'); }}>Open on Front Desk</button>}
           </div>
-          {started && <p className="hint">This patient is already {a.encounter!.status === 'CHECKED_IN' ? 'checked in' : 'seen'}; it can’t be moved or cancelled. Undo the check-in on the Front Desk page first.</p>}
+          {started && <p className="hint">{startedHint(a, desk)}</p>}
         </div>
       )}
     </Modal>
   );
 }
 
+/** Why a visit that has started can't be moved or cancelled, and what to do about it from where the person is. */
+function startedHint(a: Appt, desk: boolean): string {
+  const enc = a.encounter!.status;
+  const where = desk ? 'here' : 'on the Front Desk page';
+  if (enc === 'CHECKED_IN') return `This patient is checked in, so the visit can’t be moved or cancelled. Undo the check-in ${where} first.`;
+  if (enc === 'CHECKED_OUT') return 'This visit is checked out, so it can’t be moved or cancelled.';
+  if (enc === 'SEEN') return `The provider has seen this patient, so the visit can’t be moved or cancelled. It still needs to be checked out${desk ? '.' : ' on the Front Desk page.'}`;
+  return `This patient is with the provider, so the visit can’t be moved or cancelled. It is checked out ${where} when they are finished.`;
+}
+
 export function StatusPill({ appt }: { appt: Appt }) {
   const enc = appt.encounter?.status;
-  if (enc === 'CHECKED_IN' || enc === 'IN_PROGRESS') return <span className="pill ok">Checked in</span>;
-  if (enc === 'SEEN' || enc === 'CHECKED_OUT') return <span className="pill ok">Done</span>;
+  if (enc === 'CHECKED_IN' || enc === 'IN_PROGRESS') return <span className="pill ok">{visitStateLabel(appt)}</span>;
+  // "Seen" is NOT finished: the provider has signed, but nothing is recorded until the front desk checks the patient out.
+  if (enc === 'SEEN') return <span className="pill warn" title="The provider has signed. The visit is finished only once it is checked out.">{visitStateLabel(appt)}</span>;
+  if (enc === 'CHECKED_OUT') return <span className="pill ok">{visitStateLabel(appt)}</span>;
   if (enc === 'NO_SHOW') return <span className="pill bad">No-show</span>;
   switch (appt.status) {
     case 'PENDING_REVIEW': return <span className="pill warn">Needs approval</span>;

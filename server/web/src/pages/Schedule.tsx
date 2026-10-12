@@ -247,8 +247,11 @@ function GridColumn({ col, openMin, closeMin, tz, onOpen, onEmpty }: {
         const start = toMinutes(a.localStart);
         const end = toMinutes(a.localEnd);
         const { lane, lanes: n } = lanes[i]!;
-        const done = a.encounter?.status === 'CHECKED_OUT' || a.encounter?.status === 'SEEN';
-        const here = a.encounter?.status === 'CHECKED_IN' || a.encounter?.status === 'IN_PROGRESS';
+        // Only a CHECKED-OUT visit is finished (dimmed). A SEEN one — signed by the provider — still has to be checked out, so it keeps
+        // the "here" mark until the desk does.
+        const done = a.encounter?.status === 'CHECKED_OUT';
+        const seen = a.encounter?.status === 'SEEN';
+        const here = a.encounter?.status === 'CHECKED_IN' || a.encounter?.status === 'IN_PROGRESS' || seen;
         const h = Math.max((end - start) * PX_PER_MIN - 2, 20);
         return (
           <div key={a.id}>
@@ -259,7 +262,7 @@ function GridColumn({ col, openMin, closeMin, tz, onOpen, onEmpty }: {
                 left: `calc(${(lane / n) * 100}% + 2px)`, width: `calc(${100 / n}% - 4px)`, background: a.service.color,
               }}
               onClick={(e) => { e.stopPropagation(); onOpen(a.id); }}
-              title={`${fmtTime12(a.localStart)} – ${fmtTime12(a.localEnd)} · ${a.patient.name} · ${a.service.name}`}
+              title={`${fmtTime12(a.localStart)} – ${fmtTime12(a.localEnd)} · ${a.patient.name} · ${a.service.name}${seen ? ' · seen, needs check-out' : ''}`}
             >
               <span className="ev-top">
                 <span className="ev-time">{fmtTime12(a.localStart).replace(' ', '')}{here && ' ✓'}</span>

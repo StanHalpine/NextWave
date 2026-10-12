@@ -282,6 +282,22 @@ create one account. `npm run seed:admin` is now a thin wrapper over the same cod
   is a small addition if you would rather have it.
 - A problem in this step (bad address, a refused `APP_BASE_URL`) is reported by name in the log and **does not fail the deploy**; the catalogue seed has already run.
 
+### 3.9 A signed visit is SEEN, not done — and the desk can check it out *(found on staging)*
+Signing a note sets the visit to **SEEN** (it always did); only **check-out** sets **CHECKED_OUT**, and it writes the payment (`RevenueEvent`) in the same transaction
+(`lib/checkout.ts`). The server accepted check-out from SEEN. The **screens** did not: the Front Desk offered "Check out…" only on cards in the *Checked in*
+column, a SEEN card sits in *Seen / checked out* with no actions, and its pill said **"Done"** (the same word for SEEN and CHECKED_OUT). So a signed visit looked finished,
+had no way to be checked out, and Accounting showed nothing. There is no `DONE` status in the data; "Done" was a label.
+- The desk's actions are now one table (`web/src/frontdesk.ts`) used by the cards **and** by the appointment dialog, which, opened from the Front Desk, shows them itself instead
+  of a link to its own page. SEEN shows **"Seen — needs check-out"** and **Check out…**; SEEN visits lead the finished column; the calendar no longer dims a SEEN visit.
+- `tests/desk-flow.test.ts` pins it: signing → SEEN with no revenue; amending leaves it SEEN; check-out writes one `RevenueEvent`; nothing else (start, sign, amend, addendum, undo,
+  no-show, a second check-in) reaches CHECKED_OUT; and only `encounters.ts` writes that status and only `checkout.ts` calls it.
+- A one-off for a visit already stuck: `server/scripts/one-off/2026-10-12-reopen-unpaid-checkout.sql` (tested in `tests/one-off-fix.test.ts`).
+- **Editing your own roles** no longer ends your session: the editing administrator's session is kept (the account is re-read on every request, so the new roles apply at once) and the
+  app refreshes who you are; every *other* sign-in of the account still ends. Not changed: someone else's session that ends because an administrator changed their roles still says
+  the generic "Your session ended".
+- **The amend "redirect to the Front Desk"** could not be reproduced: nothing in the staff app navigates there after saving (the only link to `/front-desk` in the provider screens is
+  the "Patient record" link, which opens in a new tab; the shared appointment dialog's "Open on Front Desk" is on the Schedule). The page now says "Amendment saved" and stays on the note.
+
 ---
 
 ## 4. Indexes and speed
