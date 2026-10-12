@@ -11,6 +11,11 @@
 # — an external staging instance now, AWS RDS later. Set DATABASE_URL in the
 # dashboard; it must end ?sslmode=require (production refuses to start without TLS).
 #
+# TWO connection strings, because they do different jobs. DATABASE_URL is what the APP connects with — on Supabase, the
+# TRANSACTION pooler (port 6543, ?pgbouncer=true). DIRECT_URL is what MIGRATIONS connect with — a direct connection or the
+# SESSION pooler (port 5432), never a transaction pooler, which cannot carry the advisory lock `prisma migrate` takes. The schema
+# declares `directUrl = env("DIRECT_URL")`; only the pre-deploy step reads it, so only the web service needs it.
+#
 # This file does NOT affect the existing static site that serves
 # nextwave-wellness.com — manually created Render services ignore render.yaml.
 #
@@ -47,19 +52,34 @@ services:
     # so a failure leaves the database empty and re-runnable rather than half-populated. It never
     # touches Booking, User, VisitNote, Account or the audit log.
     #
-    # NOTE — the pre-deploy step runs on Render's infrastructure, so DATABASE_URL must be
-    # reachable from there. If your Postgres allow-lists IP addresses, run migrations from CI
+    # NOTE — the pre-deploy step runs on Render's infrastructure, so DIRECT_URL (the connection migrations use)
+    # must be reachable from there. If your Postgres allow-lists IP addresses, run migrations from CI
     # instead and drop this line.
+    #
+    # `npm run migrate:deploy` is `prisma migrate deploy` run through scripts/prisma.ts, which refuses — with a
+    # message, before touching the database — a missing DIRECT_URL in production, a DIRECT_URL that is a transaction
+    # pooler (port 6543 or ?pgbouncer=true), and one without ?sslmode=require. (In development it falls back to
+    # DATABASE_URL; production never does.) `npx prisma migrate deploy` directly would also work, but skips those checks.
     # The staff app (React + Vite, in web/) is built into public/app, which
     # Express serves at /app. It has its own package.json, hence its own install.
     buildCommand: npm ci --include=dev && npx prisma generate && npm --prefix web ci --include=dev && npm --prefix web run build && npm run build
-    preDeployCommand: npx prisma migrate deploy && npm run seed
+    preDeployCommand: npm run migrate:deploy && npm run seed
     startCommand: npm start
     healthCheckPath: /health
     envVars:
       # Set in the Render dashboard; never stored here. The URL must require TLS
       # (end it ?sslmode=require): production refuses to start otherwise.
+      # What the APP uses. On Supabase: the transaction pooler, e.g.
+      #   postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres?pgbouncer=true&sslmode=require
       - key: DATABASE_URL
+        sync: false
+
+      # What MIGRATIONS use (the pre-deploy step above). A direct connection, or Supabase's SESSION pooler on port 5432 — NOT the
+      # transaction pooler, and no ?pgbouncer=true. Must also end ?sslmode=require. Required here: the pre-deploy step refuses to
+      # run without it in production. (The cron job below does not need it: it runs no migrations.) E.g.
+      #   postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres?sslmode=require
+      # If the database is not behind a pooler at all, set it to the same value as DATABASE_URL.
+      - key: DIRECT_URL
         sync: false
 
       - key: NODE_ENV
@@ -153,7 +173,8 @@ services:
         value: production
       - key: CLINIC_TIMEZONE
         value: America/Chicago
-      # The same Postgres as the web service. Must end ?sslmode=require.
+      # The same Postgres as the web service, through the same (pooled) URL. Must end ?sslmode=require. No DIRECT_URL here: this
+      # job runs no migrations, and `prisma generate` in its build needs no database.
       - key: DATABASE_URL
         sync: false
       # config.ts enforces its production guards in this process too.

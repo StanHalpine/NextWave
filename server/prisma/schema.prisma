@@ -3,8 +3,13 @@
 // (they change no field, and the availability queries are unusable without them).
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  // What the APP connects with. On Supabase that is the transaction pooler (port 6543, ?pgbouncer=true).
+  url       = env("DATABASE_URL")
+  // What Prisma MIGRATE connects with: a DIRECT connection, never a transaction pooler (migrations hold a session-level advisory
+  // lock, which a transaction pooler cannot carry). Only the Prisma CLI reads it; the running app never does. Run the CLI through
+  // `npm run migrate:deploy` and friends (scripts/prisma.ts), which fall back to DATABASE_URL in development.
+  directUrl = env("DIRECT_URL")
 }
 
 generator client {

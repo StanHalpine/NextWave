@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { randomBytes } from 'node:crypto';
 import { logger } from './lib/logger.js';
+import { urlRequiresTls } from './lib/dbEnv.js';
 import { DEFAULT_SMS_FROM_NUMBER, PUBLISHED_CLINIC_PHONE, isE164 } from './clinicContact.js';
 
 function required(name: string): string {
@@ -34,15 +35,12 @@ const isProduction = process.env.NODE_ENV === 'production';
  */
 function assertDatabaseTls(url: string): void {
   if (!isProduction) return;
-  let params: URLSearchParams;
   try {
-    params = new URL(url).searchParams;
+    new URL(url);
   } catch {
     throw new Error('Refusing to start: DATABASE_URL is not a valid URL.');
   }
-  const mode = (params.get('sslmode') ?? '').toLowerCase();
-  const ok = ['require', 'verify-ca', 'verify-full'].includes(mode) || params.get('ssl') === 'true';
-  if (!ok) {
+  if (!urlRequiresTls(url)) {
     throw new Error(
       'Refusing to start: NODE_ENV=production but DATABASE_URL does not require TLS. '
       + 'Add ?sslmode=require (or verify-full) to the connection string.',

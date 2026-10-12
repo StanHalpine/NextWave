@@ -18,10 +18,10 @@ Three surfaces:
 Requires Node 20+ and PostgreSQL (16 tested).
 
 ```bash
-cp .env.example .env            # set DATABASE_URL — see .env.example for the rest
+cp .env.example .env            # set DATABASE_URL (leave DIRECT_URL unset in development) — see .env.example for the rest
 npm install
 npm run web:install             # the staff app has its own package.json
-npx prisma migrate deploy       # applies every migration, including Phase 1
+npm run migrate:deploy          # applies every migration (Prisma Migrate, through DIRECT_URL, which falls back to DATABASE_URL in development)
 npm run seed                    # services, rooms, staff — fills an EMPTY database only
 npm run gen-secrets             # prints MFA_ENCRYPTION_KEY=… ; paste it into .env
 ADMIN_EMAIL=you@example.com npm run seed:admin
@@ -299,19 +299,25 @@ A confirmation therefore goes out within one interval of the appointment being c
 
 The app reads its database from **`DATABASE_URL` and nothing else**, so it runs
 against whatever Postgres you point it at: an external staging instance now, AWS
-RDS later. `render.yaml` (repo root) is a Blueprint for the **web service only** —
+RDS later. **Migrations use a second variable, `DIRECT_URL`** (the schema's `directUrl`): on Supabase the
+app goes through the **transaction pooler** (port 6543, `?pgbouncer=true`), which cannot run migrations, so
+`DIRECT_URL` is a direct connection or the **session pooler** (port 5432). Only the Prisma CLI reads it; the running
+app never does. `render.yaml` (repo root) is a Blueprint for the **web service only** —
 it provisions no database. It builds the server and the staff app.
 
 1. Push the branch; Render → **New → Blueprint** → select it.
 2. Set the `sync: false` values in the dashboard:
    - `DATABASE_URL` — your Postgres, **ending `?sslmode=require`** (production
-     refuses to start on a non-TLS URL).
+     refuses to start on a non-TLS URL). On Supabase: the transaction pooler, port 6543, plus `&pgbouncer=true`.
+   - `DIRECT_URL` — **web service only**: what migrations connect with. A direct connection or Supabase's session
+     pooler (port 5432), **ending `?sslmode=require`**, and **not** a transaction pooler. Required in production: the pre-deploy
+     step refuses to run without it, and refuses a pooler or a non-TLS URL, before touching the database.
    - `APP_BASE_URL` — the public `https://` origin (used for setup links).
    - `MFA_ENCRYPTION_KEY` — from `npm run gen-secrets`. **Keep a copy**: losing
      it invalidates every enrolled authenticator.
 3. Deploy. The **build** touches no database (it generates the Prisma client and compiles the
    server and staff app), so Render's build servers never need to reach `DATABASE_URL`. Migrations
-   and the seed run in **`preDeployCommand`** — after the build, before the new version takes
+   (`npm run migrate:deploy`, over `DIRECT_URL`) and the seed run in **`preDeployCommand`** — after the build, before the new version takes
    traffic; a failure stops the deploy. `npm run seed` populates an EMPTY database in one
    transaction and skips otherwise, so admin edits survive every deploy and a failed seed leaves
    the database empty rather than half-populated. The pre-deploy step *does* run on Render's
@@ -320,7 +326,8 @@ it provisions no database. It builds the server and the staff app.
    to get the first administrator's setup link.
 5. The blueprint also creates **`nextwave-jobs`**, a Render Cron Job that runs `npm run jobs:run`
    every five minutes (see *Scheduled jobs*). Secrets can't live in an environment group, so enter
-   `DATABASE_URL`, `APP_BASE_URL`, `MFA_ENCRYPTION_KEY` and `CLINIC_PHONE` on **both** services.
+   `DATABASE_URL`, `APP_BASE_URL`, `MFA_ENCRYPTION_KEY` and `CLINIC_PHONE` on **both** services. (`DIRECT_URL` is the web service's alone:
+   the cron job runs no migrations.)
 
 Both services use a **paid** plan (`0.5c-512mb`): `preDeployCommand` isn't available on the free
 plan, cron jobs have no free plan, and the web service must be awake to answer the text-message
@@ -567,6 +574,7 @@ time-off/blackout dates. (Automated tests now exist — `npm test` — covering 
 |---|---|
 | `npm run dev` | Watch mode |
 | `npm run seed` | Load services/rooms/staff into an EMPTY database (one transaction) |
+| `npm run migrate:deploy` / `migrate:status` / `migrate` | Prisma Migrate through `DIRECT_URL`, falling back to `DATABASE_URL` in development only (`scripts/prisma.ts`; refuses a transaction pooler, and a missing `DIRECT_URL` in production). `npm run prisma -- <anything>` runs any other Prisma CLI command the same way |
 | `npm run seed:admin` | Create the first admin from `ADMIN_EMAIL`; prints a one-time setup link |
 | `npm run gen-secrets` | Print a fresh `MFA_ENCRYPTION_KEY` |
 | `npm run typecheck` | `tsc --noEmit` over src, prisma, scripts and tests |

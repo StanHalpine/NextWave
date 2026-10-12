@@ -33,7 +33,9 @@ if (mode === 'create' || mode === 'drop') {
   } finally { await db.$disconnect(); }
 } else if (mode === 'run') {
   const cmd = rest[0] === '--' ? rest.slice(1) : rest;
-  const child = spawn(cmd[0], cmd.slice(1), { stdio: 'inherit', env: { ...process.env, DATABASE_URL: url.toString() } });
+  // DIRECT_URL too: the schema declares directUrl, which `prisma migrate` uses INSTEAD of DATABASE_URL. Left alone, a DIRECT_URL in the
+  // developer's environment would send this command's migrations to the REAL schema while everything else ran in the scratch one.
+  const child = spawn(cmd[0], cmd.slice(1), { stdio: 'inherit', env: { ...process.env, DATABASE_URL: url.toString(), DIRECT_URL: url.toString() } });
   child.on('exit', (code) => process.exit(code ?? 1));
 } else {
   console.error('Usage: with-schema.mjs create|drop <name>  |  run <name> -- <command...>'); process.exit(2);

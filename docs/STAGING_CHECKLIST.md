@@ -41,16 +41,26 @@ The app reads its database from `DATABASE_URL` and nothing else, so the same cod
 database for staging**; never point staging at the one real patients will use.
 
 - [ ] Create the database and a role that may `CREATE` in it (migrations create tables, types, indexes and triggers).
-- [ ] Build the URL as `postgresql://USER:PASSWORD@HOST:5432/DBNAME?schema=public&sslmode=require`. **In production the app refuses to
-      start unless the URL requires TLS.**
-- [ ] **Reachability.** The blueprint's pre-deploy step (`prisma migrate deploy && npm run seed`) runs on Render's machines, which have
-      no fixed addresses. If your Postgres allow-lists IPs, either allow Render's outbound addresses or run the migrations from CI
-      and delete `preDeployCommand`. If you use a pooler (pgbouncer), run migrations on the **direct** connection.
+- [ ] **Two connection strings, for two jobs.** The app goes through a pooler; migrations cannot. On Supabase:
+  - `DATABASE_URL` (what the **app** uses) = the **transaction pooler**, port **6543**, with `?pgbouncer=true&sslmode=require` added —
+    `postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres?pgbouncer=true&sslmode=require`
+  - `DIRECT_URL` (what **migrations** use; the schema's `directUrl`) = a direct connection **or the session pooler on port 5432** —
+    `postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres?sslmode=require`. Supabase's direct
+    connection (`db.<ref>.supabase.co:5432`) is IPv6; if Render cannot reach it, use the session pooler string above, which is IPv4.
+  - **`DIRECT_URL` must not carry `pgbouncer=true` and must not be port 6543**: a transaction pooler cannot carry the advisory lock
+    `prisma migrate` takes, so migrations would hang or fail. The pre-deploy step refuses either (and a non-TLS `DIRECT_URL`) with a
+    message, before it touches the database. Copy the exact strings from Supabase → Project → Connect; do not retype the password.
+  - **In production there is no fallback**: an unset `DIRECT_URL` stops the deploy at the pre-deploy step, on purpose. (In development
+    it falls back to `DATABASE_URL`.) If a database is not behind a pooler at all, set `DIRECT_URL` to the same value as `DATABASE_URL`.
+  - **In production the app refuses to start unless `DATABASE_URL` requires TLS** — keep `sslmode=require` on both.
+- [ ] **Reachability.** The blueprint's pre-deploy step (`npm run migrate:deploy && npm run seed`) runs on Render's machines, which have
+      no fixed addresses, and connects with **`DIRECT_URL`**. If your Postgres allow-lists IPs, either allow Render's outbound addresses
+      or run the migrations from CI and delete `preDeployCommand`.
 - [ ] **Look at its time zone**, from any SQL prompt: `SHOW timezone;` and write the answer here: ______. The app is correct either way
       (see `docs/PHASE5_NOTES.md` §6 — three queries used to depend on it and no longer do), but a database that is not UTC is what
       hid that bug, so know which you have.
 - [ ] Turn on backups at the host, and note how to restore. A restore drill into a scratch database is worth doing before real data.
-- [ ] Enter `DATABASE_URL` **in the Render dashboard** for **both** services (web and cron). Never in a file, a commit or a message.
+- [ ] Enter `DATABASE_URL` **in the Render dashboard** for **both** services (web and cron), and `DIRECT_URL` for the **web service only**. Never in a file, a commit or a message.
 
 ## 2. Settings and secrets on Render
 
@@ -58,7 +68,8 @@ Secrets marked `sync: false` in `render.yaml` are entered in the dashboard, **se
 
 | Variable | Web | Cron | Notes |
 |---|:-:|:-:|---|
-| `DATABASE_URL` | ✔ | ✔ | stage 1 |
+| `DATABASE_URL` | ✔ | ✔ | stage 1. The **app's** connection: on Supabase the transaction pooler (6543, `?pgbouncer=true&sslmode=require`) |
+| `DIRECT_URL` | ✔ | — | stage 1. What **migrations** use (the pre-deploy step): direct connection or session pooler (5432), `?sslmode=require`, **never** a transaction pooler. **Not needed on the cron job** (it runs no migrations; its build's `prisma generate` needs no database) |
 | `MFA_ENCRYPTION_KEY` | ✔ | ✔ | `npm run gen-secrets` on your machine, paste the **same** value into both. Losing or changing it invalidates every enrolled authenticator |
 | `APP_BASE_URL` | ✔ | ✔ | the public `https://` origin of the web service, no trailing slash, **no underscore in the host name** (Twilio refuses those; the app refuses to start with one). Setup links, the Twilio signature check and every text's status-callback address use it |
 | `NODE_ENV=production`, `CLINIC_TIMEZONE=America/Chicago` | ✔ | ✔ | already in the blueprint |
@@ -71,15 +82,20 @@ Secrets marked `sync: false` in `render.yaml` are entered in the dashboard, **se
 | `CORS_ORIGINS` | ✔ | | only if the booking widget is served from another origin (e.g. `https://nextwave-wellness.com`) |
 | `PREVIEW_KEY` | ✔ | | optional: staff reach the booking flow at `/?preview=<key>` while the public sees "coming soon" |
 
-- [ ] Both services have `DATABASE_URL`, `MFA_ENCRYPTION_KEY` and `APP_BASE_URL`, with identical values for the last two.
+- [ ] Both services have `DATABASE_URL`, `MFA_ENCRYPTION_KEY` and `APP_BASE_URL`, with identical values for all three; the web service also has `DIRECT_URL`.
 - [ ] `ALLOW_STUB_INTEGRATIONS` is set **only** because staging holds fake patients — and is on the list to remove in stage 10.
 
 ## 3. First deploy
 
 - [ ] New → Blueprint → this repo → the branch. Wait for the web service to go live (`/health` returns 200) and the cron job to exist.
-- [ ] The pre-deploy log shows the migrations applied and the seed run. From the web service's shell,
-      `npx prisma migrate status` ends with **"Database schema is up to date"**.
-- [ ] The app started: it **refuses to start** for a missing `MFA_ENCRYPTION_KEY` / `APP_BASE_URL`, a database URL without TLS, an
+- [ ] The pre-deploy log shows `npm run migrate:deploy` apply the migrations **without** a `DIRECT_URL is not set` or "transaction pooler" message, then the
+      seed run. From the web service's shell, `npm run migrate:status` ends with **"Database schema is up to date"**. *(Use the npm script, not `npx prisma …`: the
+      schema declares `directUrl`, and the script is what checks `DIRECT_URL` and refuses a pooler.)*
+- [ ] **The app works through the transaction pooler.** The booking engine's row locks (`SELECT … FOR UPDATE`) run inside transactions, which a transaction pooler
+      keeps on one connection, so they should hold — but this has been tested only against a direct Postgres, never through Supavisor. Stage 5's booking and check-out
+      steps are where to see it: place a booking (hold → confirm), and check one out; both must complete. And run the concurrency proof against staging:
+      `API=https://<your-app> ./scripts/race-test.sh` (from `server/`) must report **exactly one winner** and the rest refused — it only creates holds, which expire in 10 minutes.
+- [ ] The app started: it **refuses to start** for a missing `MFA_ENCRYPTION_KEY` / `APP_BASE_URL`, a `DATABASE_URL` without TLS, an
       invalid `TWILIO_FROM_NUMBER`, `TWILIO_ACCOUNT_SID` or `AUDIO_RETENTION_DAYS`, or (with both Twilio credentials set) an `APP_BASE_URL`
       that is not `https://` or has an underscore in its host — so a running service means those are right.
 - [ ] `https://<your-app>/app` shows the staff sign-in. The public booking page shows the "demo" banner.
