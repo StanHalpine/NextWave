@@ -89,10 +89,10 @@ disagrees with what is enforced** (X-rays 20% flat vs the tier rate; special ser
 off; credits "across functional medicine" when none of those services has a credit cost), with line numbers, for fixing the copy later. I did not touch the marketing page.
 
 ### Tests
-**595 server tests** (up from 525; 14 of them for the discount table) and 47 web tests, all passing at the default settings, with the pool capped at 3, and under UTC. New:
-`dues.test.ts` (13), `twilio.test.ts` (35), and the dues and category cases in `reports.test.ts`. I broke the dues code 14 ways and the Twilio
-code 21 ways; one mutant of each survived at first (a repeat bill inside one transaction; the desk's delivery status), each exposed a missing
-test, and each is now killed.
+**596 server tests** (up from 525; 14 of them for the discount table) and 47 web tests, all passing at the default settings, with the pool capped at 3, and under UTC. New:
+`dues.test.ts` (13), `twilio.test.ts` (35), `discount-table.test.ts` (14), and the dues and category cases in `reports.test.ts`. I broke the dues code 14 ways,
+the Twilio code 21 ways and the discount table 13 ways; one mutant of each survived at first (a repeat bill inside one transaction; the desk's delivery status; the
+apply script's audit actor), each exposed a missing test, and each is now killed.
 
 ---
 
