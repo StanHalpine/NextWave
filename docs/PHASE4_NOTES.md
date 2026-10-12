@@ -15,8 +15,8 @@ highlighted placeholders — §1.6), **the tier discount percentages** (§1.1 �
 **who may amend a signed note** (§7.1), and **how long audio is kept** (§7.3).
 
 > **Update (Phase 5):** all four are decided and built — see `docs/PHASE5_NOTES.md` §1. The phone and address are
-> `(308) 830-1951` and 110 S. 243rd St., Waterloo, NE 68069; discounts are per tier per service category (none enabled
-> until you approve `docs/DISCOUNT_MAPPING.md`); only the signer can amend and others add addenda; audio is deleted 30
+> `(308) 830-1951` and 110 S. 243rd St., Waterloo, NE 68069; discounts are per tier per service category (enabled later
+> the same day at Prevent 10% · Restore 15% · Optimize 20%: `docs/DISCOUNT_MAPPING.md`); only the signer can amend and others add addenda; audio is deleted 30
 > days after signing.
 
 ---

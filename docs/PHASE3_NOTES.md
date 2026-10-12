@@ -209,8 +209,8 @@ your text preference". The failure mode is "no texts", never "texts without cons
 > and is plain GSM-7.
 >
 > **Update (Phase 5):** the discount is no longer one percentage per tier. It is a percentage **per tier per service
-> category**, admin-editable, and **nothing is enabled** until you approve `docs/DISCOUNT_MAPPING.md`
-> (`docs/PHASE5_NOTES.md` §1.2).
+> category**, admin-editable. *(Later the same day it was enabled — Prevent 10% · Restore 15% · Optimize 20% on X-rays, supplements and special
+> services; see `docs/DISCOUNT_MAPPING.md`.)*
 
 - **Member savings cannot be applied at check-out.** Your tiers promise 20% off X-rays, 20% off extra credits,
   10% / 15% / 20% off supplements, etc. Nothing applies them: the cash price must equal the list price, so the desk

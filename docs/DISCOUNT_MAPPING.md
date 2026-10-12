@@ -1,109 +1,100 @@
-# Member discounts — proposed mapping (awaiting your approval)
+# Member discounts — what is enforced, and where `membership.html` disagrees
 
-> **Status (2026-10-11): still awaiting your approval; nothing is enabled.** The Phase 5 approval message said *"Discount table:
-> [approved as written / or list corrections]. Enable discounts per that table"* — the choice between the two was left in the
-> brackets, so I did not guess one. Tell me **"approved as written"** or give the corrections (and settle X-rays at 20% or 25%, §C1),
-> and I will enter the categories and percentages. Until then every member pays list price in cash, and perks stay off.
+> **Status (2026-10-11): approved and enabled.** Decision: *"Use the clean per-tier mapping. Where the published copy conflicts with it, the
+> tier percentage wins, including X-rays — apply the tier's rate, not a separate 20% or 25%. Perks stay off."*
+>
+> **How I read "the clean per-tier mapping"** (please check this one line): **one rate per tier — Prevent 10%, Restore 15%, Optimize 20%** — the only
+> tiered rate `membership.html` publishes (its supplements line), applied to **every** discounted category, X-rays included. If you meant something
+> else (for example X-rays at a flat 20% as published), say so: it is a two-number change on the admin screen, and §1 and §2 below are the only
+> parts of this page that would change.
 
-**Nothing is enabled.** The system now stores a discount as **a percentage per tier per service category**,
-editable by an admin (Admin → Memberships → *Member discounts by service category*), but **there are no
-categories, no service is in one, and no tier has a percentage** until you approve this table. Until then every
-member pays list price in cash, exactly as before. Perks stay off.
+## 1. What is enforced now
 
-This document does one thing: it derives the mapping from the **published copy** — `membership.html` first,
-as you asked — and lists everything else the site says about member pricing, so you can see where the pages
-disagree *before* a customer notices at the desk.
+| Category | Services in it | Prevent | Restore | Optimize |
+|---|---|---|---|---|
+| **Spinal X-rays** | Spinal X-Rays ($250.00) | **10%** | **15%** | **20%** |
+| **Supplements** | Supplementation (no set price: the desk types the list price) | **10%** | **15%** | **20%** |
+| **Special services** | *none yet* — no such service exists; the category is ready, and discounts nothing today | **10%** | **15%** | **20%** |
 
-## How a discount works (so the table below reads right)
+Nothing else is discounted: no other service is in a category. **Perks are off** (every perk counter is switched off and nothing offers or counts them).
 
-- It applies **only when an active member pays cash.** Credits and perks are never discounted — a visit paid
-  with credits or an included perk records `$0` and no discount.
-- It is a **whole percent of the list price**, rounded to the cent with halves up (15% of $19.99 = $3.00).
-- The percent is the member's **tier's** percent for the **service's category**. A service is in **one category at
-  most**; a service in none is never discounted; a category can be switched off; a tier with no percent for a
-  category gets 0%.
-- A service with no set price (supplementation, peptide therapy): the desk types the **list** price and the
-  discount comes off it. The desk is shown list − discount = net before confirming.
-- Every check-out records list price, discount percent, the category, the discount and the net.
+**How a discount works** (unchanged, tested):
+- It applies only when an **active** member pays **cash**. A visit paid with **credits** or a **perk** is never discounted; a **paused** or cancelled member and a **non-member** pay list price.
+- The percent is the member's **tier's** percent for the **service's category**, off the **list** price, to the cent with halves **up** (15% of $19.99 = $3.00). A service is in one category at most.
+- The desk is shown **list − discount = net** before confirming, and the server refuses the check-out if its own figure differs from the one shown.
+- Every check-out records the list price, the percent, the category, the discount and the net (Accounting shows them).
 
-## A. What `membership.html` publishes — the proposed mapping
+**Worked examples** (a spinal X-ray, $250.00, paid in cash): Prevent **$25.00** off → **$225.00** · Restore **$37.50** off → **$212.50** · Optimize **$50.00** off → **$200.00**. Supplementation at a typed $19.99: Prevent $2.00 off · Restore $3.00 off · Optimize $4.00 off.
 
-Every tier's page and the "Member-Exclusive Savings" section list these five items:
+**Where it is entered.** In **your dev database** — the only database that exists — through the same operations Admin → Memberships → *Member discounts by service category*
+uses (audited: 8 rows, actor `system:apply-discount-table`). **A new database starts with no discounts**: on staging and production run
+`npm run discounts:apply` once (it only ever adds, so it is safe to run twice and never overwrites an edit), or enter the table above on the admin screen. The staging
+checklist has the step. After that, **the admin screen is where to change anything**.
 
-| # | Category (proposed name) | Services in it today | Prevent | Restore | Optimize | `membership.html` says | Can it be applied? |
-|---|---|---|---|---|---|---|---|
-| 1 | **Spinal X-rays** | Spinal X-Rays | **20%** | **20%** | **20%** | "20% off spinal X-rays" (all three tiers) | **Yes** — but see conflict C1 |
-| 2 | **Supplements** | Supplementation | **10%** | **15%** | **20%** | "10% / 15% / 20% off supplements" ("Prevent 10%, Restore 15%, Optimize 20%") | **Yes**, for the Supplementation *service*. There is no product catalogue, so retail products are not covered (§D2) |
-| 3 | **Special services** | *none* — the services page says "Special services in development" | **10%** | **10%** | **10%** | "10% off special services" (all tiers) | **Not yet** — no such service exists. I would create the category empty, so it is ready when they do |
-| 4 | *Off-menu package pricing* | — | 10% | 10% | 10% | "10% off off-menu package pricing" | **No** — packages are custom and priced by hand; there is no catalogue item to put in a category (§D3) |
-| 5 | *Additional Wellness Credits* | — | 20% | 20% | 20% | "20% off additional Wellness Credits" | **No** — the system has no way to *sell* extra credits (no price, no purchase; Phase 3 limitation, SPEC A-10) |
+## 2. Where `membership.html` now disagrees with what is enforced
 
-So **rows 1–3 are what I would enter** (three categories; row 3 empty for now). Rows 4 and 5 are published
-promises the system cannot honour at check-out today; I list them so that is a decision, not a surprise.
+Line numbers are in `membership.html` as it stands (the cards, the three "Learn more" dialogs, the credit table, and the lower sections).
 
-## B. Other member claims on the site — **not** in the mapping above
+### 2.1 Discount percentages
 
-The service pages carry member pricing of their own. None of it is in `membership.html`'s list, and some
-contradicts it. **I have not put any of it in the proposal**; each is a decision for you.
-
-| Page | What it says | Tiers | Against `membership.html` |
+| # | What the page says (and where) | What is enforced | Disagree? |
 |---|---|---|---|
-| **Spinal X-Rays** | "Members save 25%" | all | **Conflict C1:** `membership.html` says **20%** |
-| Manual Adjustment | "Members save 25%" | all | Not mentioned there. Adjustments cost 2 credits; this is the *cash* price |
-| Red Light Therapy | "Members save 25%" | all | Not mentioned there |
-| Hyperbaric Oxygen Therapy | "Members save 25%" (60 and 90 min) | all | Not mentioned there |
-| Hormone Optimization | "Members save 25%" | all | Not mentioned there |
-| IV Therapy | "Prevent & Restore members save 25%"; 2 a month **included** with Optimize | Prevent, Restore | `membership.html` gives Optimize **1** IV a month (not 2) — **Conflict C2** |
-| Vitamin Shots | "Restore and Optimize members save 25% on every shot"; 1 a month **included** with Prevent | Restore, Optimize | `membership.html` gives **Prevent and Restore** a monthly shot, and Optimize an IV — **Conflict C3** |
-| Biomarker Testing — *Baseline* ($225) | "Included in Prevent and Optimize memberships. Restore members save 25%." | all | `membership.html`: the annual biomarker assessment is in **Restore and Optimize**, not Prevent — **Conflict C4** |
-| Biomarker Testing — *Food Sensitivity* ($350) | "Members save 25%" | all | Not mentioned there |
-| Biomarker Testing — *Total Toxin* ($900), *Gut Health* ($900), *Galleri* ($1,050) | "Members save 10%" | all | Not mentioned there |
-| Body Composition; Functional Medicine Consult | "Members: included ($0)" | all | Body composition is a quarterly perk in `membership.html`; the consult is "quarterly 1:1 provider consultation" for Restore and Optimize only — **Conflict C5** |
+| D1 | **"20% off spinal X-rays"** — in all three tier dialogs (lines **178, 209, 241**) and the *Imaging* tile, "20% off spinal X-rays — At every membership level" (lines **280–281**) | **Prevent 10%, Restore 15%, Optimize 20%** | **Yes, for Prevent (10 points less than published) and Restore (5 points less).** Optimize agrees. "At every membership level" is false: the rate depends on the tier |
+| D2 | **"10% off special services"** — all three dialogs (**178, 209, 241**) and the *Special Services* tile, "At every membership level" (line **291**) | Category exists at 10 / 15 / 20% but **has no services, so nothing is discounted today** | **Yes — the promised 10% is not delivered at all today.** If a service is later put in the category: Prevent 10% agrees; **Restore 15% and Optimize 20% are more than published**; "at every membership level" is false |
+| D3 | **"10% off off-menu package pricing"** — all three dialogs and the *Packages* tile, "At every membership level" (line **296**) | **Not enforced.** There is no discount; packages are priced by hand and are not in the system's catalogue | **Yes — published, not delivered** |
+| D4 | **"20% off additional Wellness Credits"** — all three dialogs, the *Credits* tile "Go beyond your monthly balance without paying full price" (line **286**), and the credit-table footnote "Additional Wellness Credits are available to members at 20% off" (line **268**) | **Not enforced.** The system has no way to *sell* extra credits (no price, no purchase, no ledger entry for one) | **Yes — published, not delivered** |
+| D5 | **"10% / 15% / 20% off supplements — Prevent 10%, Restore 15%, Optimize 20%"** — dialogs (lines **178, 209, 241**: 10% / 15% / 20%) and the *Supplements* tile (lines **301–302**) | **Prevent 10%, Restore 15%, Optimize 20%** on the *Supplementation* service | **No — agrees.** *Limit worth knowing:* it covers the Supplementation **service** only; there is no product catalogue, so a retail product sold at the desk is not discounted unless it is entered as a priced service in this category |
+| D6 | Every "Member-exclusive savings" line states the discount **without conditions** | It applies **only when an active member pays cash**; credit-paid and perk visits, paused members and non-members get none | **Unstated limit** (not a contradiction, but the copy over-promises). Worth a footnote: "applies to services paid in cash by active members" |
 
-The booking app's seed data copied one of these (IV Therapy's price note: "Members save 25%. Two per month
-included with Optimize."), so the desk would see it too.
+*What the page would say if it matched:* X-rays — "10% / 15% / 20% off spinal X-rays (Prevent / Restore / Optimize)"; supplements as now; special services, packages and additional credits removed until they exist.
 
-**If you want the 25% claims to be real**, they would be more categories: e.g. *Chiropractic adjustments, red
-light and hyperbaric (25%)*, *Hormone optimization (25%)*, *IV (Prevent, Restore 25%)*, *Vitamin shots
-(Restore, Optimize 25%)*, *Food sensitivity (25%)*, *Other lab panels (10%)*. The model handles all of them;
-what I cannot do is choose between the pages for you.
+### 2.2 Perks (all switched off — nothing in the system gives, counts or limits them)
 
-## C. The conflicts, in one list
-
-| | Conflict | The two sources | What I need |
+| # | What the page lists (lines) | Tier | What is enforced |
 |---|---|---|---|
-| **C1** | X-ray discount | `membership.html` 20% · X-ray page 25% | Which number is right? I proposed **20%** because you pointed me at `membership.html` |
-| **C2** | IV drips included | `membership.html` Optimize: 1 / month · IV page: 2 / month | Perk quantity (perks are still off) |
-| **C3** | Vitamin shots | `membership.html` Prevent **and** Restore: 1 / month · shots page: Prevent 1 / month, Restore saves 25% | Perk mapping and the Restore discount |
-| **C4** | Baseline panel | `membership.html` Restore + Optimize · panel page: Prevent + Optimize | Which tiers include it |
-| **C5** | "Included ($0)" services | consult and body composition pages say members get them free | Which tiers, and how often (perk, or credits?) |
+| P1 | **"1 monthly vitamin shot"** (108, 124; 176, 203) | Prevent, Restore | **Nothing.** The counter exists (1 a month) but is **off**; check-out will not offer it |
+| P2 | **"1 monthly IV drip"** (144; 234) | Optimize | Same: counter exists, **off** |
+| P3 | **"Quarterly body composition analysis"** (109, 128, 148; 177, 207, 238) | all three | Same: counter exists (1 a quarter), **off** |
+| P4 | **"1 guest pass per quarter"** (129; 208) · **"2 guest passes per quarter"** (150; 240) | Restore · Optimize | Counters exist (Restore 1, Optimize 2, Prevent 0), **off**; a guest pass is used by hand |
+| P5 | **"Annual longevity biomarker assessment"** (125, 145; 204, 235) | Restore, Optimize | **No counter exists at all** — not tracked |
+| P6 | **"Quarterly 1:1 provider consultation & wellness planning"** (126, 146; 205, 236) | Restore, Optimize | **No counter exists at all** — not tracked |
+| P7 | **"Peptide & hormone optimization access"** (127, 147; 206, 237) | Restore, Optimize | Not something the system can count or enforce (a clinical judgement, not an entitlement) |
+| P8 | **"Direct provider messaging"** (149; 239) | Optimize | **Not built** — the system has no member-to-provider messaging |
 
-## D. Things this model cannot do (and why)
+So **every perk the page promises is currently a promise only**. When you want any switched on, give me the quantities per tier and which services redeem each; P5–P8 would need new counters or features.
 
-1. **One percentage per tier per category**, off the list price. It cannot express "25% off, but only 10% if the
-   member also…", tiered by quantity, or a different percent by *time of day*.
-2. **"Supplements" as retail products.** The only supplement the system knows is the *Supplementation* service
-   (no set price). If supplements are sold as products at the desk, they need to be entered as a service with
-   a price to be discounted.
-3. **"Off-menu package pricing"** is by definition not on the menu: the desk would have to record it as a
-   service with a typed list price in the category — which works only if you make a "Package" service.
-4. **Additional Wellness Credits.** Selling credits is a different feature (price, payment, a ledger entry).
-   Say if you want it; it was not in any phase.
-5. A member who pays by **credits** gets no cash discount (there is no cash). If you would rather a credit cost
-   less for a member, that is a different rule.
+### 2.3 Credits and dues — where the page agrees, and the one place it does not
 
-## E. What I need from you
+| What the page says | Enforced | |
+|---|---|---|
+| 4 / 6 / 8 Wellness Credits a month (107, 123, 143) | Prevent 4 · Restore 6 · Optimize 8 | Agrees |
+| Credits roll over up to **90 days** (line 268, and "How Credits Work") | 90-day lots, oldest used first | Agrees |
+| Credit costs: Adjustment 2, Red Light 2, Hyperbaric 60 min 4, 90 min 6, Vitamin Shot 2, IV Drip 6 | The same, exactly | Agrees |
+| **$99 / $199 / $299** a month | The tiers' dues, billed monthly with the credits (Accounting shows them as their own line) | Agrees (billed, not collected) |
+| **"Your credits apply across chiropractic, functional medicine, and longevity"** (line **318**) | Only a service with a credit cost can be paid in credits: chiropractic adjustment, red light, hyperbaric, vitamin shot and IV. **No functional-medicine service has a credit cost** (consult, biomarker testing, hormone optimization, body composition, supplementation, wellness planning), nor do peptide therapy, the spinal exam or X-rays | **Yes** — credits cannot be used for functional medicine |
+| "Approximate monthly value: $183+ / $347+ / $532+" (183, 214, 246) | Not computed or checked by anything | Marketing figures; unaffected by the discounts above (X-rays at the tier rate lowers the X-ray part of Prevent's and Restore's value) |
 
-1. **Approve or correct Table A** — three categories and their percentages. In particular: X-rays **20 or 25%**.
-2. Is "special services" meant to cover something that exists now (hyperbaric? red light?), or only future
-   services? (If an existing service, name it.)
-3. Which of the **Table B** 25% / 10% claims are real? Each one you confirm is one more category.
-4. The conflicts **C2–C5** (they are about perks, which stay off, but the pages are live today).
-5. Whether the pages or `membership.html` should change to agree, once you have decided.
+## 3. The service pages (not `membership.html`, but customers read them too)
 
-## F. How it will be entered, once you approve
+These claims are on the service pages and in the seeded booking text. **None is enforced** — each would need its own category, and none was in the approved table. The tier percentage applies instead.
 
-On **Admin → Memberships → Member discounts by service category**: *Add category*, tick its services, type each
-tier's percentage, *Save* — each change is audited with its before and after, and takes effect at the next
-check-out. I can instead enter them for you with a script that makes the same audited changes. Either way
-nothing moves until you say so.
+| Page | What it says | Enforced |
+|---|---|---|
+| Spinal X-Rays | "Members save **25%**" | 10 / 15 / 20% by tier (table above) |
+| Manual Adjustment, Red Light, Hyperbaric Oxygen (60 and 90 min), Hormone Optimization | "Members save 25%" | **No discount** (not in a category) |
+| IV Therapy | "Prevent & Restore members save 25%"; "2 a month **included** with Optimize" — and the booking app's own price note says the same | **No discount**; the IV perk is off, and `membership.html` gives Optimize **1** IV a month, not 2 |
+| Vitamin Shots | "Restore and Optimize members save 25%"; "1 a month **included** with Prevent" | **No discount**; the page and `membership.html` disagree on which tiers get the monthly shot (`membership.html`: Prevent **and** Restore) |
+| Biomarker Testing | Baseline $225 "included in **Prevent and Optimize**; Restore saves 25%" · Food Sensitivity "members save 25%" · Total Toxin, Gut Health, Galleri "members save 10%" | **No discount**; `membership.html` puts the annual biomarker assessment in **Restore and Optimize**, not Prevent |
+| Body Composition; Functional Medicine Consult | "Members: included ($0)" | **No discount, no perk**; `membership.html` lists body composition quarterly for all three tiers and the consultation quarterly for Restore and Optimize only |
+
+## 4. What the model cannot do
+
+1. **One percentage per tier per category**, off the list price: no "25% but 10% if …", no quantity breaks, no time-of-day rates.
+2. **Retail supplements** — only the Supplementation *service* (D5).
+3. **Off-menu packages** (D3) and **additional Wellness Credits** (D4): no catalogue item to put in a category, and no way to sell a credit.
+4. A member who pays by **credits** gets no cash discount; a cheaper credit cost for members would be a different rule.
+
+## 5. History
+
+The first version of this page was a *proposal* with five conflicts between `membership.html` and the service pages (X-rays 20% vs 25%, IV and vitamin-shot quantities, which tiers include the Baseline panel, "included ($0)" services). Your decision settled the percentages by making the tier's rate win; the perk and
+service-page conflicts are listed above (§2.2, §3) because perks are off and the service pages' claims are not enforced.

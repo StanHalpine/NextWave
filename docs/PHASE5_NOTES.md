@@ -11,7 +11,10 @@ The marketing site is not touched by this phase (`main` is level with `origin/ma
 
 ## Update — Phase 5 approved, with six follow-ups (2026-10-11)
 
-**The first one is not done, on purpose.** Item 1 of the approval read *"Discount table: [approved as written / or list corrections].
+> **Later the same day: discounts are now enabled** — see "Discounts enabled" at the end of this Update. What follows in this paragraph
+> is what was true when it was written.
+
+**The first one was not done, on purpose.** Item 1 of the approval read *"Discount table: [approved as written / or list corrections].
 Enable discounts per that table."* The choice between the two options was left in the brackets, so I do not know which you meant,
 and the table has five internal conflicts you have not settled (X-rays 20% or 25% is the first). Enabling a discount changes what a
 member is charged, so I left everything **off**: no category, no percentage, perks off. Say **"approved as written"** or send the
@@ -20,7 +23,7 @@ corrections and I will enter them (Admin → Memberships → *Member discounts b
 
 | # | You asked | Status |
 |---|---|---|
-| 1 | Enable the discount table | **Not done — your choice was unfilled** (above) |
+| 1 | Enable the discount table | ~~Not done — your choice was unfilled~~ **Enabled later the same day** (below) |
 | 2 | Twilio sending adapter | **Built** (below) |
 | 3 | Dues as a separate revenue line | **Built** (below) |
 | 4 | Vitamin shots and injections get their own category | **Done** (below) |
@@ -75,8 +78,18 @@ injections", but the only service the site describes as an injection is vitamin 
 throughout); no other service is named that. Peptide therapy stays in **Consults**, where SPEC A-6 puts it, and **body composition is now the
 only seeded service in Other.** If you meant another service to join, it is a one-line change in `lib/reportFormat.ts`.
 
+### Discounts enabled (later the same day)
+Your decision: *"use the clean per-tier mapping; where the published copy conflicts with it, the tier percentage wins, including X-rays — apply the
+tier's rate, not a separate 20% or 25%. Perks stay off."* **My reading — please check it:** one rate per tier, **Prevent 10%, Restore 15%, Optimize 20%** (the
+only tiered rate the page publishes, its supplements line), on **every** category including X-rays. Categories: **Spinal X-rays**, **Supplements**,
+**Special services** (no service in it yet, so it discounts nothing today). Entered in **your dev database** through the admin screen's own operations
+(audited, 8 rows) with `npm run discounts:apply`, which **a new database needs once** — it starts with no discounts. I looked at the admin screen on a scratch
+copy: it shows the three categories at 10 / 15 / 20 and every perk off. **[DISCOUNT_MAPPING.md](DISCOUNT_MAPPING.md) §2 now lists every place `membership.html`
+disagrees with what is enforced** (X-rays 20% flat vs the tier rate; special services, packages and additional credits promised and not delivered; all eight perk lines
+off; credits "across functional medicine" when none of those services has a credit cost), with line numbers, for fixing the copy later. I did not touch the marketing page.
+
 ### Tests
-**582 server tests** (up from 525) and 47 web tests, all passing at the default settings, with the pool capped at 3, and under UTC. New:
+**595 server tests** (up from 525; 14 of them for the discount table) and 47 web tests, all passing at the default settings, with the pool capped at 3, and under UTC. New:
 `dues.test.ts` (13), `twilio.test.ts` (35), and the dues and category cases in `reports.test.ts`. I broke the dues code 14 ways and the Twilio
 code 21 ways; one mutant of each survived at first (a repeat bill inside one transaction; the desk's delivery status), each exposed a missing
 test, and each is now killed.
@@ -93,7 +106,7 @@ test, and each is now killed.
    into the wording. Verification approval does not change this: confirmations and reminders will not reach a phone until
    a `TwilioMessaging` adapter is built behind the existing `Messaging` interface (it needs the account SID as well). I did
    not build it because there are no credentials to test it against. Say go and I will.
-2. **No discount is enabled, and none will be until you approve `docs/DISCOUNT_MAPPING.md`.** The model is now a percentage
+2. *[Resolved — enabled at the tier rate; see the Update.]* **No discount was enabled, and none would be until you approved `docs/DISCOUNT_MAPPING.md`.** The model is now a percentage
    per tier per service category, admin-editable (decision 2 below). The table I derived from `membership.html` is written
    up with the five places the site contradicts itself. Perks stay off.
 3. *[Resolved — dues are now a separate line; see the Update.]* **Accounting did not include membership dues.** Nothing in the system records a member's monthly payment (Phase 3 never
@@ -139,7 +152,7 @@ number the page shows with the one the server defaults to — passes.
 guard in the migration refuses to drop it if any tier has a non-zero value). Check-out takes the **tier's percent for the
 service's category** off the list price when an **active** member pays **cash**; whole cents, halves up; credits and
 perks are never discounted; a category can be switched off; every change is audited with its before and after.
-**There are no categories and no percentages**, so every member pays list price exactly as before.
+*[When written: there were no categories and no percentages. **They are now entered at Prevent 10% · Restore 15% · Optimize 20%; see "Discounts enabled" in the Update.**]*
 The mapping document proposes three categories (Spinal X-rays 20/20/20 %, Supplements 10/15/20 %, Special services
 10 %, empty for now) and lists what I cannot decide for you: X-rays are 20 % on `membership.html` and 25 % on the X-ray
 page; the IV, shots, Baseline and "included" claims differ between the pages (C1–C5). Nothing moves until you say so.
@@ -368,8 +381,9 @@ once per run across all files. I reproduced the failure by forcing the order (`-
 
 ## 9. What I need from you
 
-1. **The discount table:** say **"approved as written"** or send the corrections, and settle X-rays at **20% or 25%** (and the other conflicts in
-   [DISCOUNT_MAPPING.md](DISCOUNT_MAPPING.md) §C if they matter now). Nothing is enabled until then.
+1. **The discount table — check my reading of "the clean per-tier mapping":** one rate per tier, **Prevent 10%, Restore 15%, Optimize 20%**, on X-rays,
+   supplements and special services. If you meant X-rays at a flat 20% (as published), say so — it is two numbers on the admin screen. **Then fix
+   `membership.html`** when you choose: [DISCOUNT_MAPPING.md](DISCOUNT_MAPPING.md) §2 lists every place it disagrees, with line numbers.
 2. **Twilio, for the real check:** your account SID and auth token, set **in Render only** (never in a file or a message to me), on **both** services; the
    toll-free verification approved; then the real-phone checks in the staging checklist (stage 7). I cannot test against Twilio from here.
 3. **The production database's time zone:** run `SHOW timezone` (staging checklist, stage 1). I fixed the code either way.

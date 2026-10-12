@@ -25,9 +25,11 @@ you have seen the thing happen, not when you have set it up.
 
 ## 0. Decisions and paperwork (yours, no code)
 
-- [ ] **Approve or correct `docs/DISCOUNT_MAPPING.md`** — say "approved as written" or send the corrections, and settle X-rays at 20% or 25%.
-      (The Phase 5 approval left this choice unfilled, so **no discount is enabled**: no category, no percentage, perks off.) Stage 5 has a step
-      that needs the approved table.
+- [ ] **Check the discount table** (approved and enabled in dev): **Prevent 10%, Restore 15%, Optimize 20%** on Spinal X-rays, Supplements and Special
+      services, perks off — and that I read "the clean per-tier mapping" the way you meant it (`docs/DISCOUNT_MAPPING.md` top). **A new database starts with no
+      discounts:** stage 5 has the step that enters them.
+- [ ] **Decide when to fix `membership.html`.** `docs/DISCOUNT_MAPPING.md` §2 lists every place it disagrees with what is enforced (X-rays at a flat 20%, special services,
+      packages and additional credits promised but not delivered, every perk off, credits "across functional medicine"), with line numbers. The page is untouched.
 - [ ] **Counsel has read `privacy.html` and `sms-terms.html`**, and you have a Notice of Privacy Practices to reference.
 - [ ] **The Twilio toll-free verification** for `+18665241007` is approved (submitted with the wording in `docs/SMS_TEMPLATES.md` and
       the opt-in image `sms-opt-in.png`). Stage 7 can start before it, but a real text will not reach a phone until it is.
@@ -108,8 +110,11 @@ Secrets marked `sync: false` in `render.yaml` are entered in the dashboard, **se
 - [ ] *(When one happens naturally.)* A visit checked out late on the last evening of a month appears in that month, not the next. The
       automated tests cover this against databases in four time zones; this is the confirmation on the real host.
 - [ ] **Admin → Audit log** shows a `READ` row for each view and an `EXPORT` row for each CSV, carrying the dates and filters.
-- [ ] **Discounts, once you approve the table (stage 0):** enter it on Admin → Memberships → *Member discounts by service category*; check out a
-      member's cash visit and confirm the desk is shown *list − discount = net* before confirming, and that a credit visit is not discounted.
+- [ ] **Enter the discount table on this new database** (it starts with none): in the web service's shell, `npm run discounts:apply` — or type the table into Admin →
+      Memberships → *Member discounts by service category* (Spinal X-rays and Supplements, each Prevent 10 · Restore 15 · Optimize 20, with their one service each; Special
+      services, no service). It prints what it created; run twice, it says there is nothing to do. Perks stay off (Admin → Memberships shows every perk switch off).
+- [ ] **Check the discount at the desk:** a **Restore** member paying cash for a **Spinal X-Ray** ($250.00) is shown **list $250.00 − $37.50 = net $212.50** before confirming
+      (Prevent $25.00 off, Optimize $50.00 off); a **credit-paid** visit, a **paused** member and a **non-member** are not discounted; Accounting shows the discount and the category.
 - [ ] A signed note: only the provider who signed it is offered **Amend**; another provider is offered **Add addendum**; an admin is offered neither.
 - [ ] Reports are quick on the real host: the current month appears at once; a three-year range in a second or two. (The timings
       in `docs/PHASE5_NOTES.md` §4 are from a laptop; `npm run perf:reports` repeats them against any database you can create a schema in.)

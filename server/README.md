@@ -201,8 +201,12 @@ idempotent: a repeat or a double-click returns what was recorded and changes not
 one `DiscountCategory`; both edited on Admin → Memberships → *Member discounts by service category*). It comes off the
 **list price** when an **active** member pays **cash**, in whole cents with halves rounding up. Credits and perks are not
 priced in money and are never discounted; a paused member, a non-member, a visit with no patient record, a service in no
-category, a category switched off and a tier with no percent for the category all pay list. **There are no categories
-until the owner approves the mapping** (`docs/DISCOUNT_MAPPING.md`), so nothing is discounted today. The desk is shown
+category, a category switched off and a tier with no percent for the category all pay list. **Enabled, at the tier's rate:
+Prevent 10%, Restore 15%, Optimize 20%** on *Spinal X-rays* (the X-ray service), *Supplements* (Supplementation) and *Special
+services* (no service yet, so it discounts nothing today); nothing else is discounted and **perks are off**
+(`docs/DISCOUNT_MAPPING.md` has the table and every place `membership.html` disagrees with it). **A new database starts
+with no discounts:** run `npm run discounts:apply` once (it only adds, never overwrites an edit) or enter the table on the admin
+screen; after that the admin screen is where to change anything. The desk is shown
 list, discount and net, and the server refuses the check-out if the net the desk saw differs from what it computes
 (`price_changed`). `RevenueEvent` records `listPriceCents`, `discountPercent`, `discountCategory` (the code),
 `discountCents` and `netPriceCents`; a database CHECK enforces `net = list − discount`.
@@ -570,6 +574,7 @@ time-off/blackout dates. (Automated tests now exist — `npm test` — covering 
 | `npm test` | Vitest — runs against a throwaway Postgres *schema* (see below) |
 | `npm run web:build` / `web:dev` / `web:install` | The React staff app |
 | `npm run jobs:run` | Run every scheduled job once (appointment texts, monthly credit grant, credit expiry) and exit — see *Scheduled jobs* |
+| `npm run discounts:apply` | Enter the approved member-discount table (Prevent 10 / Restore 15 / Optimize 20 on X-rays, Supplements, Special services) into **this** database, once. Audited; only ever adds; safe to run twice. A new database starts with none |
 | `npm run perf:reports` | Time every Accounting and Reports query against 50,000 encounters (`PERF_ENCOUNTERS=…` to change) in a throwaway schema; prints timings and query plans, then drops it |
 | `npm run sms:templates` | Rewrite `docs/SMS_TEMPLATES.md` (every text, its length and segment cost) from `templates.ts` |
 | `npm run dev:reset` | **Dev only**: delete bookings, patients and notes. Refuses when `NODE_ENV=production` or `BOOKING_MODE` is beta/live, and needs `CONFIRM_DEV_RESET=yes` |
