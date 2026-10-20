@@ -20,7 +20,8 @@ import { config as loadEnv } from 'dotenv';
 import { defineConfig } from 'prisma/config';
 import { DbEnvError, isConnectingCommand, prismaCliEnv } from './src/lib/dbEnv.js';
 
-loadEnv({ quiet: true });
+// DOTENV_CONFIG_PATH names the file (what `dotenv/config` honours; `config()` alone does not) — tests point it at a file of their own.
+loadEnv({ quiet: true, path: process.env.DOTENV_CONFIG_PATH || undefined });
 
 const command = process.argv[2] ?? '';
 try {
