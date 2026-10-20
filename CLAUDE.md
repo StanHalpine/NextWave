@@ -149,9 +149,15 @@ footer). Every page's footer has **Privacy** and **SMS Terms** links in `.footer
 - The SMS terms quote the opt-in wording **verbatim**; it is `SMS_CONSENT_LABEL` in the booking app
   (`server/src/integrations/templates.ts`). Change all three places together: that string, the
   booking widget's consent card, and `assets/img/sms-opt-in.html`.
-- `assets/img/sms-opt-in.html` is the source of `assets/img/sms-opt-in.png` (1200×600, the picture of
-  the booking page's consent card given to the carrier registration). Re-render command is in the
-  comment at the top of the HTML (headless Chrome, `--window-size=1200,600`).
+- **Opt-in images for the carrier registration.** `assets/img/sms-opt-in.png` (box unchecked) and
+  `sms-opt-in-checked.png` (box ticked) are **real 1600×1000 captures of the booking widget's
+  patient-details step** (branding, form with fake sample fields, consent card, SMS Terms / Privacy links,
+  submit button) — Twilio rejected the earlier card-only mock-up (error 30510: opt-in example must be
+  complete, branded and legible). Re-capture them, don't edit them: run the widget (`server/`, a
+  throwaway schema, `BOOKING_MODE=live`), walk service → day → time to "Your details", fill the fields
+  with obviously fake values, and screenshot at 1600×1000 with the box unchecked, then checked. The old
+  mock-up is kept as `sms-opt-in-mockup.png`; `sms-opt-in.html` is its source (its re-render command now
+  writes the mock-up, not `sms-opt-in.png`).
 - The effective date on both pages is set by hand.
 
 ### Logo usage

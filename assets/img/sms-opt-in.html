@@ -6,13 +6,15 @@
 <meta name="robots" content="noindex">
 <title>SMS opt-in — NextWave Wellness</title>
 <!--
-  SOURCE for sms-opt-in.png (1200 x 600): the text-message opt-in shown on the online booking page.
+  SOURCE for sms-opt-in-mockup.png (1200 x 600): a mock-up of the text-message opt-in card on the online booking page.
+  (Twilio rejected this card-only picture, error 30510; sms-opt-in.png and sms-opt-in-checked.png are now real captures of the
+  whole booking page, not rendered from this file. Kept for reference.)
   It restates the booking widget's consent card (server/public/index.html + booking.css, same colours,
   title, wording, unchecked box and links), larger so it reads at a glance. It is a picture of that
   card, not a working form. If the widget's card or its wording changes, change this and re-render:
 
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --hide-scrollbars \
-      --window-size=1200,600 --screenshot=assets/img/sms-opt-in.png assets/img/sms-opt-in.html
+      --window-size=1200,600 --screenshot=assets/img/sms-opt-in-mockup.png assets/img/sms-opt-in.html
 
   The consent wording is the exact string in server/src/integrations/templates.ts (SMS_CONSENT_LABEL).
 -->
