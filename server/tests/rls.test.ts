@@ -18,12 +18,12 @@ describe('row level security', () => {
   });
 
   it('has no policies: with RLS on, every role that does not bypass it can read and write nothing', async () => {
-    const [{ n }] = await basePrisma.$queryRawUnsafe<Array<{ n: number }>>(`SELECT count(*)::int AS n FROM pg_policies WHERE schemaname = current_schema()`);
+    const [{ n }] = await basePrisma.$queryRawUnsafe<[{ n: number }]>(`SELECT count(*)::int AS n FROM pg_policies WHERE schemaname = current_schema()`);
     expect(n).toBe(0);
   });
 
   it('leaves the app\'s own access alone: it reads and writes through RLS as the owner', async () => {
-    const [{ bypass }] = await basePrisma.$queryRawUnsafe<Array<{ bypass: boolean }>>(
+    const [{ bypass }] = await basePrisma.$queryRawUnsafe<[{ bypass: boolean }]>(
       `SELECT (pg_has_role(current_user, c.relowner, 'USAGE')) AS bypass FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = current_schema() AND c.relname = 'Account'`);
     expect(bypass).toBe(true);
     expect(await basePrisma.account.count()).toBeGreaterThanOrEqual(0);
