@@ -15,6 +15,7 @@
     "studio": "prisma studio",
     "typecheck": "tsc --noEmit -p tsconfig.check.json",
     "lint:logs": "node scripts/lint-logs.mjs",
+    "pretest": "npm run typecheck",
     "test": "vitest run",
     "seed:admin": "tsx scripts/seed-admin.ts",
     "dev:reset": "tsx scripts/dev-reset.ts",
