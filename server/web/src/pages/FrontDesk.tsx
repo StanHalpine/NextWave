@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { api, ApiError } from '../api';
-import { useInterval, errorText, Modal, Notice, ServiceDot, sourceLabel } from '../ui';
+import { useInterval, errorText, Modal, NotePill, Notice, ServiceDot, sourceLabel } from '../ui';
 import { addDays, fmtDayLong, fmtInstantTime, fmtTime12, nowHHMM, serviceLabel, toMinutes } from '../lib';
-import { STATUS_LABEL, STATUS_PILL } from '../provider/docs';
 import type { Appt, Dashboard, ServiceLite } from '../types';
 import { PatientPicker } from '../patients/PatientPicker';
 import { AppointmentDialog, LinkPatientDialog } from '../schedule/dialogs';
@@ -94,7 +93,7 @@ export default function FrontDesk() {
           )}
         </Column>
 
-        <Column title="Checked in" hint="Here now" count={data?.checkedIn.length ?? 0}>
+        <Column title="Checked in" hint="Here now — check out whenever they are done; the note can follow" count={data?.checkedIn.length ?? 0}>
           {data?.checkedIn.map((a) => (
             <Card key={a.id} a={a} onOpen={() => setOpen(a.id)} error={rowError?.id === a.id ? rowError.text : null}
               extra={a.encounter?.checkedInAt && <span className="wait">in at {fmtInstantTime(a.encounter.checkedInAt, data.timezone)}{waiting(a.encounter.checkedInAt, data.now)}</span>}>
@@ -155,9 +154,7 @@ function Card({ a, onOpen, children, extra, muted, error }: {
         <span className="appt-svc"><ServiceDot color={a.service.color} /> {a.service.name}{a.subOption ? ` · ${a.subOption}` : ''}</span>
         <span className="appt-meta">{a.staff?.name ?? 'No provider'} · {a.resource.name}{a.source !== 'ONLINE' ? ` · ${sourceLabel(a.source)}` : ''}</span>
         {extra}
-        {a.encounter && a.encounter.status !== 'SCHEDULED' && a.encounter.status !== 'NO_SHOW' && (
-          <span className={`pill ${STATUS_PILL[a.documentation.status]}`} title="Whether the provider's note exists and is signed. The note itself is not shown here.">{STATUS_LABEL[a.documentation.status]}</span>
-        )}
+        {a.note && <NotePill note={a.note} doc={a.documentation.status} />}
         {!a.patient.linked && <span className="pill warn">not linked to a patient record</span>}
       </button>
       {error && <p className="error small" role="alert">{error}</p>}

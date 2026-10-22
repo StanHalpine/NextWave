@@ -5,7 +5,8 @@
  *   POST /api/provider/visits/:id/start                   CHECKED_IN → IN_PROGRESS
  *   GET  /api/provider/visits/:id/documentation           the workspace: draft, signed notes, scribe state
  *   PUT  /api/provider/visits/:id/draft                   save the working draft (optimistic version)
- *   POST /api/provider/visits/:id/sign                    sign: draft → VisitNotes + NoteSignature, visit → SEEN
+ *   GET  /api/provider/unsigned-notes?staffId=            a provider's visits whose required note is unsigned, oldest first (rev 2.0)
+ *   POST /api/provider/visits/:id/sign                    sign: draft → VisitNotes + NoteSignature; an open visit → SEEN (a checked-out one stays checked out)
  *   POST /api/provider/visits/:id/scribe/consent          the patient agreed to be recorded
  *   POST /api/provider/visits/:id/scribe/sessions         begin a recording
  *   POST …/scribe/sessions/:sid/upload                    where to PUT the audio
@@ -21,6 +22,7 @@
 
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
+import { config } from '../config.js';
 import { audit } from '../lib/audit.js';
 import { now } from '../lib/clock.js';
 import { applyAiDraft, assertRoleForBooking, saveDraft, signDocumentation, startVisit } from '../lib/documentation.js';
@@ -31,6 +33,7 @@ import {
   assertScribeAvailable, discardSession, draftOf, finishSession, healStale, readTranscript, recordScribeConsent, retrySession, startSession, uploadTargetFor,
 } from '../lib/scribe.js';
 import { staffTransaction } from '../lib/staffTx.js';
+import { unsignedNoteCounts, unsignedNotes } from '../lib/unsignedNotes.js';
 import { actingRole, requireClinicalRead, requireClinicalWrite } from '../middleware/clinical.js';
 import { sendKnownError } from './http.js';
 
@@ -68,8 +71,11 @@ providerRouter.get('/provider/queue', ...requireClinicalRead, async (req, res) =
 
   const queue = await providerQueue({ role, ownStaffId: req.auth!.account.staffId, now: now() });
   audit.read('encounter', null, { scope: 'provider_queue', role, count: queue.rows.length + queue.backlog.length }, `provider_queue:${role}`);
+  const ownStaffId = req.auth!.account.staffId;
   res.json({
     ...queue,
+    /** Counts for the link to the signed-in provider's own Unsigned notes worklist (null with no provider record). */
+    unsignedNotes: ownStaffId ? await unsignedNoteCounts({ staffId: ownStaffId, now: now() }) : null,
     /** The roles this account may switch between, and whether each is theirs to write in. */
     roles: [
       ...held.map((r) => ({ role: r, own: true })),
@@ -78,6 +84,42 @@ providerRouter.get('/provider/queue', ...requireClinicalRead, async (req, res) =
         : []),
     ],
   });
+});
+
+// ---- the unsigned notes worklist (rev 2.0) --------------------------------------------------------------
+
+/** The staff roles whose visits carry notes: the people an administrator can pick a worklist for. */
+const PROVIDER_STAFF_ROLES = ['CHIROPRACTOR', 'NURSE_PRACTITIONER', 'REGISTERED_NURSE'] as const;
+
+/**
+ * A provider reads their OWN list (the provider record their login is linked to); naming anyone else is refused. An administrator
+ * may read anyone's, and is given the list of providers to choose from. See lib/unsignedNotes.ts.
+ */
+providerRouter.get('/provider/unsigned-notes', ...requireClinicalRead, async (req, res) => {
+  const me = req.auth!.account;
+  const isAdmin = me.roles.includes('ADMIN');
+  const asked = typeof req.query.staffId === 'string' && req.query.staffId !== '' ? req.query.staffId : null;
+  if (asked && asked !== me.staffId && !isAdmin) {
+    return res.status(403).json({ error: 'You can see only your own unsigned notes.', code: 'forbidden' });
+  }
+  const providers = isAdmin
+    ? await prisma.staff.findMany({ where: { role: { in: [...PROVIDER_STAFF_ROLES] } }, orderBy: [{ active: 'desc' }, { name: 'asc' }], select: { id: true, name: true, role: true, active: true } })
+    : null;
+  const base = { now: now().toISOString(), timezone: config.clinicTimezone, thresholdHours: config.noteOverdueHours, providers };
+
+  const staffId = asked ?? me.staffId;
+  if (!staffId) {
+    return res.json({
+      ...base, provider: null, rows: [], overdue: 0, more: false,
+      reason: isAdmin ? 'Choose whose unsigned notes to see.' : 'Your account is not linked to a provider record, so it has no notes of its own.',
+    });
+  }
+  const staff = await prisma.staff.findUnique({ where: { id: staffId }, select: { id: true, name: true, role: true, active: true } });
+  if (!staff || !(PROVIDER_STAFF_ROLES as readonly string[]).includes(staff.role)) return res.status(404).json({ error: 'Unknown provider.', code: 'not_found' });
+
+  const list = await unsignedNotes({ staffId, now: now() });
+  audit.read('encounter', null, { scope: 'unsigned_notes', staffId, own: staffId === me.staffId, count: list.rows.length }, `unsigned_notes:${staffId}`);
+  res.json({ ...base, provider: { ...staff, own: staffId === me.staffId }, ...list, reason: null });
 });
 
 // ---- the workspace -------------------------------------------------------------------------------------
@@ -146,7 +188,7 @@ providerRouter.post('/provider/visits/:id/sign', ...requireClinicalWrite, async 
     const out = await staffTransaction((tx, rec) => signDocumentation(tx, rec, {
       bookingId: id(req), accountId: req.auth!.account.id, role, version: parsed.data.version, reviewedAiDraft: parsed.data.reviewedAiDraft, now: now(),
     }));
-    res.status(201).json({ signed: { signedAt: out.signedAt, role, noteIds: out.noteIds, aiAssisted: out.aiAssisted, aiDraftUnchanged: out.aiDraftUnchanged } });
+    res.status(201).json({ signed: { signedAt: out.signedAt, role, noteIds: out.noteIds, aiAssisted: out.aiAssisted, aiDraftUnchanged: out.aiDraftUnchanged, afterCheckout: out.afterCheckout } });
   } catch (err) { if (!sendKnownError(res, err)) throw err; }
 });
 

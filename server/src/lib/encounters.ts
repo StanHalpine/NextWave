@@ -1,7 +1,14 @@
 /**
- * The front-desk visit workflow: an appointment is SCHEDULED, then CHECKED_IN, then
- * (Phase 4: IN_PROGRESS → SEEN when the provider signs) CHECKED_OUT. Until the provider
- * module exists the front desk takes a patient straight from CHECKED_IN to CHECKED_OUT.
+ * The front-desk visit workflow: where the PATIENT is.
+ *
+ *   SCHEDULED → CHECKED_IN → IN_PROGRESS (a provider opened the visit) → SEEN (the provider signed while the patient
+ *   was still here) → CHECKED_OUT, with IN_PROGRESS and SEEN optional: check-out is open from any of CHECKED_IN,
+ *   IN_PROGRESS and SEEN, and CHECKED_OUT is reached ONLY through check-out (lib/checkout.ts, which records the payment).
+ *
+ * Rev 2.0: the note is tracked apart from this (lib/noteStatus.ts — NOT_REQUIRED | PENDING | SIGNED). Check-out never
+ * waits for it, so a visit is often CHECKED_OUT with its note still PENDING and signed later; signing a checked-out
+ * visit leaves it CHECKED_OUT. SEEN is therefore a signal to the desk ("the provider is done"), not a gate. Whether a
+ * visit needs a note at all is fixed when the patient is checked in, by a database trigger (Encounter.noteRequired).
  *
  * The Encounter is separate from the Booking on purpose: the booking's own lifecycle
  * (hold / pending / confirmed / cancelled) belongs to the booking engine and is not

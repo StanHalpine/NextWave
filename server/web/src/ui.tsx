@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ApiError } from './api';
+import { NOTE_PILL, NOTE_TITLE, noteText, type NoteStatus } from './notes';
+import type { DocStatus } from './types';
 
 export const errorText = (e: unknown): string =>
   e instanceof ApiError ? e.message : e instanceof Error ? e.message : 'Something went wrong.';
@@ -59,6 +61,11 @@ export function ServiceDot({ color, title }: { color: string; title?: string }) 
 
 const SOURCE_LABEL: Record<string, string> = { ONLINE: 'Online', PHONE: 'Phone', WALK_IN: 'Walk-in', FRONT_DESK: 'Front desk' };
 export const sourceLabel = (s: string) => SOURCE_LABEL[s] ?? s;
+
+/** A visit's note status, the same pill everywhere the desk sees a visit (cards, the appointment dialog, the Ledger). */
+export function NotePill({ note, doc }: { note: NoteStatus; doc?: DocStatus }) {
+  return <span className={`pill note ${NOTE_PILL[note]}`} title={NOTE_TITLE[note]}>{noteText(note, doc)}</span>;
+}
 
 export function Notice({ children, kind = 'info' }: { children: ReactNode; kind?: 'info' | 'error' | 'warn' }) {
   return <div className={`notice ${kind}`} role={kind === 'error' ? 'alert' : 'status'}>{children}</div>;

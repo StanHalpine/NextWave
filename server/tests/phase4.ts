@@ -30,6 +30,8 @@ export interface VisitOpts {
   /** Book with this exact Staff record (so a provider can be "mine"). */
   staffId?: string;
   doc?: DocumentationType;
+  /** Whether the service needs a signed note (rev 2.0); the column default (true) when not given. */
+  requiresNote?: boolean;
   /** Encounter state; null = no encounter at all. */
   encounter?: EncounterStatus | null;
   start?: Date;
@@ -44,7 +46,10 @@ export interface VisitOpts {
 export async function visit(o: VisitOpts = {}) {
   const t = tag();
   const service = await prisma.service.create({
-    data: { slug: `t4-${t}`, category: 'Chiropractic', name: `T4 Service ${t}`, durationMin: 30, bufferMin: 0, color: 'chiro_saddle', documentationType: o.doc ?? 'SOAP' },
+    data: {
+      slug: `t4-${t}`, category: 'Chiropractic', name: `T4 Service ${t}`, durationMin: 30, bufferMin: 0, color: 'chiro_saddle', documentationType: o.doc ?? 'SOAP',
+      ...(o.requiresNote !== undefined ? { requiresNote: o.requiresNote } : {}),
+    },
   });
   const room = await prisma.resource.create({ data: { name: `T4 Room ${t}`, type: 'TEST_ROOM', maxCapacity: 1 } });
   let staffId: string | null = o.staffId ?? null;

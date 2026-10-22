@@ -215,19 +215,28 @@ list, discount and net, and the server refuses the check-out if the net the desk
 
 | Where | What |
 |---|---|
-| **Provider** (`/app/provider`) | Today's checked-in patients for your provider role (plus visits with no provider assigned), longest-waiting first, each with *No note yet / Note in progress / Note signed*; earlier unsigned visits (30 days) apart. A person holding more than one role, or an admin, can switch roles (a role that is not theirs is read-only) |
+| **Provider** (`/app/provider`) | Today's checked-in patients for your provider role (plus visits with no provider assigned), longest-waiting first, each with *No note yet / Note in progress / Note signed / No note needed*; earlier visits whose note is still due (30 days) apart. A person holding more than one role, or an admin, can switch roles (a role that is not theirs is read-only) |
+| **Unsigned notes** (`/app/provider/unsigned`) | *Rev 2.0.* Every visit booked with you whose service needs a note and has none signed — still here or checked out, any date — oldest first, one click from its note. A note pending more than `NOTE_OVERDUE_HOURS` (default 24) since check-in is marked overdue. An admin picks any provider's list and reads it. `GET /api/provider/unsigned-notes[?staffId=]` |
 | **Workspace** (`/app/provider/visits/:id`) | A SOAP editor (S / O / A / P) or, for a session-log service, duration + notes. Autosaves to a **draft**; one-click **macros**; **Review and sign**; after signing, **Amend** (reason required, every earlier version kept) |
 | **AI scribe** | Provider confirms the patient agreed → the browser records → uploads to a signed address → the server transcribes and drafts S/O/A/P. The draft is **offered**, never inserted or signed on its own; signing it needs an explicit "I have reviewed it" |
 | Admin → **Macro sets** | Shared macro sets by section and provider role. Providers keep personal macros too |
-| Front Desk | Sees only whether a note exists and is signed on each appointment, never what it says |
+| Front Desk | Sees only the note's status on each appointment — *Note pending / Note signed / No note needed* — never what it says. **Check-out never waits for it** (rev 2.0) |
 
 **Two stores, on purpose.** `DocumentationDraft` is a mutable scratchpad (optimistic `version`, so two tabs
 cannot silently overwrite each other). `VisitNote` is the record and its amendment model is unchanged
 (insert-only, `amendsId` chain). **Signing** copies the draft into VisitNote rows (S, O, A, P, or one GENERAL note
 carrying the session's duration), writes an append-only `NoteSignature` (account, **provider role used**, time,
-which notes, whether an AI draft was the starting point), deletes the draft and marks the visit `SEEN` — all in
-one transaction under the Booking row lock. The database now rejects UPDATE/DELETE/TRUNCATE on `VisitNote` and
+which notes, whether an AI draft was the starting point, whether the patient had already been checked out),
+deletes the draft and, if the patient is still here, marks the visit `SEEN` — all in one transaction under the Booking
+row lock. A checked-out visit stays checked out: its note is simply late. The database now rejects UPDATE/DELETE/TRUNCATE on `VisitNote` and
 `NoteSignature`.
+
+**Which visits need a note** (rev 2.0). `Service.requiresNote` (Configuration → Services, "Requires a signed note"):
+false for red light, hyperbaric and body composition, true for everything else. A visit takes the value its service has
+**when the patient is checked in** (`Encounter.noteRequired`, set by a database trigger so a walk-in gets it too), and the
+note status every screen shows — *NOT_REQUIRED / PENDING / SIGNED* — is derived from that and the signature
+(`src/lib/noteStatus.ts`). It is independent of the visit's state: check-out is open from CHECKED_IN, IN_PROGRESS or SEEN
+whatever the note says, and only check-out reaches CHECKED_OUT.
 
 **Who may do what.** Front desk: nothing clinical. Provider: read anything, write visits booked with their own
 role. Admin: read only (an admin who also holds a provider role writes as that role). Every clinical route

@@ -155,6 +155,12 @@ model Service {
   /// treated as a full clinical encounter — it is opted INTO SOAP.
   documentationType DocumentationType @default(SESSION_LOG)
 
+  /// Whether a visit for this service needs a signed note at all (rev 2.0). The owner's rule: what a chiropractor, a nurse
+  /// practitioner or an IV-lounge nurse delivers does; red light, hyperbaric and similar sessions do not. Per service and
+  /// editable by an admin. A visit takes the value in force when it is CHECKED IN (Encounter.noteRequired), so changing it
+  /// never rewrites earlier visits. Defaults to true: a newly added service is never silently left undocumented.
+  requiresNote Boolean @default(true)
+
   /// Wellness Credits this service costs a member at check-out. NULL = not credit-eligible
   /// (a member pays cash). Editable by an admin next to the price.
   creditCost Int?
@@ -512,6 +518,11 @@ model Encounter {
   checkedOutById  String?
   noShowAt        DateTime?
   scribeConsentAt DateTime?
+  /// Whether THIS visit needs a signed note (rev 2.0): the service's requiresNote, copied when the patient is checked in and
+  /// cleared if they are moved back or marked a no-show. A database trigger sets it (see the rev 2.0 migration), so every way a
+  /// visit is checked in, the walk-in included, gets it. The note's status is derived from this and the NoteSignature
+  /// (lib/noteStatus.ts) and is independent of `status`: a visit can be CHECKED_OUT with its note still pending.
+  noteRequired    Boolean         @default(false)
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
   /// Soft delete — clinical records are never hard-deleted.
@@ -977,6 +988,9 @@ model NoteSignature {
   scribeSessionId   String?
   aiAssisted        Boolean           @default(false)
   aiDraftUnchanged  Boolean?
+  /// Signed after the patient had been checked out: a late note (rev 2.0). Null on signatures made before this was recorded
+  /// (the table is append-only, so they were not back-filled; their encounter's checkedOutAt still says).
+  afterCheckout     Boolean?
   createdAt         DateTime          @default(now())
 
   booking Booking @relation(fields: [bookingId], references: [id], onDelete: Restrict)

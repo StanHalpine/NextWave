@@ -1,6 +1,6 @@
 # NextWave Wellness — Clinic System Specification
 
-Version 1.9 · 2026-10-22 · Status: **Phases 1–5 approved and built. Ledger phase L1 (the patient Ledger, read only) approved and built; L2–L4 (payments and combined check-out, corrections, kiosk) are NOT approved** — revision 1.9 below. Member discounts are enabled (Prevent 10% · Restore 15% · Optimize 20%; rev 1.8); perks stay off. `docs/STAGING_CHECKLIST.md` lists everything that needs a real environment. Nothing is merged to `main` or deployed from this branch.
+Version 2.0 · 2026-10-22 · Status: **Phases 1–5 approved and built. Ledger phase L1 (the patient Ledger, read only) approved and built. Phase 2a (documentation decoupled from check-out: per-service note requirement, note status apart from visit state, the Unsigned notes worklist) built — revision 2.0 below. Phase 2b (the money layer: payments, balance, promotions, adjustments) is a design only, `docs/MONEY_LAYER_DESIGN.md`; it and L4 (kiosk) are NOT approved.** Member discounts are enabled (Prevent 10% · Restore 15% · Optimize 20%; rev 1.8); perks stay off. `docs/STAGING_CHECKLIST.md` lists everything that needs a real environment. Nothing is merged to `main` or deployed from this branch.
 
 > **Revision 1.1 — decisions recorded after approval** (the body below is otherwise
 > unchanged from the approved v1; sections touched are marked *[rev 1.1]*):
@@ -102,6 +102,35 @@ Version 1.9 · 2026-10-22 · Status: **Phases 1–5 approved and built. Ledger p
 > | Revenue basis | *[superseded by rev 1.7: dues are now a separate line in every Accounting view]* **Membership dues are not in Accounting**: nothing records them (A-13 assumed they would be). Revenue is what was recorded at check-out |
 > | Not built | *[rev 1.7: the Twilio adapter and dues are built]* A **Twilio sending adapter** (texts still go to the stub; only the inbound webhook, its signature check and the wording are real), the **AWS adapters**, a dues record, void/refund, print/PDF, a free-form analytics builder |
 
+> **Revision 2.0 — billing and documentation decoupled (Chase's answers to the rev 1.9 open items), and Phase 2a as built.**
+> **Replaces A-18. Resolves A-23** and the red-light price-note item. Amends A-19 and A-21 for the money layer (Phase 2b, design only).
+>
+> *Decisions (the owner, via Chase):*
+>
+> | Item | Decision |
+> |---|---|
+> | **Check-out and the note** (replaces A-18) | **Check-out does NOT wait for a signed note.** Providers often write notes after the patient has left (thirty adjustments in a day; notes on breaks or at the end of the day). Billing and documentation are decoupled |
+> | **Which visits need a note** (resolves A-23) | **Only services delivered by a chiropractor, a nurse practitioner or an IV-lounge nurse.** Red light, HBOT and similar sessions need none. A per-service **"requires note"** flag, admin-editable, seeded accordingly |
+> | **Note status** | Tracked **separately from the visit state**: *not required · pending · signed*. A visit can be **CHECKED_OUT with its note still pending** |
+> | **Partial payments** (amends A-21; Phase 2b) | Recorded **on the date collected**. The remaining balance shows **at the bottom of the patient's Ledger** and **carries forward until paid or written off by an admin** |
+> | **Pricing** (amends A-19; Phase 2b) | Admins create **promotions** (e.g. "20% off red light, Oct 20–26": service scope, percent or fixed amount, date range), **applied automatically at check-out**. The front desk may apply a **one-off adjustment with a required reason code**; every adjustment is audited and listed in Accounting for admin review. **A list price is never edited** |
+> | **Red light credit cost** | **2 credits** — the same as a manual adjustment, as the seed, the Phase 3 migration and `membership.html` already had it. The seeded price note said "3 credits" and now says 2; `services/red-light-therapy.html` is fixed on `main` separately. **An existing database keeps its old note until an admin changes it** (the seed fills an empty database only) |
+>
+> *Phase 2a as built:*
+>
+> | Item | As built |
+> |---|---|
+> | `Service.requiresNote` | `Boolean @default(true)` — a newly added service is never silently left undocumented. Seed and migration set it **false for Red Light Therapy, Hyperbaric Oxygen Therapy (60 and 90 min) and Body Composition**; true for the other eleven. *For the owner to confirm:* vitamin shots and biomarker testing (nurse-delivered, but are they "IV lounge"?), spinal X-rays (chiropractor-booked, documented as a session log), body composition (treated as "similar" to red light). Edited on **Configuration → Services** ("Requires a signed note"); a change is audited from → to and applies to visits checked in afterwards |
+> | `Encounter.noteRequired` | Whether **this visit** needs a note: the service's flag **copied when the patient is checked in** and cleared on undo or no-show, by a **database trigger** (`nw_encounter_note_required`) — so the walk-in, whose encounter the scheduling engine creates, gets it without that code changing, and so a later change to the service never rewrites earlier visits. The trigger reads; it never touches `status`. Existing encounters were back-filled from the seeded flags |
+> | Note status | **Derived, not stored** (`src/lib/noteStatus.ts`): **SIGNED** if a `NoteSignature` exists; else **PENDING** if `noteRequired`; else **NOT_REQUIRED**; none before check-in. Sent on every appointment (`note`), Ledger visit, provider queue row and workspace |
+> | Visit state machine | `SCHEDULED → CHECKED_IN → (IN_PROGRESS) → (SEEN) → CHECKED_OUT`. **Check-out is open from CHECKED_IN, IN_PROGRESS or SEEN** whatever the note; **CHECKED_OUT is reached only through check-out**. **SEEN now means "the provider signed while the patient was still here"** — a signal to the desk, no longer a gate. Signing a checked-out visit leaves it CHECKED_OUT |
+> | Late notes | A note can be written and signed after check-out. The signature records it (`NoteSignature.afterCheckout`; null on signatures made before rev 2.0) and so does its audit row (`afterCheckout`, and `overdue` against the threshold) |
+> | Ledger | The "waiting on provider" state and its check-out block are gone: every checked-in visit is **Ready to check out**, and each visit shows its **note status** (today's and earlier). `todayTotals.notesPending` counts today's pending notes, for information |
+> | Indicators | Front Desk cards and the appointment dialog (*Note pending · Note signed · No note needed*, "draft started" when there is one), Schedule blocks (badge + legend), the Ledger, the provider queue |
+> | **Unsigned notes worklist** | `GET /api/provider/unsigned-notes[?staffId=]`, screen **`/app/provider/unsigned`**: every visit **booked with the signed-in provider** whose note is pending — checked out or not, **any date** — **oldest first**, with date, patient, service, visit state, time waiting and one click to the note. **Admins can read any provider's list** (picker; read-only). A provider naming another's id is refused. Highlights a note pending **more than `NOTE_OVERDUE_HOURS` (default 24) elapsed hours since check-in**. Visits that need no note never appear. Audited as a read (staff id and count), once per five minutes of viewing |
+> | Provider queue | "Earlier visits still to sign" and the "notes still to sign" count leave out visits that need no note; the response carries the provider's own unsigned/overdue counts for the link to the worklist |
+> | Not built | The money layer (Phase 2b): design only, `docs/MONEY_LAYER_DESIGN.md`. A way for an admin to **waive** a note requirement on one visit (e.g. a service flagged by mistake) — not asked for; a pending note today stays pending until it is signed |
+
 > **Revision 1.9 — the patient Ledger (phase L1), and decisions for the money phases that follow it.** From two requests (the owner's
 > partner; Chase, the chiropractor): kiosk check-in, a charge review at check-in, one ledger per patient, and one check-out for a
 > patient's whole day. The gap analysis found that the app has **no payment, balance, refund or void concept** — `RevenueEvent` (one
@@ -111,14 +140,14 @@ Version 1.9 · 2026-10-22 · Status: **Phases 1–5 approved and built. Ledger p
 > | Item | Decision |
 > |---|---|
 > | **Ledger (L1, built)** | A **Ledger** tab on the patient profile, backed by **one endpoint keyed by patient id**: `GET /api/fd/patients/:id/ledger` (§5.6). The same answer from either of a patient's cards in the Checked-in column (their dialog has a **Ledger…** button), from the directory, and from a second desk screen. **Read only: no new tables, nothing posted by looking, no balance shown** (payments do not exist yet). Today's visits are priced the way check-out will price them; checked-out visits show what was recorded. The tab re-reads every **10 seconds** while open. See §4.7 |
-> | Visits not yet seen | Listed as **"waiting on provider: <name>"**. Only a SEEN visit (its note signed) offers **Check out…** from the Ledger, which opens the existing check-out unchanged (A-18). *The single-visit check-out on the Front Desk cards still accepts CHECKED_IN, as before — unchanged by L1* |
-> | Combined check-out (L2) | Will include **only SEEN visits** (A-18) |
+> | Visits not yet seen | *[superseded by rev 2.0: every checked-in visit can be checked out; each shows its note status]* Listed as **"waiting on provider: <name>"**. Only a SEEN visit (its note signed) offers **Check out…** from the Ledger, which opens the existing check-out unchanged (A-18). *The single-visit check-out on the Front Desk cards still accepts CHECKED_IN, as before — unchanged by L1* |
+> | Combined check-out (L2) | *[superseded by rev 2.0: every checked-in visit, note or no note]* Will include **only SEEN visits** (A-18) |
 > | Corrections (L3) | Price override, void and refund: **admin only, on an MFA-verified session, with a reason code**. **Never edit a list price**: an override is its own adjustment line; a void or refund is a reversal row that references the original (A-19) |
 > | Revenue and payments (L2) | **Revenue stays at check-out** (`RevenueEvent`). Payments become **separate append-only rows**, and Accounting will show **billed vs collected**. Payments are **recorded manually by tender type only — no card processing and no card data in the app** (A-20) |
 > | Allocation (L2) | Cash pays the **oldest charge first** by default; a **partial payment needs explicit confirmation**; **dues stay out of the balance** for now; an **unpaid balance carries forward** to the next visit (A-21) |
 > | Kiosk (L4) | **Deferred.** The design is recorded in §0 (proposal) and §7 L4 — device pairing, mobile number + date of birth + a hashed 6-digit PIN, lockout, minimal PHI — **not yet approved** (A-22) |
 > | Audit of a re-read | A record read that a screen repeats on a timer is audited **once per five minutes of viewing per person** (`audit.read` with a `listKey`), not on every refresh — opening the Ledger is always audited |
-> | Open item (A-23) | Whether red light / HBOT-type sessions **keep the signed session-log requirement** before they can be checked out (A-5 says they get a session log; L2 would then require it before check-out). **Pending the owner's confirmation** |
+> | ~~Open item~~ Resolved (rev 2.0) (A-23) | Whether red light / HBOT-type sessions **keep the signed session-log requirement** before they can be checked out. **The owner: they need no note at all, and no visit's check-out waits for one** |
 > | ~~Open item~~ Resolved (rev 2.0) | Red light therapy: the service's price note said *"3 credits"*, its credit cost is **2**. **The owner confirmed 2** (the same as a manual adjustment); the seed's price note and the service page now say 2 credits |
 
 > **Revision 1.8 — member discounts enabled.**
@@ -241,6 +270,7 @@ nav bar (assumption A-2).
 | `/app/provider` | provider_*, admin (view) | **Checked-In Patient Queue**, filtered by the provider's specialty. Toggle *Mine / All {specialty}* |
 | `/app/provider/encounters/:id/soap` | provider_* | **SOAP Note Entry Workspace** — Method A (macro sets) and Method B (AWS Bedrock AI scribe) |
 | `/app/provider/macros` | provider_*, admin (shared sets) | Create/edit custom macro sets |
+| `/app/provider/unsigned` *[rev 2.0]* | provider_*, admin (any provider, read-only) | **Unsigned notes**: the provider's visits whose note is pending, checked out or not, oldest first; overdue after 24 h |
 
 ### 4 · Accounting (admin only)
 | Route | Purpose |
@@ -717,7 +747,10 @@ No new tables beyond indexes: reports and accounting read `Charge`,
 | `Booking` | `createdByAccountId String?`, `rescheduledFromId String?` | 2 | Who booked; reschedule chain |
 | `Booking` | `patientId String?` (+ index) | 3 | Link a booking's contact to a canonical patient. Set by new code only |
 | `Service` | `creditCost Int?` | 3 | Seed: adjustment 2, red light 2, HBOT-60 4, HBOT-90 6, vitamin shot 2, IV 6; null = not credit-eligible |
-| `Service` | `requiresSoapNote Boolean @default(true)` | 4 | Which services need a note (A-5) |
+| `Service` | `requiresSoapNote Boolean @default(true)` | 4 | Which services need a note (A-5) *[built as `documentationType`; rev 2.0 adds `requiresNote` for whether a note is needed at all]* |
+| `Service` *[rev 2.0]* | `requiresNote Boolean @default(true)` | 2a | Whether a visit needs a signed note at all; false for red light, HBOT, body composition |
+| `Encounter` *[rev 2.0]* | `noteRequired Boolean @default(false)`, set by trigger at check-in | 2a | The visit's own requirement, fixed when checked in |
+| `NoteSignature` *[rev 2.0]* | `afterCheckout Boolean?` | 2a | A late note (signed after check-out) |
 | `Service` | `reportGroup` enum `CHIRO HBOT RED_LIGHT IV CONSULT BLOODWORK OTHER` | 5 | Service-demand grouping (A-6) |
 | `VisitNote` | none — superseded by `SoapNote` in Phase 4; kept read-only, removed in a later migration. Its `authorId` is sourced from the session from Phase 1 | 1/4 | Authorship proven |
 
@@ -732,7 +765,7 @@ filters); no route file changes for this.
 computed on the server; a pending visit is priced by the same function the check-out screen uses (`checkoutPreview`), so the two never
 disagree. Money is integer cents. There is no stored balance, and none is shown.
 
-**L2 (proposed, not approved).** Append-only `Payment` (patient, tender type, amount in cents, idempotency key, recorded by) and
+**L2 (proposed, not approved)** *[rev 2.0: superseded by `docs/MONEY_LAYER_DESIGN.md` — every checked-in visit, not only SEEN ones; partial payments, promotions and adjustments]*. Append-only `Payment` (patient, tender type, amount in cents, idempotency key, recorded by) and
 `PaymentAllocation` (payment → the `RevenueEvent` it pays, cents), plus reversal rows that reference what they reverse; no-update /
 no-delete triggers and RLS on each, like the existing ledgers. Outstanding = charges − allocations, **derived, never stored**. Dues are
 excluded from it (A-21). Combined check-out locks the day's bookings in id order, then the patient (the existing lock order), and
@@ -800,6 +833,7 @@ patient / appointment / SOAP / credit data writes an `AuditLog` row (§6).
 | Method · Path | Roles | Purpose |
 |---|---|---|
 | `GET /api/provider/queue?scope=mine\|specialty` | provider_* | Checked-in patients awaiting a note |
+| `GET /api/provider/unsigned-notes?staffId=` *[rev 2.0]* | provider_* (own), admin (any) | The Unsigned notes worklist (rev 2.0) |
 | `GET /api/provider/encounters/:id` | provider_* | Encounter + patient summary (demographics, relevant history) |
 | `POST /api/provider/encounters/:id/start` | provider_* | → `IN_PROGRESS` |
 | `GET/PUT /api/provider/encounters/:id/soap` | provider_* | Read / autosave draft |
@@ -828,7 +862,7 @@ Reports return **aggregates only** — no patient identifiers.
 | Method · Path | Roles | Purpose |
 |---|---|---|
 | `GET /api/fd/patients/:id/ledger` | fd, admin | **The only ledger endpoint, keyed by patient id alone** (a `bookingId` or other parameter is ignored). Today's visits (state, provider, list, discount, credits, net — recorded or as check-out would record it), earlier visits, credits, dues. Read only. Audited as a read of `patient` and `credit_ledger`, once per five minutes of viewing per person |
-| *(L2, proposed)* `POST /api/fd/patients/:id/checkout` | fd, admin | Combined check-out of the day's SEEN visits, with payments; one transaction; idempotency key; refuses a stale screen |
+| *(L2, proposed)* `POST /api/fd/patients/:id/checkout` | fd, admin | Combined check-out of the day's ~~SEEN~~ checked-in visits *[rev 2.0]*, with payments; one transaction; idempotency key; refuses a stale screen. See `docs/MONEY_LAYER_DESIGN.md` |
 | *(L3, proposed)* `POST /api/fd/payments/:id/reverse` · `POST /api/fd/revenue/:id/void` | admin (MFA) | Reversals with a reason code; never edits |
 
 ---
@@ -915,6 +949,8 @@ review before the next phase.
 ### Ledger phases *[rev 1.9]*
 - **L0 — decisions** *(done)*: this revision.
 - **L1 — Ledger read model** *(approved, built)*: §4.7, §5.6. Tests: same output from every way in, access, audit, no side effects, Chicago day boundaries (incl. the 25-hour day).
+- **Phase 2a — documentation decoupled from check-out** *(rev 2.0, built)*: requires-note flag, note status, the Unsigned notes worklist, late notes.
+- **Phase 2b — the money layer** *(rev 2.0, design only, not approved)*: `docs/MONEY_LAYER_DESIGN.md` — payments, allocations and reversals, the derived balance, combined check-out with partial payment, promotions and adjustments, billed vs collected. Replaces the L2 and L3 sketches below.
 - **L2 — Payments and combined check-out** *(not approved)*: §4.7; Accounting "billed vs collected".
 - **L3 — Corrections** *(not approved)*: admin-only override / void / refund with reason codes (A-19).
 - **L4 — Kiosk** *(not approved)*: an admin pairs an iPad (one-time code → a long random device token, httpOnly cookie, a `KioskDevice` principal that can call only `/kiosk/*`, revocable, optional clinic-IP allow-list, MDM guided access). A patient identifies with **mobile number + date of birth**, then a **6-digit check-in PIN** issued by the desk and stored as an **Argon2id hash** (checked only within the matched patient, so PINs may repeat). **5 failures lock that patient's kiosk access for 15 minutes**; per-device and global rate limits with backoff; one generic "please see the front desk" answer for every failure. After verifying it shows **first name, today's times and services only** — no DOB, phone, address, notes or amounts — and resets after 60–90 s idle. Check-in of the chosen visits is one transaction with an idempotency key. Audited without the entered phone, DOB or PIN. A HIPAA review (shared screen, brute-force reporting, minors, BAA) precedes approval.
@@ -957,12 +993,12 @@ Each has a default; say "defaults OK" or override.
 | A-15 | Session length | 15 min idle, 12 h absolute |
 | A-16 | Documents upload | Storage interface supports it; no patient-document screen because the flowchart has none |
 | A-17 | Weekend metrics | "Weekend" = Saturday (Sunday is closed today); updates automatically if hours change |
-| A-18 | *[rev 1.9]* Unsigned visits at check-out | **Decided:** combined check-out (L2) includes only SEEN visits; the rest show "waiting on provider: <name>". The Ledger offers Check out only for SEEN visits |
-| A-19 | *[rev 1.9]* Corrections | **Decided:** price override, void, refund — admin only, MFA session, reason code; a list price is never edited; reversals only |
+| A-18 | *[rev 2.0 — replaced]* Unsigned visits at check-out | **Decided (rev 2.0):** check-out never waits for a note; every checked-in visit (CHECKED_IN, IN_PROGRESS, SEEN) can be checked out, singly or (2b) together, and shows its note status. ~~Rev 1.9: combined check-out includes only SEEN visits; the rest show "waiting on provider"~~ |
+| A-19 | *[rev 1.9; amended rev 2.0]* Corrections and pricing | **Decided:** void, refund — admin only, MFA session, reason code; a list price is never edited; reversals only. *Rev 2.0:* admin-defined **promotions** apply automatically; the **front desk** may make a **one-off adjustment with a reason code**, audited and listed in Accounting for admin review |
 | A-20 | *[rev 1.9]* Revenue vs payments | **Decided:** revenue at check-out; payments are separate rows (L2), recorded by tender type only — no card processing or card data; Accounting shows billed vs collected |
-| A-21 | *[rev 1.9]* Allocation and balance | **Decided:** oldest charge first; partial payments need explicit confirmation; dues not in the balance (for now); unpaid balance carries forward |
+| A-21 | *[rev 1.9; amended rev 2.0]* Allocation and balance | **Decided:** oldest charge first; partial payments need explicit confirmation; dues not in the balance (for now); unpaid balance carries forward. *Rev 2.0:* a partial payment is recorded on the date collected; the balance shows at the bottom of the Ledger and carries forward **until paid or written off by an admin** |
 | A-22 | *[rev 1.9]* Kiosk | **Deferred**; design in §7 L4 and the §0 proposal row, **not yet approved** |
-| A-23 | *[rev 1.9]* Session-log requirement for red light / HBOT-type sessions | **Open — awaiting the owner:** do they keep the signed session log (A-5) as a condition of check-out under A-18? |
+| A-23 | *[rev 1.9; resolved rev 2.0]* Session-log requirement for red light / HBOT-type sessions | **Resolved:** no note is required for them (`Service.requiresNote` false), and no check-out waits for a note of any kind |
 
 ---
 

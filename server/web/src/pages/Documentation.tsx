@@ -186,7 +186,7 @@ export default function Documentation() {
 
   return (
     <>
-      <p className="crumb"><Link to="/provider">← Provider queue</Link></p>
+      <p className="crumb"><Link to="/provider">← Provider queue</Link> · <Link to="/provider/unsigned">Unsigned notes</Link></p>
       <div className="page-head">
         <div>
           <h1>{b.patient.name}</h1>
@@ -202,6 +202,11 @@ export default function Documentation() {
       {b.patientNote && <div className="patient-note"><div className="label-like">What the patient wrote when booking</div><p>{b.patientNote}</p></div>}
       {!ws.access.canWrite && !signedView && <Notice kind="warn">{ws.access.readOnlyReason ?? 'You can read this but not write it.'}</Notice>}
       {!ws.access.canWrite && signedView && ws.access.readOnlyReason && <p className="hint">{ws.access.readOnlyReason}</p>}
+      {/* Rev 2.0: the note is apart from check-out. Say so where it matters to the person writing it. */}
+      {!signedView && ws.note === 'NOT_REQUIRED' && <p className="hint">This service does not need a note. You can still write and sign one.</p>}
+      {!signedView && ws.note === 'PENDING' && ws.encounter?.status === 'CHECKED_OUT' && (
+        <Notice>The patient has been checked out. You can still write and sign this note; it will be recorded as signed after check-out.</Notice>
+      )}
 
       {signedView && ws.signature && (
         <section className="card wide-card signed-card">
@@ -209,6 +214,7 @@ export default function Documentation() {
             <span className="pill ok">Signed</span>
             <span>by <strong>{ws.signature.signedBy ?? 'a provider'}</strong> ({roleName(ws.signature.signedRole)}) · {fmtInstantTime(ws.signature.signedAt, tz)}</span>
             {ws.signature.aiAssisted && <span className="pill off" title="The note began as an AI-generated draft that the provider reviewed.">Began as an AI draft{ws.signature.aiDraftUnchanged ? ' · signed unchanged' : ' · edited'}</span>}
+            {ws.signature.afterCheckout && <span className="pill off" title="Signed after the patient had been checked out.">Signed after check-out</span>}
           </div>
           <SignedNotes notes={ws.notes} canAddend={ws.access.canAddend} tz={tz} onAmended={async () => { await load(); }} />
         </section>

@@ -49,10 +49,10 @@ function assertDatabaseTls(url: string): void {
 }
 
 /** A whole number and nothing else: "1.5", "30days" and "thirty" are errors, not 1, 30 and NaN. */
-function strictInt(name: string, fallback: number): number {
+function strictInt(name: string, fallback: number, what = 'a whole number of days from 1 to 3650'): number {
   const raw = process.env[name]?.trim();
   if (!raw) return fallback;
-  if (!/^-?\d+$/.test(raw)) throw new Error(`Refusing to start: ${name} must be a whole number of days from 1 to 3650.`);
+  if (!/^-?\d+$/.test(raw)) throw new Error(`Refusing to start: ${name} must be ${what}.`);
   return Number(raw);
 }
 
@@ -198,6 +198,13 @@ export const config = {
    */
   audioRetentionDays: strictInt('AUDIO_RETENTION_DAYS', 30),
 
+  /**
+   * A required note still unsigned this many hours after the patient was checked in is highlighted as overdue on the
+   * provider's Unsigned notes worklist (lib/unsignedNotes.ts) and recorded as such when it is finally signed. Elapsed hours,
+   * not calendar days, so the 25-hour day the clocks go back is no different. A whole number from 1 to 720.
+   */
+  noteOverdueHours: strictInt('NOTE_OVERDUE_HOURS', 24, 'a whole number of hours from 1 to 720'),
+
   /** Booking grid granularity. Slots start on multiples of this. */
   slotGranularityMin: 15,
 
@@ -214,6 +221,9 @@ if (isProduction && !config.appBaseUrl.startsWith('https://')) {
 // clinic, so refuse to run that way without the phone number.
 if (!Number.isInteger(config.audioRetentionDays) || config.audioRetentionDays < 1 || config.audioRetentionDays > 3650) {
   throw new Error('Refusing to start: AUDIO_RETENTION_DAYS must be a whole number of days from 1 to 3650.');
+}
+if (!Number.isInteger(config.noteOverdueHours) || config.noteOverdueHours < 1 || config.noteOverdueHours > 720) {
+  throw new Error('Refusing to start: NOTE_OVERDUE_HOURS must be a whole number of hours from 1 to 720.');
 }
 if (!isE164(config.twilioFromNumber)) {
   throw new Error('Refusing to start: TWILIO_FROM_NUMBER must be a phone number in E.164 form, such as +18665241007.');

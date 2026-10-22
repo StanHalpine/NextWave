@@ -11,8 +11,11 @@
  *              • CHECKED OUT  — what was RECORDED at check-out (the RevenueEvent snapshot: list, tier discount, credits, net, how paid)
  *              • not yet      — what check-out WOULD record: the same figures the check-out screen shows (checkoutPreview), so the two
  *                               can never disagree. Cash is shown net of the tier discount; credits are shown as a cost, not as applied.
- *            A visit that is not SEEN yet is "waiting on provider: <name>" — only a SEEN visit (the note is signed) is ready to check out.
- *   prior    earlier visits (newest first), with the amounts recorded at their check-out, or their state if they were never checked out
+ *            Every visit the patient is checked in for (CHECKED_IN, IN_PROGRESS or SEEN) is ready to check out, whatever its note
+ *            (rev 2.0: billing and documentation are decoupled — the provider may sign after the patient has gone). Each visit
+ *            carries its note status instead (NOT_REQUIRED | PENDING | SIGNED, lib/noteStatus.ts), which never gates check-out.
+ *   prior    earlier visits (newest first), with the amounts recorded at their check-out, or their state if they were never checked out,
+ *            and their note status — a visit checked out last week can still have its note pending
  *   credits  the membership, the spendable balance and what expires soon, and the credits redeemed to date (derived from the ledger)
  *   dues     membership dues billed, as information only — collection is outside the app, so they are NOT a balance
  *
@@ -24,12 +27,14 @@ import type { Prisma } from '@prisma/client';
 import { basePrisma } from './prismaBase.js';
 import { APPT_INCLUDE, appointmentView } from './appointmentView.js';
 import { checkoutPreview } from './checkout.js';
+import { noteStatusOf, type NoteStatus } from './noteStatus.js';
 import { balance, clinicDay, expiringSoon, getLots } from './credits.js';
 import { openMembership } from './membership.js';
 import { localDayBounds } from './time.js';
 import { config } from '../config.js';
 
-export type VisitState = 'not_arrived' | 'no_show' | 'waiting_on_provider' | 'ready_to_check_out' | 'checked_out';
+/** Where the visit is, for check-out. `ready_to_check_out` is any checked-in visit (CHECKED_IN, IN_PROGRESS, SEEN) — the note does not matter. */
+export type VisitState = 'not_arrived' | 'no_show' | 'ready_to_check_out' | 'checked_out';
 
 export interface VisitCharge {
   /** recorded = what check-out wrote down; projected = what check-out would record (paid at the desk); none = no charge (a no-show). */
@@ -61,8 +66,8 @@ export interface LedgerVisit {
   subOption: string | null;
   provider: string | null;
   state: VisitState;
-  /** For waiting_on_provider: who the visit is booked with. */
-  waitingOn: string | null;
+  /** The visit's note, apart from its state: NOT_REQUIRED | PENDING | SIGNED; null when the patient was never checked in. */
+  note: NoteStatus | null;
   charge: VisitCharge;
 }
 
@@ -76,8 +81,7 @@ const NO_CHARGE: VisitCharge = {
 
 function stateOf(status: string | undefined): VisitState {
   switch (status) {
-    case 'CHECKED_IN': case 'IN_PROGRESS': return 'waiting_on_provider';
-    case 'SEEN': return 'ready_to_check_out';
+    case 'CHECKED_IN': case 'IN_PROGRESS': case 'SEEN': return 'ready_to_check_out';
     case 'CHECKED_OUT': return 'checked_out';
     case 'NO_SHOW': return 'no_show';
     default: return 'not_arrived';
@@ -140,7 +144,7 @@ export async function patientLedger(patientId: string, now: Date) {
       return {
         id: b.id, appointment: v, localDate: v.localDate, localStart: v.localStart,
         service: b.service.name, subOption: b.subOption, provider: b.staff?.name ?? null,
-        state, waitingOn: state === 'waiting_on_provider' ? (b.staff?.name ?? null) : null, charge,
+        state, note: noteStatusOf(b), charge,
       };
     };
 
@@ -182,7 +186,6 @@ export async function patientLedger(patientId: string, now: Date) {
         pending: {
           visits: pending.length,
           readyToCheckOut: pending.filter((v) => v.state === 'ready_to_check_out').length,
-          waitingOnProvider: pending.filter((v) => v.state === 'waiting_on_provider').length,
           notArrived: pending.filter((v) => v.state === 'not_arrived').length,
           listPriceCents: sum(pending.map((v) => v.charge.listPriceCents)),
           discountCents: sum(pending.map((v) => v.charge.discountCents)),
@@ -190,6 +193,8 @@ export async function patientLedger(patientId: string, now: Date) {
           /** Visits whose service has no set price: left out of the sums above, priced at check-out. */
           unpricedVisits: pending.filter((v) => !v.charge.priceKnown).length,
         },
+        /** Today's visits whose required note is still unsigned, checked out or not. Information for the desk; it holds nothing up. */
+        notesPending: todayVisits.filter((v) => v.note === 'PENDING').length,
       },
       priorVisits,
       priorVisitsMore: hasMore,

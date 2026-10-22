@@ -614,7 +614,7 @@
       return d;
     }
 
-    var picker, staffPicker, colorPicker, docSelect;
+    var picker, staffPicker, colorPicker, docSelect, noteCheck;
 
     function queueService() {
       // The header dot mirrors whatever color is currently picked, saved or
@@ -642,6 +642,7 @@
             staffIds: staffPicker.selected(),
             color: colorPicker.selected(),
             documentationType: docSelect.value,
+            requiresNote: noteCheck.checked,
           }),
         });
       }, card);
@@ -693,6 +694,18 @@
     docSelect.value = s.documentationType || 'SESSION_LOG';
     docSelect.addEventListener('change', queueService);
     docBox.appendChild(docSelect);
+
+    // Whether a visit needs a signed note at all. Off for red light, hyperbaric and similar sessions; a pending
+    // note never holds up check-out, it lands on the provider's unsigned-notes worklist. Applies from the next check-in.
+    var noteLabel = el('label', 'svc-note-required');
+    noteCheck = el('input');
+    noteCheck.type = 'checkbox';
+    noteCheck.checked = s.requiresNote !== false;
+    noteCheck.addEventListener('change', queueService);
+    noteLabel.appendChild(noteCheck);
+    noteLabel.appendChild(document.createTextNode(' Requires a signed note'));
+    noteLabel.title = 'Off for sessions that need no note (red light, hyperbaric). Applies to visits checked in after the change.';
+    docBox.appendChild(noteLabel);
     card.appendChild(docBox);
 
     return card;

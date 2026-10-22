@@ -1,4 +1,5 @@
 /** Shapes the Phase 2 staff API returns. Times are ISO instants; `local*` fields are clinic time. */
+import type { NoteStatus } from './notes';
 
 export type EncounterStatus = 'SCHEDULED' | 'CHECKED_IN' | 'IN_PROGRESS' | 'SEEN' | 'CHECKED_OUT' | 'NO_SHOW';
 export type BookingStatus = 'HOLD' | 'PENDING_REVIEW' | 'CONFIRMED' | 'CANCELLED' | 'DECLINED';
@@ -23,6 +24,8 @@ export interface Appt {
   encounter: { id: string; status: EncounterStatus; checkedInAt: string | null; checkedOutAt: string | null } | null;
   /** Whether the provider's note exists and is signed — never its text. */
   documentation: { status: DocStatus; signedAt: string | null };
+  /** Rev 2.0: whether this visit needs a note and has it; null before check-in. Never holds up check-out. */
+  note: NoteStatus | null;
 }
 
 export interface Dashboard {
@@ -147,11 +150,14 @@ export interface QueueRow {
   isMine: boolean; unassigned: boolean; mayDocument: boolean;
   encounter: { status: EncounterStatus; checkedInAt: string | null; startedAt: string | null; seenAt: string | null; checkedOutAt: string | null };
   documentation: { status: DocStatus; type: DocType; signedAt: string | null; signedBy: string | null; draftUpdatedAt: string | null };
+  note: NoteStatus;
   waitingMinutes: number | null;
 }
 export interface ProviderQueue {
   role: ProviderRole; roleLabel: string; today: string; rows: QueueRow[]; backlog: QueueRow[]; pending: number;
   roles: Array<{ role: ProviderRole; own: boolean }>;
+  /** The signed-in provider's own Unsigned notes, counted (null with no provider record). */
+  unsignedNotes: { count: number; overdue: number; thresholdHours: number } | null;
 }
 
 export interface NoteVersion { id: string; body: string; durationMin: number | null; author: { id: string; name: string; role: string }; createdAt: string; amendReason: string | null }
@@ -171,11 +177,12 @@ export interface Workspace {
     service: { id: string; name: string; documentationType: DocType }; subOption: string | null; patientNote: string | null;
     patient: { id: string | null; name: string }; provider: { id: string; name: string } | null;
   };
-  encounter: { status: EncounterStatus; checkedInAt: string | null; startedAt: string | null; seenAt: string | null; scribeConsentAt: string | null } | null;
+  encounter: { status: EncounterStatus; checkedInAt: string | null; startedAt: string | null; seenAt: string | null; checkedOutAt: string | null; scribeConsentAt: string | null } | null;
   access: { canWrite: boolean; role: ProviderRole | null; /** The provider record a signature will carry. */ signsAs: string | null; readOnlyReason: string | null; /** Holds a provider role, so may add an addendum to any signed note. */ canAddend: boolean };
   documentation: { status: DocStatus; type: DocType };
+  note: NoteStatus | null;
   draft: { version: number; subjective: string; objective: string; assessment: string; plan: string; notes: string; durationMin: number | null; aiDrafted: boolean; aiAppliedAt: string | null; updatedAt: string } | null;
-  signature: { signedAt: string; signedBy: string | null; signedRole: string; aiAssisted: boolean; aiDraftUnchanged: boolean | null; amended: boolean } | null;
+  signature: { signedAt: string; signedBy: string | null; signedRole: string; aiAssisted: boolean; aiDraftUnchanged: boolean | null; afterCheckout: boolean | null; amended: boolean } | null;
   notes: SignedNote[];
   scribe: { applicable: boolean; available: boolean; unavailableReason: string | null; consentAt: string | null; audioRetentionDays: number; sessions: ScribeSessionView[] };
 }

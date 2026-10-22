@@ -31,10 +31,12 @@ const at = (hhmm: string, date = '2026-10-13') => slotAt(hhmm, date);
 const find = (body: any, bookingId: string) => [...body.todayVisits, ...body.priorVisits].find((v: any) => v.id === bookingId);
 
 describe('what it shows for today', () => {
-  it('Ben: an adjustment the provider has signed and a red light still waiting — states, provider, prices, and the estimate', async () => {
+  // Rev 2.0 (was: the adjustment SEEN and "ready", the red light "waiting on provider"): check-out no longer waits for the note, so
+  // both are ready, and each says where its note is instead — the adjustment's is pending, the red light needs none.
+  it('Ben: an adjustment whose note is not written yet and a red light that needs none — both ready to check out, each with its note status', async () => {
     const ben = await makePatient({ firstName: 'Ben', lastName: 'Ledger' });
-    const adjust = await priced({ patientId: ben.id, encounter: 'SEEN', start: at('09:00') });
-    const light = await priced({ patientId: ben.id, encounter: 'CHECKED_IN', start: at('09:30'), staffRole: 'REGISTERED_NURSE' });
+    const adjust = await priced({ patientId: ben.id, encounter: 'CHECKED_IN', start: at('09:00') });
+    const light = await priced({ patientId: ben.id, encounter: 'CHECKED_IN', start: at('09:30'), staffRole: 'REGISTERED_NURSE', requiresNote: false });
     const fd = await frontDeskLogin();
 
     const r = await get(fd, ben.id);
@@ -44,15 +46,16 @@ describe('what it shows for today', () => {
     expect(r.body.todayVisits.map((v: any) => v.id)).toEqual([adjust.booking.id, light.booking.id]);          // in time order
 
     const [a, l] = r.body.todayVisits;
-    expect(a).toMatchObject({ state: 'ready_to_check_out', waitingOn: null, service: adjust.service.name });
-    expect(l).toMatchObject({ state: 'waiting_on_provider', service: light.service.name });
-    expect(l.waitingOn).toMatch(/^T4 Staff /);                                                                  // "waiting on provider: <name>"
-    expect(l.provider).toBe(l.waitingOn);
+    expect(a).toMatchObject({ state: 'ready_to_check_out', note: 'PENDING', service: adjust.service.name });
+    expect(l).toMatchObject({ state: 'ready_to_check_out', note: 'NOT_REQUIRED', service: light.service.name });
+    expect(l.provider).toMatch(/^T4 Staff /);
     for (const v of [a, l]) {
+      expect(v).not.toHaveProperty('waitingOn');
       expect(v.charge).toMatchObject({ basis: 'projected', listPriceCents: 5500, discountPercent: 0, discountCents: 0, creditsApplied: null, creditCost: 2, netCents: 5500, priceKnown: true, paidWith: null });
     }
     expect(r.body.todayTotals.recorded).toEqual({ visits: 0, listPriceCents: 0, discountCents: 0, creditsApplied: 0, netCents: 0 });
-    expect(r.body.todayTotals.pending).toEqual({ visits: 2, readyToCheckOut: 1, waitingOnProvider: 1, notArrived: 0, listPriceCents: 11000, discountCents: 0, cashNetCents: 11000, unpricedVisits: 0 });
+    expect(r.body.todayTotals.pending).toEqual({ visits: 2, readyToCheckOut: 2, notArrived: 0, listPriceCents: 11000, discountCents: 0, cashNetCents: 11000, unpricedVisits: 0 });
+    expect(r.body.todayTotals.notesPending).toBe(1);
     // no balance, no payments: nothing in the answer implies either exists
     expect(JSON.stringify(r.body).toLowerCase()).not.toMatch(/outstanding|balancedue|amountdue|owed/);
   });
@@ -112,16 +115,18 @@ describe('what it shows for today', () => {
     expect(r.todayTotals.recorded).toMatchObject({ visits: 1, creditsApplied: 2, netCents: 0 });
   });
 
-  it('waiting on provider becomes ready to check out the moment the note is signed', async () => {
+  // Rev 2.0 (was: "waiting on provider becomes ready to check out the moment the note is signed"): it was ready all along.
+  it('a checked-in visit is ready to check out before its note is signed; signing changes the note status, not whether it can be checked out', async () => {
     const prov = await providerLogin('PROVIDER_CHIRO');
     const p = await makePatient();
     const v = await visit({ staffId: prov.staff.id, doc: 'SOAP', patientId: p.id, start: at('09:00') });
     const fd = await frontDeskLogin();
-    expect(find((await get(fd, p.id)).body, v.booking.id)).toMatchObject({ state: 'waiting_on_provider', waitingOn: prov.staff.name });
+    expect(find((await get(fd, p.id)).body, v.booking.id)).toMatchObject({ state: 'ready_to_check_out', note: 'PENDING' });
 
     const version = await saveSoap(prov, v.booking.id);
+    expect(find((await get(fd, p.id)).body, v.booking.id)).toMatchObject({ state: 'ready_to_check_out', note: 'PENDING' });   // a draft is not a signature
     expect((await post(prov, URL.sign(v.booking.id), { version })).status).toBe(201);
-    expect(find((await get(fd, p.id)).body, v.booking.id)).toMatchObject({ state: 'ready_to_check_out', waitingOn: null });
+    expect(find((await get(fd, p.id)).body, v.booking.id)).toMatchObject({ state: 'ready_to_check_out', note: 'SIGNED' });
   });
 
   it('lists a visit that has not arrived or was a no-show, without a charge for the no-show; leaves out cancelled and unapproved ones', async () => {

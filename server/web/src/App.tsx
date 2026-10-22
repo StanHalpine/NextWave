@@ -15,6 +15,7 @@ import AdminMemberships from './pages/AdminMemberships';
 import AdminMacros from './pages/AdminMacros';
 import Provider from './pages/Provider';
 import Documentation from './pages/Documentation';
+import UnsignedNotes from './pages/UnsignedNotes';
 import FrontDesk from './pages/FrontDesk';
 import Patients from './pages/Patients';
 import PatientProfile from './pages/PatientProfile';
@@ -50,6 +51,7 @@ export default function App() {
           <Route path="/schedule" element={<Protected roles={['FRONT_DESK', 'ADMIN']}><Schedule /></Protected>} />
           <Route path="/provider" element={<Protected roles={['PROVIDER_CHIRO', 'PROVIDER_NP', 'PROVIDER_NURSE', 'ADMIN']}><Provider /></Protected>} />
           <Route path="/provider/visits/:id" element={<Protected roles={['PROVIDER_CHIRO', 'PROVIDER_NP', 'PROVIDER_NURSE', 'ADMIN']}><Documentation /></Protected>} />
+          <Route path="/provider/unsigned" element={<Protected roles={['PROVIDER_CHIRO', 'PROVIDER_NP', 'PROVIDER_NURSE', 'ADMIN']}><UnsignedNotes /></Protected>} />
           <Route path="/accounting" element={<Protected roles={['ADMIN']}><Accounting /></Protected>} />
           <Route path="/reports" element={<Protected roles={['FRONT_DESK', 'ADMIN']}><Reports /></Protected>} />
 

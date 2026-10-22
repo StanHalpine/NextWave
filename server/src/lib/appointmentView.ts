@@ -1,6 +1,7 @@
 import type { Prisma } from '@prisma/client';
 import { colorHexFor } from './serviceColors.js';
 import { docStatus } from './documentation.js';
+import { noteStatusOf } from './noteStatus.js';
 import { toLocalDateISO, toLocalHHMM } from './time.js';
 
 /** Everything an appointment card or calendar block needs, in one query shape. */
@@ -10,7 +11,7 @@ export const APPT_INCLUDE = {
   resource: { select: { id: true, name: true } },
   user: { select: { name: true } },
   patient: { select: { id: true, firstName: true, lastName: true, preferredName: true, smsOptIn: true } },
-  encounter: { select: { id: true, status: true, checkedInAt: true, seenAt: true, checkedOutAt: true, noShowAt: true } },
+  encounter: { select: { id: true, status: true, checkedInAt: true, seenAt: true, checkedOutAt: true, noShowAt: true, noteRequired: true } },
   // Phase 4: only THAT documentation exists and is signed — never its text. These two selects carry
   // a timestamp and an id; the clinical content is in models this include does not reach.
   noteSignature: { select: { signedAt: true } },
@@ -55,5 +56,7 @@ export function appointmentView(b: ApptRow) {
       : null,
     /** What the front desk may know about the clinical record: whether a note exists, and whether it is signed. */
     documentation: { status: docStatus(b), signedAt: b.noteSignature?.signedAt ?? null },
+    /** Whether this visit needs a note and has it (lib/noteStatus.ts): NOT_REQUIRED | PENDING | SIGNED, null before check-in. Never gates check-out. */
+    note: noteStatusOf(b),
   };
 }

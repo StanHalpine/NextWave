@@ -277,6 +277,7 @@
   color: var(--ink-soft);
   margin-bottom: 6px;
 }
+.svc-note-required { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 13px; color: var(--ink); cursor: pointer; }
 
 .room-summary {
   width: 100%;

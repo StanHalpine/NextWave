@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api';
-import { errorText, Notice, useInterval } from '../ui';
+import { errorText, NotePill, Notice, useInterval } from '../ui';
 import { credits as creditsLabel, fmtDay, fmtDayLong, fmtInstantTime, fmtMoney, fmtTime12 } from '../lib';
 import { CheckoutDialog } from '../schedule/CheckoutDialog';
-import { canCheckOut, LEDGER_REFRESH_MS, paidWithLabel, pendingNote, stateLabel, type LedgerVisit, type PatientLedger } from '../ledger';
+import { canCheckOut, LEDGER_REFRESH_MS, notesPendingNote, paidWithLabel, pendingNote, stateLabel, type LedgerVisit, type PatientLedger } from '../ledger';
 import type { Appt } from '../types';
 
 const STATE_PILL: Record<LedgerVisit['state'], string> = {
-  ready_to_check_out: 'warn', waiting_on_provider: 'off', checked_out: 'ok', not_arrived: 'off', no_show: 'bad',
+  ready_to_check_out: 'warn', checked_out: 'ok', not_arrived: 'off', no_show: 'bad',
 };
 
 /**
@@ -16,7 +16,8 @@ const STATE_PILL: Record<LedgerVisit['state'], string> = {
  * READ ONLY and the same wherever it is opened — the profile's Ledger tab, the Checked-in card's dialog — because it asks the server one
  * thing, "the ledger for this patient", and shows the answer. It re-reads every 10 seconds while open (and when the window regains focus),
  * so a check-out made on another desk screen appears here without a reload. Nothing here is charged or recorded by looking, and there is no
- * balance: payments are not tracked yet. The only action is to start the existing Check out flow for a visit the provider has seen.
+ * balance: payments are not tracked yet. The only action is to start the existing Check out flow, for any visit the patient is checked in
+ * for — whether or not its note is signed (rev 2.0). Each visit shows its note status beside where it is.
  *
  * `onCheckout`: a parent that shows this inside a dialog takes over the check-out (so two dialogs never stack); without it the
  * check-out opens here.
@@ -52,6 +53,7 @@ export function PatientLedger({ patientId, onCheckout, onChanged, onOpenCredits 
   // A patient with no membership and no credits is not told a visit "needs 2 credits": credits are not something they pay with.
   const creditsInPlay = !!data.credits.membership || data.credits.balance > 0;
   const note = pendingNote(t.pending);
+  const notes = notesPendingNote(t.notesPending);
 
   return (
     <div className="stack ledger">
@@ -76,10 +78,10 @@ export function PatientLedger({ patientId, onCheckout, onChanged, onOpenCredits 
             <p><strong>Still to check out today:</strong> {fmtMoney(t.pending.cashNetCents)} if paid at the desk
               <span className="muted"> · {t.pending.visits} {t.pending.visits === 1 ? 'visit' : 'visits'}
                 {t.pending.readyToCheckOut > 0 && ` · ${t.pending.readyToCheckOut} ready`}
-                {t.pending.waitingOnProvider > 0 && ` · ${t.pending.waitingOnProvider} waiting on provider`}
                 {t.pending.notArrived > 0 && ` · ${t.pending.notArrived} not arrived`}</span>
               <br /><span className="hint">{note}</span></p>
           )}
+          {notes && <p className="hint">{notes}</p>}
         </>
       )}
 
@@ -130,7 +132,8 @@ function VisitTable({ visits, onCheckout, showDate, creditsInPlay }: { visits: L
             <tr key={v.id}>
               <td>{showDate ? <>{fmtDay(v.localDate)}<br /></> : null}{fmtTime12(v.localStart)}</td>
               <td>{v.service}{v.subOption ? <span className="muted"> · {v.subOption}</span> : null}{v.provider && <div className="muted small">{v.provider}</div>}</td>
-              <td><span className={`pill ${STATE_PILL[v.state]}`}>{stateLabel(v)}</span></td>
+              <td><span className={`pill ${STATE_PILL[v.state]}`}>{stateLabel(v)}</span>
+                {v.note && <div className="ledger-note"><NotePill note={v.note} doc={v.appointment.documentation.status} /></div>}</td>
               {c.basis === 'none' ? (
                 <td className="num muted" colSpan={4}>{v.state === 'ready_to_check_out' ? 'Not checked out — no amount recorded' : v.state === 'no_show' ? 'No charge' : 'No amount recorded'}</td>
               ) : (

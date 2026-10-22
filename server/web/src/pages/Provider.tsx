@@ -5,6 +5,7 @@ import { useClinicTz } from '../clinic';
 import { fmtDay, fmtInstantTime, fmtTime12 } from '../lib';
 import { errorText, Notice, ServiceDot, useInterval } from '../ui';
 import { ROLE_NAME, STATUS_LABEL, STATUS_PILL } from '../provider/docs';
+import { unsignedLinkLabel } from '../notes';
 import type { ProviderQueue, ProviderRole, QueueRow } from '../types';
 
 const ENCOUNTER_LABEL: Record<string, string> = { CHECKED_IN: 'Waiting', IN_PROGRESS: 'With provider', SEEN: 'Seen', CHECKED_OUT: 'Checked out' };
@@ -60,6 +61,9 @@ export default function Provider() {
           <p className="lede">{fmtDay(queue.today)} · {waiting} waiting · {queue.pending} {queue.pending === 1 ? 'note' : 'notes'} still to sign</p>
         </div>
         <div className="head-actions">
+          <Link className={`btn small${queue.unsignedNotes?.overdue ? ' primary' : ''}`} to="/provider/unsigned">
+            {unsignedLinkLabel(queue.unsignedNotes)}
+          </Link>
           {queue.roles.length > 1 && (
             <div className="seg" role="group" aria-label="Role">
               {queue.roles.map((r) => (
@@ -80,7 +84,7 @@ export default function Provider() {
 
       <h2 className="section">Earlier visits still to sign{backlog.length ? ` (${backlog.length})` : ''}</h2>
       <QueueTable rows={backlog} tz={tz} showDate canWrite={own} empty="Nothing outstanding from earlier days. " />
-      <p className="hint">Shows the last 30 days. {own ? 'Open a visit to write or sign its note.' : ''}</p>
+      <p className="hint">Shows the last 30 days, and only visits that need a note. Check-out does not wait for notes; your <Link to="/provider/unsigned">Unsigned notes</Link> list has every one still to sign, however old. {own ? 'Open a visit to write or sign its note.' : ''}</p>
     </>
   );
 
@@ -115,11 +119,13 @@ function QueueTable({ rows, tz, showDate, canWrite, empty }: { rows: QueueRow[];
                 {r.waitingMinutes != null && r.encounter.status === 'CHECKED_IN' && <div className="muted small">in at {r.encounter.checkedInAt && fmtInstantTime(r.encounter.checkedInAt, tz)} · {r.waitingMinutes} min</div>}
               </td>
               <td>
-                <span className={`pill ${STATUS_PILL[r.documentation.status]}`}>{STATUS_LABEL[r.documentation.status]}</span>
+                {r.note === 'NOT_REQUIRED'
+                  ? <span className="pill off" title="This service needs no note. You can still write one.">No note needed</span>
+                  : <span className={`pill ${STATUS_PILL[r.documentation.status]}`}>{STATUS_LABEL[r.documentation.status]}</span>}
                 {r.documentation.status === 'SIGNED' && r.documentation.signedAt && <div className="muted small">{r.documentation.signedBy ? `${r.documentation.signedBy} · ` : ''}{fmtInstantTime(r.documentation.signedAt, tz)}</div>}
               </td>
               <td className="actions">
-                <Link className={`btn small${r.documentation.status !== 'SIGNED' && r.mayDocument && canWrite ? ' primary' : ''}`} to={`/provider/visits/${r.bookingId}`}>
+                <Link className={`btn small${r.note === 'PENDING' && r.mayDocument && canWrite ? ' primary' : ''}`} to={`/provider/visits/${r.bookingId}`}>
                   {r.documentation.status === 'SIGNED' || !r.mayDocument || !canWrite ? 'View' : r.documentation.status === 'DRAFT' ? 'Continue' : 'Open'}
                 </Link>
               </td>

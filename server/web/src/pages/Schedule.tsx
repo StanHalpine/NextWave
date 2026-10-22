@@ -4,6 +4,7 @@ import { todayIn, useClinicTz } from '../clinic';
 import { useInterval, errorText, Notice } from '../ui';
 import { addDays, fmtDay, fmtDow, fmtRange, fmtTime12, layoutLanes, nowHHMM, toMinutes, weekStart } from '../lib';
 import type { Appt, Calendar, CalendarStaff } from '../types';
+import { NOTE_LABEL, NOTE_SHORT } from '../notes';
 import { AppointmentDialog, NewAppointmentDialog } from '../schedule/dialogs';
 
 const PX_PER_MIN = 1.3;          // 15 minutes = 19.5px
@@ -262,13 +263,15 @@ function GridColumn({ col, openMin, closeMin, tz, onOpen, onEmpty }: {
                 left: `calc(${(lane / n) * 100}% + 2px)`, width: `calc(${100 / n}% - 4px)`, background: a.service.color,
               }}
               onClick={(e) => { e.stopPropagation(); onOpen(a.id); }}
-              title={`${fmtTime12(a.localStart)} – ${fmtTime12(a.localEnd)} · ${a.patient.name} · ${a.service.name}${seen ? ' · seen, needs check-out' : ''}`}
+              title={`${fmtTime12(a.localStart)} – ${fmtTime12(a.localEnd)} · ${a.patient.name} · ${a.service.name}${seen ? ' · seen, needs check-out' : ''}${a.note ? ` · ${NOTE_LABEL[a.note].toLowerCase()}` : ''}`}
             >
               <span className="ev-top">
                 <span className="ev-time">{fmtTime12(a.localStart).replace(' ', '')}{here && ' ✓'}</span>
                 <span className="ev-name">{a.patient.name || 'Held for a booking'}</span>
               </span>
               <span className="ev-svc">{a.service.name}</span>
+              {/* Rev 2.0: where the note is, apart from the visit — a checked-out (dimmed) visit can still say "Note pending". */}
+              {a.note && <span className={`ev-note ev-note-${a.note}`}>{NOTE_SHORT[a.note]}</span>}
             </button>
             {a.bufferMin > 0 && a.status !== 'CANCELLED' && (
               <div className="ev-buffer" aria-hidden="true" style={{ top: (end - openMin) * PX_PER_MIN - 2, height: a.bufferMin * PX_PER_MIN, left: `calc(${(lane / n) * 100}% + 2px)`, width: `calc(${100 / n}% - 4px)`, background: a.service.color }} />
@@ -289,6 +292,10 @@ function Legend() {
       <span><i className="lg lg-pending" />Needs approval</span>
       <span><i className="lg lg-hold" />Held</span>
       <span><i className="lg lg-cancelled" />Cancelled</span>
+      <span className="muted small">Note:</span>
+      <span><i className="ev-note ev-note-PENDING">{NOTE_SHORT.PENDING}</i></span>
+      <span><i className="ev-note ev-note-SIGNED">{NOTE_SHORT.SIGNED}</i></span>
+      <span><i className="ev-note ev-note-NOT_REQUIRED">{NOTE_SHORT.NOT_REQUIRED}</i></span>
     </div>
   );
 }

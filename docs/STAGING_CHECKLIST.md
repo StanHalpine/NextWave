@@ -155,6 +155,17 @@ services were seeded long ago and the seed skips them — that is the point. No 
       with a **Check out…** button (also in the dialog you get by clicking the card, which now has the desk actions itself: check in, undo check-in, check out,
       no-show). Check it out: only then does the visit read "Checked out" and revenue appear in Accounting. If an earlier test visit was left stuck, see
       `server/scripts/one-off/2026-10-12-reopen-unpaid-checkout.sql` (paste into the Supabase SQL editor; step 1 only looks).
+- [ ] **Check-out does not wait for the note** *(rev 2.0)*. Check a patient out of a manual adjustment before the provider has written anything: the card reads
+      "Checked out" with **Note pending**, and the visit is on that provider's **Provider → Your unsigned notes** list. Open it from there, sign it: the card says
+      **Note signed**, the signed note says **Signed after check-out**, and the visit stays checked out (no second payment).
+- [ ] **Services that need no note** read **No note needed** (red light, both hyperbaric sessions, body composition) and never appear on an Unsigned notes list. On
+      **Configuration → Services**, check which services have **Requires a signed note** ticked: vitamin shots, biomarker testing and spinal X-rays are ticked
+      until the owner says otherwise.
+- [ ] **The red light price note** on this database (the seed does not rewrite an existing one): it should read *"Full-dose 10 minute session — 2 credits"*. The
+      Configuration screen has **no price-note field** (the API accepts one; the screen never sends it), so paste this into the Supabase SQL editor — it changes
+      only that row, and only while it still says 3:
+      `UPDATE "Service" SET "priceNote" = 'Full-dose 10 minute session — 2 credits' WHERE "slug" = 'red-light-therapy' AND "priceNote" = 'Full-dose 10 minute session — 3 credits';`
+      It should report `UPDATE 1`. Then open the public booking page at `/?service=red-light-therapy` and read the note under the service name.
 - [ ] **Editing your own roles** (Admin → Accounts) keeps you signed in and refreshes your roles in place; anyone else's sign-ins end at once.
 - [ ] **Enrolling that test membership billed its first month's dues.** Accounting → any view: under the service table there is a separate
       **Membership dues (billed)** table with one month at the tier's price, **not** added into the service totals above it.

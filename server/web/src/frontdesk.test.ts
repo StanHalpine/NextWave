@@ -11,6 +11,7 @@ function appt(enc: EncounterStatus | null, over: Partial<Appt> = {}, linked = tr
     patientConfirmedAt: null,
     encounter: enc ? { id: 'e1', status: enc, checkedInAt: null, checkedOutAt: null } : null,
     documentation: { status: 'NONE', signedAt: null },
+    note: enc && enc !== 'SCHEDULED' && enc !== 'NO_SHOW' ? 'PENDING' : null,
     ...over,
   } as Appt;
 }
@@ -37,6 +38,16 @@ describe('what the front desk can do, by where the visit is', () => {
     expect(names(a)).toEqual(['check-out']);
     expect(a[0]).toMatchObject({ kind: 'check-out', primary: true });
     expect(deskActions(appt('SEEN'), { isToday: false, nowMin: null })).toHaveLength(1);                   // a missed check-out can be done another day
+  });
+
+  it('check-out is offered whatever the note says — pending, signed, or none needed (rev 2.0: billing and documentation are decoupled)', () => {
+    for (const enc of ['CHECKED_IN', 'IN_PROGRESS', 'SEEN'] as const) {
+      for (const note of ['PENDING', 'SIGNED', 'NOT_REQUIRED'] as const) {
+        const a = deskActions(appt(enc, { note }), today);
+        expect(a[0], `${enc} / ${note}`).toMatchObject({ kind: 'check-out', primary: true });
+      }
+    }
+    expect(deskActions(appt('CHECKED_OUT', { note: 'PENDING' }), today)).toEqual([]);           // a pending note does not reopen a checked-out visit
   });
 
   it('with the provider: check out; the server allows no undo from here, so none is offered', () => {

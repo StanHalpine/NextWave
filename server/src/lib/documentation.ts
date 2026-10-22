@@ -7,9 +7,14 @@
  *                       record, so editing it never touches the amend-only note chain.
  *   VisitNote           the record. Signing copies the draft into VisitNote rows — S, O, A and P for a
  *                       SOAP service, one GENERAL note (with its duration) for a session log — writes
- *                       the NoteSignature, deletes the draft and marks the visit SEEN, all in ONE
- *                       transaction. After that the only change is the existing amendment
- *                       (POST /api/visit-notes/:id/amend), which this module does not touch.
+ *                       the NoteSignature, deletes the draft and, if the patient is still here, marks the
+ *                       visit SEEN, all in ONE transaction. After that the only change is the existing
+ *                       amendment (POST /api/visit-notes/:id/amend), which this module does not touch.
+ *
+ * Rev 2.0: documentation and check-out are decoupled. The desk checks a patient out whether or not the note is
+ * signed, and a note can be written and signed after check-out — a LATE note, which the signature and its
+ * audit row record as such (`afterCheckout`). Signing never checks anyone out and never moves a checked-out
+ * visit back. See lib/noteStatus.ts.
  *
  * Lock order: every writer takes the Booking row first (lockedBooking), so two tabs, a double click
  * and the scribe's draft arriving cannot interleave; that is what makes `version` a simple check.
@@ -20,7 +25,9 @@
  */
 
 import type { AccountRole, DocumentationType, NoteKind, Prisma } from '@prisma/client';
+import { config } from '../config.js';
 import { lockedBooking } from './encounters.js';
+import { isOverdue, pendingSince } from './noteStatus.js';
 import { roleMayDocument, type ProviderRole } from './providerRoles.js';
 import { prisma } from './prisma.js';
 import type { Rec } from './staffTx.js';
@@ -241,6 +248,8 @@ export interface SignResult {
   noteIds: string[];
   aiAssisted: boolean;
   aiDraftUnchanged: boolean | null;
+  /** The patient had already been checked out: a late note. */
+  afterCheckout: boolean;
 }
 
 export async function signDocumentation(
@@ -305,18 +314,23 @@ export async function signDocumentation(
     noteIds.push(note.id);
     await rec({ action: 'CREATE', resourceType: 'visit_note', resourceId: note.id, meta: { kind: s.kind, via: 'sign' } });
   }
+  // A late note: signed after the patient was checked out (allowed — check-out no longer waits for the note). Recorded on the
+  // signature itself and in its audit row, with whether it was past the overdue threshold, so late documentation can be found.
+  const afterCheckout = v.encounter?.status === 'CHECKED_OUT';
+  const overdue = !!v.encounter?.noteRequired && isOverdue(pendingSince(v), a.now, config.noteOverdueHours);
   const sig = await tx.noteSignature.create({
     data: {
       bookingId: v.id, type, noteIds, signedAt: a.now, signedByAccountId: a.accountId, signedByStaffId: who.staffId,
-      signedRole: a.role as AccountRole, scribeSessionId: draft.scribeSessionId, aiAssisted, aiDraftUnchanged,
+      signedRole: a.role as AccountRole, scribeSessionId: draft.scribeSessionId, aiAssisted, aiDraftUnchanged, afterCheckout,
     },
   });
-  await rec({ action: 'CREATE', resourceType: 'note_signature', resourceId: sig.id, meta: { role: a.role, type, notes: noteIds.length, aiAssisted, aiDraftUnchanged } });
+  await rec({ action: 'CREATE', resourceType: 'note_signature', resourceId: sig.id, meta: { role: a.role, type, notes: noteIds.length, aiAssisted, aiDraftUnchanged, afterCheckout, overdue } });
 
   const gone = await tx.documentationDraft.deleteMany({ where: { id: draft.id, version: draft.version } });
   if (gone.count !== 1) throw fail(409, 'stale_draft', 'This draft changed while it was being signed. Reload it and try again.');
   await rec({ action: 'DELETE', resourceType: 'clinical_draft', resourceId: draft.id, meta: { reason: 'signed' } });
 
+  // The patient is still here: the provider has finished with them, so the desk sees SEEN. A checked-out visit stays checked out.
   if (v.encounter && (v.encounter.status === 'CHECKED_IN' || v.encounter.status === 'IN_PROGRESS')) {
     await tx.encounter.update({
       where: { id: v.encounter.id },
@@ -324,5 +338,5 @@ export async function signDocumentation(
     });
     await rec({ action: 'UPDATE', resourceType: 'encounter', resourceId: v.encounter.id, meta: { to: 'SEEN', fields: ['status', 'seenAt'] } });
   }
-  return { signatureId: sig.id, signedAt: a.now, noteIds, aiAssisted, aiDraftUnchanged };
+  return { signatureId: sig.id, signedAt: a.now, noteIds, aiAssisted, aiDraftUnchanged, afterCheckout };
 }

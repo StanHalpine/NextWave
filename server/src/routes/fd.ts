@@ -4,7 +4,9 @@
  * The dashboard's three columns come from the Encounter table (lib/encounters.ts):
  *   Today's appointments  → confirmed, no encounter yet (or still SCHEDULED)
  *   Checked in            → CHECKED_IN, IN_PROGRESS
- *   Seen / checked out    → SEEN, CHECKED_OUT   (SEEN = the provider signed; the visit is NOT finished until it is checked out)
+ *   Seen / checked out    → SEEN, CHECKED_OUT   (SEEN = the provider signed while the patient was here; the visit is NOT finished until it is checked out)
+ * A visit in either of the first two columns can be checked out whether or not its note is signed (rev 2.0); each card carries the note's
+ * status (`note` on the appointment) for the desk to see, and nothing waits on it.
  * No-shows are listed apart so they neither clutter nor vanish from the day.
  */
 

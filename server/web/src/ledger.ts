@@ -1,3 +1,4 @@
+import type { NoteStatus } from './notes';
 import type { Appt } from './types';
 
 /**
@@ -8,7 +9,8 @@ import type { Appt } from './types';
 /** The Ledger re-reads this often while it is open. (The rest of the Front Desk keeps its 30 seconds.) */
 export const LEDGER_REFRESH_MS = 10_000;
 
-export type VisitState = 'not_arrived' | 'no_show' | 'waiting_on_provider' | 'ready_to_check_out' | 'checked_out';
+/** `ready_to_check_out` is any visit the patient is checked in for — with the provider or not, note signed or not (rev 2.0). */
+export type VisitState = 'not_arrived' | 'no_show' | 'ready_to_check_out' | 'checked_out';
 
 export interface VisitCharge {
   basis: 'recorded' | 'projected' | 'none';
@@ -33,7 +35,8 @@ export interface LedgerVisit {
   subOption: string | null;
   provider: string | null;
   state: VisitState;
-  waitingOn: string | null;
+  /** Where the note is, apart from the visit; null before check-in. */
+  note: NoteStatus | null;
   charge: VisitCharge;
 }
 
@@ -46,9 +49,11 @@ export interface PatientLedger {
   todayTotals: {
     recorded: { visits: number; listPriceCents: number; discountCents: number; creditsApplied: number; netCents: number };
     pending: {
-      visits: number; readyToCheckOut: number; waitingOnProvider: number; notArrived: number;
+      visits: number; readyToCheckOut: number; notArrived: number;
       listPriceCents: number; discountCents: number; cashNetCents: number; unpricedVisits: number;
     };
+    /** Today's visits whose required note is still unsigned, checked out or not. */
+    notesPending: number;
   };
   priorVisits: LedgerVisit[];
   priorVisitsMore: boolean;
@@ -61,13 +66,12 @@ export interface PatientLedger {
   dues: Array<{ id: string; periodStart: string | null; description: string; listPriceCents: number | null; billingStatus: string | null; recordedAt: string }>;
 }
 
-/** Only a visit the provider has SEEN (the note is signed) can be checked out from here. */
+/** Any visit the patient is checked in for can be checked out from here. The note never holds it up (rev 2.0). */
 export const canCheckOut = (v: LedgerVisit): boolean => v.state === 'ready_to_check_out';
 
-export function stateLabel(v: Pick<LedgerVisit, 'state' | 'waitingOn'>): string {
+export function stateLabel(v: Pick<LedgerVisit, 'state'>): string {
   switch (v.state) {
     case 'ready_to_check_out': return 'Ready to check out';
-    case 'waiting_on_provider': return `Waiting on provider: ${v.waitingOn ?? 'not assigned'}`;
     case 'checked_out': return 'Checked out';
     case 'no_show': return 'No-show';
     default: return 'Not arrived';
@@ -77,6 +81,12 @@ export function stateLabel(v: Pick<LedgerVisit, 'state' | 'waitingOn'>): string 
 /** How a recorded visit was paid, in words. */
 export function paidWithLabel(p: VisitCharge['paidWith']): string {
   return p === 'CASH' ? 'At the desk' : p === 'CREDITS' ? 'Credits' : p === 'PERK' ? 'Member perk' : '';
+}
+
+/** A word for the desk about today's notes still to be signed — information only, since check-out does not wait for them. */
+export function notesPendingNote(n: number): string | null {
+  if (n === 0) return null;
+  return `${n} ${n === 1 ? 'note is' : 'notes are'} still to be signed by the provider. That does not hold up check-out.`;
 }
 
 /**

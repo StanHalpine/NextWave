@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react
 import { Link, useNavigate } from 'react-router-dom';
 import { api, ApiError } from '../api';
 import { useClinicTz, todayIn } from '../clinic';
-import { errorText, Modal, Notice, ServiceDot, sourceLabel } from '../ui';
+import { errorText, Modal, NotePill, Notice, ServiceDot, sourceLabel } from '../ui';
 import { fmtDayLong, fmtTime12, fmtInstantTime, fmtPhone, nowHHMM, serviceLabel, toMinutes } from '../lib';
 import { CANCEL_REASON_LABEL, type Appt, type PatientSummary, type ServiceLite, type SlotLite } from '../types';
 import { PatientPicker } from '../patients/PatientPicker';
@@ -409,6 +409,8 @@ export function AppointmentDialog({ id, today, desk = false, onClose, onChanged 
             </dd>
             <dt>Provider</dt><dd>{a.staff?.name ?? '—'}</dd>
             <dt>Room</dt><dd>{a.resource.name}</dd>
+            {a.note && (<><dt>Note</dt><dd><NotePill note={a.note} doc={a.documentation.status} />
+              {a.note === 'PENDING' && <span className="muted small"> · check-out does not wait for it; the provider signs it from their Unsigned notes list</span>}</dd></>)}
             <dt>Booked</dt><dd>{sourceLabel(a.source)}</dd>
             {!a.patient.linked && (<><dt>Contact</dt><dd>{d.contact.name} · {fmtPhone(d.contact.phone)}{d.contact.email ? ` · ${d.contact.email}` : ''}</dd></>)}
             {d.patientNote && (<><dt>Patient’s note</dt><dd>{d.patientNote}</dd></>)}

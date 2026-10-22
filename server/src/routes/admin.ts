@@ -347,6 +347,9 @@ const servicePatch = z.object({
   /// session log. Applies to notes started after the change (Phase 4 reads it
   /// when a visit begins).
   documentationType: z.enum(['SOAP', 'SESSION_LOG']).optional(),
+  /// Whether a visit for this service needs a signed note at all (rev 2.0). Applies to visits checked in after the change; a
+  /// visit already checked in keeps the requirement it was checked in with.
+  requiresNote: z.boolean().optional(),
   /// Wellness Credits a member pays for this service at check-out; null = not credit-eligible (cash only).
   creditCost: z.number().int().min(1, 'A credit cost is at least 1 — leave it blank for a cash-only service.').max(100).nullable().optional(),
 }).strict();
@@ -442,6 +445,13 @@ adminRouter.patch('/admin/services/:id', async (req, res) => {
     audit.record({
       action: 'UPDATE', resourceType: 'service', resourceId: existing.id,
       meta: { fields: ['documentationType'], from: existing.documentationType, to: fields.documentationType },
+    });
+  }
+  // The same for whether a note is needed at all: it decides what lands on providers' unsigned-notes worklists.
+  if (fields.requiresNote !== undefined && fields.requiresNote !== existing.requiresNote) {
+    audit.record({
+      action: 'UPDATE', resourceType: 'service', resourceId: existing.id,
+      meta: { fields: ['requiresNote'], from: existing.requiresNote, to: fields.requiresNote },
     });
   }
   res.json({ service: svc, note });

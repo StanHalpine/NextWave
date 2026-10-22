@@ -21,6 +21,7 @@ function boot(overrides: { sslmode?: string | null; mfaKey?: string | null; base
   delete env.CLINIC_PHONE;
   delete env.TWILIO_FROM_NUMBER;
   delete env.AUDIO_RETENTION_DAYS;
+  delete env.NOTE_OVERDUE_HOURS;
   Object.assign(env, overrides.env ?? {});
 
   const r = spawnSync('npx', ['tsx', '-e', "import('./src/config.ts').catch((e) => { console.error('Error: ' + e.message); process.exit(1); })"], { env, encoding: 'utf8', timeout: 30_000 });
@@ -80,6 +81,15 @@ describe('production refuses to start when it is not safe', () => {
     }
     expect(boot({ sslmode: 'require', mfaKey: KEY, baseUrl: HTTPS, env: { AUDIO_RETENTION_DAYS: '7' } }).status).toBe(0);
     expect(boot({ sslmode: 'require', mfaKey: KEY, baseUrl: HTTPS, env: { AUDIO_RETENTION_DAYS: '3650' } }).status).toBe(0);
+  });
+  it('with an overdue-note threshold that is not a whole number of hours from 1 to 720', () => {
+    for (const bad of ['0', '-1', '1.5', 'a day', '721']) {
+      const r = boot({ sslmode: 'require', mfaKey: KEY, baseUrl: HTTPS, env: { NOTE_OVERDUE_HOURS: bad } });
+      expect(r.status, bad).not.toBe(0);
+      expect(r.out, bad).toMatch(/NOTE_OVERDUE_HOURS/);
+    }
+    expect(boot({ sslmode: 'require', mfaKey: KEY, baseUrl: HTTPS, env: { NOTE_OVERDUE_HOURS: '1' } }).status).toBe(0);
+    expect(boot({ sslmode: 'require', mfaKey: KEY, baseUrl: HTTPS, env: { NOTE_OVERDUE_HOURS: '720' } }).status).toBe(0);
   });
   it('and starts when everything is in order', () => {
     expect(boot({ sslmode: 'require', mfaKey: KEY, baseUrl: HTTPS }).status).toBe(0);

@@ -1,25 +1,32 @@
 import { describe, expect, it } from 'vitest';
-import { canCheckOut, LEDGER_REFRESH_MS, paidWithLabel, pendingNote, stateLabel, type LedgerVisit, type PatientLedger, type VisitState } from './ledger';
+import { canCheckOut, LEDGER_REFRESH_MS, notesPendingNote, paidWithLabel, pendingNote, stateLabel, type LedgerVisit, type PatientLedger, type VisitState } from './ledger';
+import type { NoteStatus } from './notes';
 
-const v = (state: VisitState, waitingOn: string | null = null) => ({ state, waitingOn }) as LedgerVisit;
+const v = (state: VisitState, note: NoteStatus | null = null) => ({ state, note }) as LedgerVisit;
 const pending = (over: Partial<PatientLedger['todayTotals']['pending']> = {}) =>
-  ({ visits: 2, readyToCheckOut: 1, waitingOnProvider: 1, notArrived: 0, listPriceCents: 11000, discountCents: 0, cashNetCents: 11000, unpricedVisits: 0, ...over });
+  ({ visits: 2, readyToCheckOut: 2, notArrived: 0, listPriceCents: 11000, discountCents: 0, cashNetCents: 11000, unpricedVisits: 0, ...over });
 
 describe('the ledger screen\'s rules and words', () => {
   it('refreshes every 10 seconds', () => expect(LEDGER_REFRESH_MS).toBe(10_000));
 
-  it('only a SEEN visit can be checked out from the ledger — a visit waiting on its provider cannot', () => {
-    expect(canCheckOut(v('ready_to_check_out'))).toBe(true);
-    for (const s of ['waiting_on_provider', 'not_arrived', 'no_show', 'checked_out'] as const) expect(canCheckOut(v(s)), s).toBe(false);
+  // Rev 2.0 (was: "only a SEEN visit can be checked out from the ledger — a visit waiting on its provider cannot"): the note no longer gates it.
+  it('any visit the patient is checked in for can be checked out from the ledger, whatever its note', () => {
+    for (const note of ['PENDING', 'SIGNED', 'NOT_REQUIRED'] as const) expect(canCheckOut(v('ready_to_check_out', note)), note).toBe(true);
+    for (const s of ['not_arrived', 'no_show', 'checked_out'] as const) expect(canCheckOut(v(s)), s).toBe(false);
   });
 
-  it('says who a waiting visit is waiting on', () => {
-    expect(stateLabel(v('waiting_on_provider', 'Dr. Chase'))).toBe('Waiting on provider: Dr. Chase');
-    expect(stateLabel(v('waiting_on_provider'))).toBe('Waiting on provider: not assigned');
-    expect(stateLabel(v('ready_to_check_out'))).toBe('Ready to check out');
+  // Rev 2.0 (was: "says who a waiting visit is waiting on"): there is no waiting state any more; the note has its own pill.
+  it('names where a visit is, and never says it is waiting on the provider', () => {
+    expect(stateLabel(v('ready_to_check_out', 'PENDING'))).toBe('Ready to check out');
     expect(stateLabel(v('checked_out'))).toBe('Checked out');
     expect(stateLabel(v('not_arrived'))).toBe('Not arrived');
     expect(stateLabel(v('no_show'))).toBe('No-show');
+  });
+
+  it('tells the desk how many notes are still to come, and that they hold nothing up', () => {
+    expect(notesPendingNote(0)).toBeNull();
+    expect(notesPendingNote(1)).toBe('1 note is still to be signed by the provider. That does not hold up check-out.');
+    expect(notesPendingNote(3)).toMatch(/^3 notes are still to be signed/);
   });
 
   it('names how a recorded visit was paid', () => {

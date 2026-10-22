@@ -187,6 +187,10 @@ textarea { font: inherit; font-weight: 400; padding: 10px 12px; border: 1px soli
 .ev.st-HOLD { border: 2px dashed #9aa5a8; opacity: .7; }
 .ev.st-CANCELLED, .ev.st-DECLINED { border: 2px dotted #9c9a95; opacity: .5; } .ev.st-CANCELLED .ev-name, .ev.st-DECLINED .ev-name { text-decoration: line-through; }
 .ev.here { box-shadow: inset 5px 0 0 #fff; padding-left: 11px; } .ev.done { opacity: .72; } .ev.noshow { outline: 2px solid var(--bad); outline-offset: -2px; }
+/* Rev 2.0: the note's status on a calendar block (and in the legend). Words, not just a color; a done block is dimmed but its badge is not hidden. */
+.ev-note { font: 700 9px/1 var(--mono); font-style: normal; text-transform: uppercase; letter-spacing: .04em; border-radius: 3px; padding: 2px 4px; justify-self: start; margin-top: 2px; white-space: nowrap; }
+.ev-note-PENDING { background: #f1e8cc; color: #6b4e00; } .ev-note-SIGNED { background: #dfe8dc; color: #2f5a2a; } .ev-note-NOT_REQUIRED { background: rgba(0,0,0,.28); color: #fff; }
+.legend .ev-note { margin-top: 0; }
 .now-line { position: absolute; left: 0; right: 0; height: 0; border-top: 2px solid #c0392b; z-index: 4; pointer-events: none; }
 .now-line::before { content: ''; position: absolute; left: -4px; top: -5px; width: 8px; height: 8px; border-radius: 50%; background: #c0392b; }
 
@@ -223,6 +227,9 @@ td.plus { color: var(--ok); font-weight: 700; } td.minus { color: var(--bad); fo
 .table-scroll { overflow-x: auto; border-radius: 10px; } .table-scroll .table { min-width: 760px; }
 .nowrap { white-space: nowrap; }
 .pill.mine { margin-left: 6px; }
+/* Rev 2.0: the Unsigned notes worklist. An overdue row is marked by its "Overdue" pill and a left rule, not by color alone. */
+.worklist tr.overdue td:first-child { box-shadow: inset 3px 0 0 var(--bad); }
+.worklist-pick { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 .hint.inline { display: inline; margin: 0 0 0 6px; font-weight: 400; }
 .off-card { opacity: .7; }
 
@@ -312,3 +319,4 @@ textarea[readonly] { background: #f3f1ec; }
 .ledger h3 { margin: 6px 0 0; font-size: 15px; }
 .ledger-table th.num, .ledger-table td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .ledger-table .small { font-size: 12px; }
+.ledger-note { margin-top: 4px; }
