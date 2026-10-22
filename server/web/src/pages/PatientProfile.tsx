@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { errorText, Notice, sourceLabel } from '../ui';
@@ -9,9 +9,11 @@ import { todayIn, useClinicTz } from '../clinic';
 import { PatientFields, changedFields, draftFrom } from '../patients/PatientForm';
 import { NewAppointmentDialog } from '../schedule/dialogs';
 import CreditTracker from '../patients/CreditTracker';
+import { PatientLedger } from '../patients/Ledger';
 import FrontDeskNav from './FrontDeskNav';
 
-type Tab = 'details' | 'visits' | 'credits';
+type Tab = 'details' | 'visits' | 'ledger' | 'credits';
+const TABS: Tab[] = ['details', 'visits', 'ledger', 'credits'];
 
 export default function PatientProfile() {
   const { id = '' } = useParams();
@@ -19,7 +21,10 @@ export default function PatientProfile() {
   const { hasRole } = useAuth();
   const [patient, setPatient] = useState<Patient | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<Tab>('details');
+  // ?tab=ledger opens the Ledger straight away (the Front Desk dialog and any bookmark use it)
+  const [params] = useSearchParams();
+  const first = params.get('tab') as Tab | null;
+  const [tab, setTab] = useState<Tab>(first && TABS.includes(first) ? first : 'details');
   const [booking, setBooking] = useState(false);
   const tz = useClinicTz();
   const today = todayIn(tz);
@@ -48,13 +53,14 @@ export default function PatientProfile() {
       </div>
 
       <div className="tabs" role="tablist">
-        {([['details', 'Details'], ['visits', 'Visits'], ['credits', 'Credit tracker']] as const).map(([k, label]) => (
+        {([['details', 'Details'], ['visits', 'Visits'], ['ledger', 'Ledger'], ['credits', 'Credit tracker']] as const).map(([k, label]) => (
           <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{label}</button>
         ))}
       </div>
 
       {tab === 'details' && <Details patient={patient} onSaved={setPatient} isAdmin={hasRole('ADMIN')} onDeleted={() => nav('/front-desk/patients')} tz={tz} />}
       {tab === 'visits' && <Visits patientId={patient.id} tz={tz} />}
+      {tab === 'ledger' && <PatientLedger patientId={patient.id} onOpenCredits={() => setTab('credits')} />}
       {tab === 'credits' && <CreditTracker patientId={patient.id} />}
 
       {booking && (

@@ -1,0 +1,210 @@
+/**
+ * The patient LEDGER: one read model of a patient's visits and what they are worth, the same for everyone who asks.
+ *
+ *   GET /api/fd/patients/:id/ledger   (routes/ledger.ts) — keyed by the patient and nothing else, so the answer is the same from
+ *   either of Ben's appointments in the Checked-in column, from the patient directory, and from a second desk screen.
+ *
+ * READ ONLY, and it posts nothing. No revenue is created by looking at it; there are no payment rows to read (they arrive in a later
+ * phase), so there is deliberately NO balance here — a number that implied payments exist would be wrong. What it shows:
+ *
+ *   today    every confirmed visit of the clinic's current day (America/Chicago), each with where it is and its charge:
+ *              • CHECKED OUT  — what was RECORDED at check-out (the RevenueEvent snapshot: list, tier discount, credits, net, how paid)
+ *              • not yet      — what check-out WOULD record: the same figures the check-out screen shows (checkoutPreview), so the two
+ *                               can never disagree. Cash is shown net of the tier discount; credits are shown as a cost, not as applied.
+ *            A visit that is not SEEN yet is "waiting on provider: <name>" — only a SEEN visit (the note is signed) is ready to check out.
+ *   prior    earlier visits (newest first), with the amounts recorded at their check-out, or their state if they were never checked out
+ *   credits  the membership, the spendable balance and what expires soon, and the credits redeemed to date (derived from the ledger)
+ *   dues     membership dues billed, as information only — collection is outside the app, so they are NOT a balance
+ *
+ * Everything is read in ONE repeatable-read transaction: a check-out landing halfway through cannot show a visit as both pending and
+ * recorded. Money is integer cents. "Today" is the clinic's calendar day, computed here from the server clock — never the browser's.
+ */
+
+import type { Prisma } from '@prisma/client';
+import { basePrisma } from './prismaBase.js';
+import { APPT_INCLUDE, appointmentView } from './appointmentView.js';
+import { checkoutPreview } from './checkout.js';
+import { balance, clinicDay, expiringSoon, getLots } from './credits.js';
+import { openMembership } from './membership.js';
+import { localDayBounds } from './time.js';
+import { config } from '../config.js';
+
+export type VisitState = 'not_arrived' | 'no_show' | 'waiting_on_provider' | 'ready_to_check_out' | 'checked_out';
+
+export interface VisitCharge {
+  /** recorded = what check-out wrote down; projected = what check-out would record (paid at the desk); none = no charge (a no-show). */
+  basis: 'recorded' | 'projected' | 'none';
+  listPriceCents: number | null;
+  discountPercent: number;
+  discountCents: number;
+  /** Recorded: the credits redeemed. Projected: null — nothing is applied until check-out. */
+  creditsApplied: number | null;
+  /** What this visit costs in credits, when it can be paid with them. */
+  creditCost: number | null;
+  /** Projected only: whether the patient's balance covers it now. */
+  creditsAvailable: boolean | null;
+  /** Recorded: what the patient owed in money (0 when the membership covered it). Projected: the cash price after the discount; null when the price is not set yet. */
+  netCents: number | null;
+  /** False when the service has no set price (the desk types it at check-out). */
+  priceKnown: boolean;
+  paidWith: 'CASH' | 'CREDITS' | 'PERK' | null;
+  recordedAt: string | null;
+}
+
+export interface LedgerVisit {
+  id: string;
+  /** The appointment as the Front Desk shows it — what the existing check-out screen opens with. */
+  appointment: ReturnType<typeof appointmentView>;
+  localDate: string;
+  localStart: string;
+  service: string;
+  subOption: string | null;
+  provider: string | null;
+  state: VisitState;
+  /** For waiting_on_provider: who the visit is booked with. */
+  waitingOn: string | null;
+  charge: VisitCharge;
+}
+
+const PRIOR_LIMIT = 100;
+const DUES_LIMIT = 24;
+
+const NO_CHARGE: VisitCharge = {
+  basis: 'none', listPriceCents: null, discountPercent: 0, discountCents: 0, creditsApplied: null, creditCost: null,
+  creditsAvailable: null, netCents: null, priceKnown: false, paidWith: null, recordedAt: null,
+};
+
+function stateOf(status: string | undefined): VisitState {
+  switch (status) {
+    case 'CHECKED_IN': case 'IN_PROGRESS': return 'waiting_on_provider';
+    case 'SEEN': return 'ready_to_check_out';
+    case 'CHECKED_OUT': return 'checked_out';
+    case 'NO_SHOW': return 'no_show';
+    default: return 'not_arrived';
+  }
+}
+
+type RevenueRow = Prisma.RevenueEventGetPayload<object>;
+
+function recorded(e: RevenueRow): VisitCharge {
+  return {
+    basis: 'recorded', listPriceCents: e.listPriceCents, discountPercent: e.discountPercent, discountCents: e.discountCents,
+    creditsApplied: e.creditsRedeemed, creditCost: e.creditsRedeemed > 0 ? e.creditsRedeemed : null, creditsAvailable: null,
+    netCents: e.netPriceCents, priceKnown: e.listPriceCents != null,
+    paidWith: e.paymentType === 'CASH' ? 'CASH' : e.memberBenefit === 'PERK' ? 'PERK' : 'CREDITS',
+    recordedAt: e.occurredAt.toISOString(),
+  };
+}
+
+export async function patientLedger(patientId: string, now: Date) {
+  const today = clinicDay(now);
+  const { dayStart, dayEnd } = localDayBounds(today);
+
+  return basePrisma.$transaction(async (tx) => {
+    const patient = await tx.patient.findFirst({ where: { id: patientId, deletedAt: null }, select: { id: true, firstName: true, lastName: true, preferredName: true } });
+    if (!patient) return null;
+
+    const todayRows = await tx.booking.findMany({
+      where: { patientId, status: 'CONFIRMED', startTime: { gte: dayStart, lt: dayEnd } },
+      include: APPT_INCLUDE, orderBy: [{ startTime: 'asc' }, { id: 'asc' }],
+    });
+    const priorRows = await tx.booking.findMany({
+      where: { patientId, status: 'CONFIRMED', startTime: { lt: dayStart } },
+      include: APPT_INCLUDE, orderBy: [{ startTime: 'desc' }, { id: 'desc' }], take: PRIOR_LIMIT + 1,
+    });
+    const hasMore = priorRows.length > PRIOR_LIMIT;
+    const prior = priorRows.slice(0, PRIOR_LIMIT);
+
+    const encounterIds = [...todayRows, ...prior].map((b) => b.encounter?.id).filter((x): x is string => !!x);
+    const events = encounterIds.length ? await tx.revenueEvent.findMany({ where: { encounterId: { in: encounterIds } } }) : [];
+    const byEncounter = new Map(events.map((e) => [e.encounterId, e]));
+
+    const visit = async (b: (typeof todayRows)[number], priceUnrecorded: boolean): Promise<LedgerVisit> => {
+      const state = stateOf(b.encounter?.status);
+      let charge: VisitCharge = NO_CHARGE;
+      const ev = b.encounter ? byEncounter.get(b.encounter.id) : undefined;
+      if (state === 'checked_out' && ev) {
+        charge = recorded(ev);
+      } else if (state !== 'no_show' && state !== 'checked_out' && priceUnrecorded) {
+        // The very figures the check-out screen will show for it.
+        const pv = await checkoutPreview(tx, b.id, now);
+        if (pv) {
+          charge = {
+            basis: 'projected', listPriceCents: pv.listPriceCents, discountPercent: pv.cash.discountPercent, discountCents: pv.cash.discountCents ?? 0,
+            creditsApplied: null, creditCost: pv.creditCost, creditsAvailable: pv.creditCost != null ? pv.credits.available : null,
+            netCents: pv.cash.netPriceCents, priceKnown: pv.cash.priceKnown, paidWith: null, recordedAt: null,
+          };
+        }
+      }
+      const v = appointmentView(b);
+      return {
+        id: b.id, appointment: v, localDate: v.localDate, localStart: v.localStart,
+        service: b.service.name, subOption: b.subOption, provider: b.staff?.name ?? null,
+        state, waitingOn: state === 'waiting_on_provider' ? (b.staff?.name ?? null) : null, charge,
+      };
+    };
+
+    const todayVisits: LedgerVisit[] = [];
+    for (const b of todayRows) todayVisits.push(await visit(b, true));
+    // Earlier visits are not re-priced: what was never checked out is shown by its state, with no invented amount.
+    const priorVisits: LedgerVisit[] = [];
+    for (const b of prior) priorVisits.push(await visit(b, false));
+
+    const sum = (xs: Array<number | null | undefined>) => xs.reduce<number>((n, x) => n + (x ?? 0), 0);
+    const done = todayVisits.filter((v) => v.state === 'checked_out');
+    const pending = todayVisits.filter((v) => v.state !== 'checked_out' && v.state !== 'no_show');
+
+    const membership = await openMembership(tx, patientId);
+    const lots = await getLots(tx, patientId, today);
+    const soon = expiringSoon(lots, today);
+    const redeemed = await tx.creditLedger.aggregate({ where: { patientId, reason: 'REDEMPTION' }, _sum: { delta: true } });
+
+    const dues = await tx.revenueEvent.findMany({
+      where: { patientId, paymentType: 'DUES' }, orderBy: [{ periodStart: 'desc' }, { id: 'desc' }], take: DUES_LIMIT,
+    });
+
+    return {
+      patient: { id: patient.id, name: `${patient.preferredName?.trim() || patient.firstName} ${patient.lastName}` },
+      asOf: now.toISOString(),
+      today,
+      timezone: config.clinicTimezone,
+      todayVisits,
+      todayTotals: {
+        /** What check-out already wrote down for today. */
+        recorded: {
+          visits: done.length,
+          listPriceCents: sum(done.map((v) => v.charge.listPriceCents)),
+          discountCents: sum(done.map((v) => v.charge.discountCents)),
+          creditsApplied: sum(done.map((v) => v.charge.creditsApplied)),
+          netCents: sum(done.map((v) => v.charge.netCents)),
+        },
+        /** What the rest of today comes to if each is paid at the desk. An estimate: nothing is charged until check-out. */
+        pending: {
+          visits: pending.length,
+          readyToCheckOut: pending.filter((v) => v.state === 'ready_to_check_out').length,
+          waitingOnProvider: pending.filter((v) => v.state === 'waiting_on_provider').length,
+          notArrived: pending.filter((v) => v.state === 'not_arrived').length,
+          listPriceCents: sum(pending.map((v) => v.charge.listPriceCents)),
+          discountCents: sum(pending.map((v) => v.charge.discountCents)),
+          cashNetCents: sum(pending.map((v) => v.charge.netCents)),
+          /** Visits whose service has no set price: left out of the sums above, priced at check-out. */
+          unpricedVisits: pending.filter((v) => !v.charge.priceKnown).length,
+        },
+      },
+      priorVisits,
+      priorVisitsMore: hasMore,
+      credits: {
+        membership: membership ? { planName: membership.plan.name, status: membership.status } : null,
+        balance: await balance(tx, patientId, today),
+        expiringSoon: soon,
+        redeemedToDate: -(redeemed._sum.delta ?? 0),
+      },
+      dues: dues.map((d) => ({
+        id: d.id, periodStart: d.periodStart ? d.periodStart.toISOString().slice(0, 10) : null, description: d.serviceName,
+        listPriceCents: d.listPriceCents, billingStatus: d.billingStatus ?? null, recordedAt: d.occurredAt.toISOString(),
+      })),
+    };
+  }, { isolationLevel: 'RepeatableRead', maxWait: 10_000, timeout: 20_000 });
+}
+
+export type PatientLedger = NonNullable<Awaited<ReturnType<typeof patientLedger>>>;

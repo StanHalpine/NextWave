@@ -22,6 +22,7 @@ import { scheduleRouter } from './routes/schedule.js';
 import { fdRouter } from './routes/fd.js';
 import { smsPublicRouter } from './routes/smsPublic.js';
 import { creditsRouter } from './routes/credits.js';
+import { ledgerRouter } from './routes/ledger.js';
 import { membershipAdminRouter } from './routes/membershipAdmin.js';
 import { discountAdminRouter } from './routes/discountAdmin.js';
 import { reportsRouter } from './routes/reports.js';
@@ -131,6 +132,7 @@ export function buildApp() {
   app.use('/api', scheduleRouter);
   app.use('/api', fdRouter);
   app.use('/api', creditsRouter);
+  app.use('/api', ledgerRouter);   // the patient ledger: one read-only view of a patient's visits and their amounts
   app.use('/api', membershipAdminRouter);
   app.use('/api', discountAdminRouter);
   app.use('/api', reportsRouter);  // Accounting (admin) and Reports (front desk, admin): aggregates only

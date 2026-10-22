@@ -86,7 +86,9 @@ export const audit = {
    * re-reading the same list within five minutes is recorded once — a dashboard
    * that refreshes every 30 seconds would otherwise write ~2,900 rows a day per
    * open screen and bury the entries that matter. Single-record reads are never
-   * deduplicated.
+   * deduplicated — unless the caller passes a `listKey`, which asks for the same five-minute rule on a record
+   * (the key then includes the record's id). That is for a screen that re-reads one record on a timer, such as the
+   * patient ledger refreshing every 10 seconds: opening it is audited, and so is each further five minutes of viewing.
    */
   read(
     resourceType: string,
@@ -96,8 +98,8 @@ export const audit = {
     ctxOverride?: RequestContext,
   ): void {
     const ctx = ctxOverride ?? currentContext();
-    if (resourceId == null && ctx) {
-      const key = `${ctx.actor?.accountId ?? 'anon'}|${resourceType}|${listKey ?? ''}`;
+    if ((resourceId == null || listKey !== undefined) && ctx) {
+      const key = `${ctx.actor?.accountId ?? 'anon'}|${resourceType}|${resourceId ?? ''}|${listKey ?? ''}`;
       const last = recentListReads.get(key) ?? 0;
       if (Date.now() - last < LIST_READ_WINDOW_MS) return;
       recentListReads.set(key, Date.now());

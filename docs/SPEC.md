@@ -1,6 +1,6 @@
 # NextWave Wellness — Clinic System Specification
 
-Version 1.8 · 2026-10-11 · Status: **Phases 1–5 approved. Member discounts are enabled** (Prevent 10% · Restore 15% · Optimize 20%; revision 1.8 below); perks stay off. Revision 1.7 records the Phase 5 approval follow-ups: the Twilio sending adapter, dues as revenue, and the vitamin-shot category. The branch is pushed to `origin/scheduling-engine` (later commits are local); nothing is merged to `main` or deployed. `docs/STAGING_CHECKLIST.md` lists everything that needs a real environment.
+Version 1.9 · 2026-10-22 · Status: **Phases 1–5 approved and built. Ledger phase L1 (the patient Ledger, read only) approved and built; L2–L4 (payments and combined check-out, corrections, kiosk) are NOT approved** — revision 1.9 below. Member discounts are enabled (Prevent 10% · Restore 15% · Optimize 20%; rev 1.8); perks stay off. `docs/STAGING_CHECKLIST.md` lists everything that needs a real environment. Nothing is merged to `main` or deployed from this branch.
 
 > **Revision 1.1 — decisions recorded after approval** (the body below is otherwise
 > unchanged from the approved v1; sections touched are marked *[rev 1.1]*):
@@ -102,6 +102,25 @@ Version 1.8 · 2026-10-11 · Status: **Phases 1–5 approved. Member discounts a
 > | Revenue basis | *[superseded by rev 1.7: dues are now a separate line in every Accounting view]* **Membership dues are not in Accounting**: nothing records them (A-13 assumed they would be). Revenue is what was recorded at check-out |
 > | Not built | *[rev 1.7: the Twilio adapter and dues are built]* A **Twilio sending adapter** (texts still go to the stub; only the inbound webhook, its signature check and the wording are real), the **AWS adapters**, a dues record, void/refund, print/PDF, a free-form analytics builder |
 
+> **Revision 1.9 — the patient Ledger (phase L1), and decisions for the money phases that follow it.** From two requests (the owner's
+> partner; Chase, the chiropractor): kiosk check-in, a charge review at check-in, one ledger per patient, and one check-out for a
+> patient's whole day. The gap analysis found that the app has **no payment, balance, refund or void concept** — `RevenueEvent` (one
+> row per visit, written at check-out) is the only money record — so the work is phased: **L1** ledger read model *(approved, built)*,
+> **L2** payments and combined check-out, **L3** corrections, **L4** kiosk *(L2–L4 not approved; designs recorded here so they are not lost)*.
+>
+> | Item | Decision |
+> |---|---|
+> | **Ledger (L1, built)** | A **Ledger** tab on the patient profile, backed by **one endpoint keyed by patient id**: `GET /api/fd/patients/:id/ledger` (§5.6). The same answer from either of a patient's cards in the Checked-in column (their dialog has a **Ledger…** button), from the directory, and from a second desk screen. **Read only: no new tables, nothing posted by looking, no balance shown** (payments do not exist yet). Today's visits are priced the way check-out will price them; checked-out visits show what was recorded. The tab re-reads every **10 seconds** while open. See §4.7 |
+> | Visits not yet seen | Listed as **"waiting on provider: <name>"**. Only a SEEN visit (its note signed) offers **Check out…** from the Ledger, which opens the existing check-out unchanged (A-18). *The single-visit check-out on the Front Desk cards still accepts CHECKED_IN, as before — unchanged by L1* |
+> | Combined check-out (L2) | Will include **only SEEN visits** (A-18) |
+> | Corrections (L3) | Price override, void and refund: **admin only, on an MFA-verified session, with a reason code**. **Never edit a list price**: an override is its own adjustment line; a void or refund is a reversal row that references the original (A-19) |
+> | Revenue and payments (L2) | **Revenue stays at check-out** (`RevenueEvent`). Payments become **separate append-only rows**, and Accounting will show **billed vs collected**. Payments are **recorded manually by tender type only — no card processing and no card data in the app** (A-20) |
+> | Allocation (L2) | Cash pays the **oldest charge first** by default; a **partial payment needs explicit confirmation**; **dues stay out of the balance** for now; an **unpaid balance carries forward** to the next visit (A-21) |
+> | Kiosk (L4) | **Deferred.** The design is recorded in §0 (proposal) and §7 L4 — device pairing, mobile number + date of birth + a hashed 6-digit PIN, lockout, minimal PHI — **not yet approved** (A-22) |
+> | Audit of a re-read | A record read that a screen repeats on a timer is audited **once per five minutes of viewing per person** (`audit.read` with a `listKey`), not on every refresh — opening the Ledger is always audited |
+> | Open item (A-23) | Whether red light / HBOT-type sessions **keep the signed session-log requirement** before they can be checked out (A-5 says they get a session log; L2 would then require it before check-out). **Pending the owner's confirmation** |
+> | Open item | Red light therapy: the service's price note says *"3 credits"*, its credit cost is **2**. Not changed; the owner decides which is right |
+
 > **Revision 1.8 — member discounts enabled.**
 >
 > | Item | As built |
@@ -136,6 +155,7 @@ the approved flowchart into pages, schema, API, and a five-phase plan.
 | Database | PostgreSQL; **Prisma kept**; **Prisma Migrate for every new table** (no plain-SQL migration tool). Custom SQL (triggers, partial indexes) goes *inside* Prisma migration files via `--create-only` |
 | Existing engine | **Do not modify** the locking statements (`holds.ts`, `bookings.ts`) or the booking/availability code. New features attach beside it |
 | Users | Staff only. Roles: `front_desk`, `provider_chiro`, `provider_np`, `provider_nurse`, `admin`. **No patient login in any phase.** Patients are managed by the front desk |
+| Users — kiosk *(PROPOSAL, NOT YET APPROVED — rev 1.9, phase L4)* | A clinic-owned **check-in kiosk** would be the one patient-facing surface, and it would **not** be a patient login: no patient account and no session beyond a single check-in. The device itself is the principal (paired by an admin, revocable); a patient identifies with mobile number + date of birth + a 6-digit PIN for one short, single-use check-in. Until this row is approved, the rule above stands unchanged |
 | Public widget | Anonymous booking widget (`/`) stays exactly as-is |
 | Credits | Prevent / Restore / Optimize = **4 / 6 / 8** Wellness Credits per month, **90-day rollover** |
 | Prior work | Untracked patient-JWT auth and the three orphan tables were **discarded** (see CURRENT_STATE §7) |
@@ -206,7 +226,8 @@ nav bar (assumption A-2).
 |---|---|---|
 | `/app/front-desk` | front_desk, admin | **Dashboard**: three columns — *Today's Appointments* (confirmed, not yet arrived) · *Checked In* · *Seen / Checked Out*. Check-in, no-show, walk-in, check-out actions; the pending-approval queue stays as a side panel |
 | `/app/front-desk/patients` | front_desk, admin | **Patient Management → Patient Database Directory**: search, create |
-| `/app/front-desk/patients/:id` | front_desk, admin; providers scoped | **Patient profile**, tabs: *Demographics & Contact* · *Credit Tracker* · *Visits* |
+| `/app/front-desk/patients/:id` | front_desk, admin; providers scoped | **Patient profile**, tabs: *Demographics & Contact* · *Credit Tracker* · *Visits* · *Ledger* *[rev 1.9]* |
+| `/app/front-desk/patients/:id?tab=ledger` | front_desk, admin | *[rev 1.9]* **Ledger**: today's visits with list price, tier discount, credits and net; earlier visits with their recorded amounts; credits used; dues as information. Read only; refreshes every 10 s; **Check out…** for a SEEN visit opens the existing check-out. Also opened from a Front Desk card's dialog (**Ledger…**) |
 | `/app/front-desk/patients/:id#credits` | front_desk, admin | Credit Tracker: balance, lots with expiry dates, ledger, membership status, manual adjustment (admin) |
 
 ### 2 · Schedule
@@ -704,6 +725,19 @@ Existing tables are never dropped or renamed. The Prisma client export in
 `src/lib/prisma.ts` is replaced by an **extended** client (audit + soft-delete
 filters); no route file changes for this.
 
+### 4.7 Ledger *[rev 1.9]*
+
+**L1 (built) adds no table.** The Ledger is a read model over what exists — `Booking`, `Encounter`, `RevenueEvent`, `CreditLedger`,
+`Membership` — read in one repeatable-read transaction (`src/lib/ledger.ts`). "Today" is the clinic's calendar day (America/Chicago),
+computed on the server; a pending visit is priced by the same function the check-out screen uses (`checkoutPreview`), so the two never
+disagree. Money is integer cents. There is no stored balance, and none is shown.
+
+**L2 (proposed, not approved).** Append-only `Payment` (patient, tender type, amount in cents, idempotency key, recorded by) and
+`PaymentAllocation` (payment → the `RevenueEvent` it pays, cents), plus reversal rows that reference what they reverse; no-update /
+no-delete triggers and RLS on each, like the existing ledgers. Outstanding = charges − allocations, **derived, never stored**. Dues are
+excluded from it (A-21). Combined check-out locks the day's bookings in id order, then the patient (the existing lock order), and
+writes one `RevenueEvent` per SEEN visit in one transaction, with an idempotency key; a concurrent change makes it fail with the fresh state.
+
 ---
 
 ## 5. API
@@ -789,6 +823,14 @@ patient / appointment / SOAP / credit data writes an `AuditLog` row (§6).
 
 Reports return **aggregates only** — no patient identifiers.
 
+### 5.6 Ledger *[rev 1.9]*
+
+| Method · Path | Roles | Purpose |
+|---|---|---|
+| `GET /api/fd/patients/:id/ledger` | fd, admin | **The only ledger endpoint, keyed by patient id alone** (a `bookingId` or other parameter is ignored). Today's visits (state, provider, list, discount, credits, net — recorded or as check-out would record it), earlier visits, credits, dues. Read only. Audited as a read of `patient` and `credit_ledger`, once per five minutes of viewing per person |
+| *(L2, proposed)* `POST /api/fd/patients/:id/checkout` | fd, admin | Combined check-out of the day's SEEN visits, with payments; one transaction; idempotency key; refuses a stale screen |
+| *(L3, proposed)* `POST /api/fd/payments/:id/reverse` · `POST /api/fd/revenue/:id/void` | admin (MFA) | Reversals with a reason code; never edits |
+
 ---
 
 ## 6. HIPAA controls → mechanisms
@@ -870,6 +912,13 @@ review before the next phase.
 
 ---
 
+### Ledger phases *[rev 1.9]*
+- **L0 — decisions** *(done)*: this revision.
+- **L1 — Ledger read model** *(approved, built)*: §4.7, §5.6. Tests: same output from every way in, access, audit, no side effects, Chicago day boundaries (incl. the 25-hour day).
+- **L2 — Payments and combined check-out** *(not approved)*: §4.7; Accounting "billed vs collected".
+- **L3 — Corrections** *(not approved)*: admin-only override / void / refund with reason codes (A-19).
+- **L4 — Kiosk** *(not approved)*: an admin pairs an iPad (one-time code → a long random device token, httpOnly cookie, a `KioskDevice` principal that can call only `/kiosk/*`, revocable, optional clinic-IP allow-list, MDM guided access). A patient identifies with **mobile number + date of birth**, then a **6-digit check-in PIN** issued by the desk and stored as an **Argon2id hash** (checked only within the matched patient, so PINs may repeat). **5 failures lock that patient's kiosk access for 15 minutes**; per-device and global rate limits with backoff; one generic "please see the front desk" answer for every failure. After verifying it shows **first name, today's times and services only** — no DOB, phone, address, notes or amounts — and resets after 60–90 s idle. Check-in of the chosen visits is one transaction with an idempotency key. Audited without the entered phone, DOB or PIN. A HIPAA review (shared screen, brute-force reporting, minors, BAA) precedes approval.
+
 ## 8. Risks
 
 | # | Risk | Mitigation |
@@ -908,6 +957,12 @@ Each has a default; say "defaults OK" or override.
 | A-15 | Session length | 15 min idle, 12 h absolute |
 | A-16 | Documents upload | Storage interface supports it; no patient-document screen because the flowchart has none |
 | A-17 | Weekend metrics | "Weekend" = Saturday (Sunday is closed today); updates automatically if hours change |
+| A-18 | *[rev 1.9]* Unsigned visits at check-out | **Decided:** combined check-out (L2) includes only SEEN visits; the rest show "waiting on provider: <name>". The Ledger offers Check out only for SEEN visits |
+| A-19 | *[rev 1.9]* Corrections | **Decided:** price override, void, refund — admin only, MFA session, reason code; a list price is never edited; reversals only |
+| A-20 | *[rev 1.9]* Revenue vs payments | **Decided:** revenue at check-out; payments are separate rows (L2), recorded by tender type only — no card processing or card data; Accounting shows billed vs collected |
+| A-21 | *[rev 1.9]* Allocation and balance | **Decided:** oldest charge first; partial payments need explicit confirmation; dues not in the balance (for now); unpaid balance carries forward |
+| A-22 | *[rev 1.9]* Kiosk | **Deferred**; design in §7 L4 and the §0 proposal row, **not yet approved** |
+| A-23 | *[rev 1.9]* Session-log requirement for red light / HBOT-type sessions | **Open — awaiting the owner:** do they keep the signed session log (A-5) as a condition of check-out under A-18? |
 
 ---
 
