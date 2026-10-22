@@ -463,7 +463,7 @@ describe('the upload link', () => {
   it('refuses a tampered signature, a different key, a different content type, and an expired link', async () => {
     const a = await target();
     const b = await target();
-    expect((await put2(a.up.url.replace(/sig=./, 'sig=X'))).status).toBe(403);
+    expect((await put2(a.up.url.replace(/sig=(.)/, (_m: string, c: string) => `sig=${c === 'X' ? 'Y' : 'X'}`))).status).toBe(403);   // always a CHANGED first character
     expect((await put2(a.up.url.replace(a.key, b.key))).status).toBe(403);                  // a's signature on b's key
     expect((await put2(a.up.url, 'audio/ogg')).status).toBe(403);                           // signed for webm, sent as ogg
     const expired = signUpload(a.key, TYPE, new Date(Date.now() - 1000));
