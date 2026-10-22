@@ -17,7 +17,10 @@ export interface Appt {
   bufferMin: number;
   service: { id: string; name: string; color: string; category: string; documentationType: 'SOAP' | 'SESSION_LOG' };
   subOption: string | null;
+  /** The scheduled provider (the booking's; the calendar column). */
   staff: { id: string; name: string } | null;
+  /** Rev 2.1: the covering provider, when someone other than the scheduled one is seeing the patient — the visit's provider. */
+  covering: { id: string; name: string } | null;
   resource: { id: string; name: string };
   patient: { id: string | null; name: string; linked: boolean; smsOptIn: boolean; /** where consent to texts comes from */ texts: 'patient' | 'online' | null };
   patientConfirmedAt: string | null;
@@ -147,6 +150,7 @@ export interface QueueRow {
   subOption: string | null;
   patient: { id: string | null; name: string };
   staff: { id: string; name: string } | null;
+  covering: { id: string; name: string } | null;
   isMine: boolean; unassigned: boolean; mayDocument: boolean;
   encounter: { status: EncounterStatus; checkedInAt: string | null; startedAt: string | null; seenAt: string | null; checkedOutAt: string | null };
   documentation: { status: DocStatus; type: DocType; signedAt: string | null; signedBy: string | null; draftUpdatedAt: string | null };
@@ -175,14 +179,22 @@ export interface Workspace {
   booking: {
     id: string; localDate: string; localStart: string; localEnd: string;
     service: { id: string; name: string; documentationType: DocType }; subOption: string | null; patientNote: string | null;
-    patient: { id: string | null; name: string }; provider: { id: string; name: string } | null;
+    patient: { id: string | null; name: string };
+    /** The visit's provider (covering, else scheduled) — the only one who may write and sign. */
+    provider: { id: string; name: string } | null;
+    scheduledProvider: { id: string; name: string } | null;
+    covering: boolean;
   };
   encounter: { status: EncounterStatus; checkedInAt: string | null; startedAt: string | null; seenAt: string | null; checkedOutAt: string | null; scribeConsentAt: string | null } | null;
-  access: { canWrite: boolean; role: ProviderRole | null; /** The provider record a signature will carry. */ signsAs: string | null; readOnlyReason: string | null; /** Holds a provider role, so may add an addendum to any signed note. */ canAddend: boolean };
+  access: {
+    canWrite: boolean; role: ProviderRole | null; /** The provider record a signature will carry. */ signsAs: string | null; readOnlyReason: string | null;
+    /** Holds a provider role, so may add an addendum to any signed note. */ canAddend: boolean;
+    /** An administrator, and the note was signed by someone other than the visit's provider. */ canConfirmCovering: boolean;
+  };
   documentation: { status: DocStatus; type: DocType };
   note: NoteStatus | null;
   draft: { version: number; subjective: string; objective: string; assessment: string; plan: string; notes: string; durationMin: number | null; aiDrafted: boolean; aiAppliedAt: string | null; updatedAt: string } | null;
-  signature: { signedAt: string; signedBy: string | null; signedRole: string; aiAssisted: boolean; aiDraftUnchanged: boolean | null; afterCheckout: boolean | null; amended: boolean } | null;
+  signature: { signedAt: string; signedBy: string | null; signedRole: string; aiAssisted: boolean; aiDraftUnchanged: boolean | null; afterCheckout: boolean | null; signerIsVisitProvider: boolean; amended: boolean } | null;
   notes: SignedNote[];
   scribe: { applicable: boolean; available: boolean; unavailableReason: string | null; consentAt: string | null; audioRetentionDays: number; sessions: ScribeSessionView[] };
 }

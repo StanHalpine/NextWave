@@ -15,7 +15,8 @@ import { docStatus, type DocStatus } from './documentation.js';
 import { CHECKED_IN_STATES, noteStatusOf } from './noteStatus.js';
 import { loadAddenda, withAddenda } from './addenda.js';
 import { resolveNoteChains, type RawNote } from './notes.js';
-import { PROVIDER_ROLE_LABEL, STAFF_ROLE_FOR, roleMayDocument, type ProviderRole } from './providerRoles.js';
+import { PROVIDER_ROLE_LABEL, STAFF_ROLE_FOR, type ProviderRole } from './providerRoles.js';
+import { visitProvider, visitProviderId, writeRefusal } from './visitProvider.js';
 import { prisma } from './prisma.js';
 import { draftOf } from './scribe.js';
 import { localDayBounds, toLocalDateISO, toLocalHHMM } from './time.js';
@@ -28,7 +29,12 @@ const QUEUE_INCLUDE = {
   staff: { select: { id: true, name: true, role: true } },
   user: { select: { name: true } },
   patient: { select: { id: true, firstName: true, lastName: true, preferredName: true } },
-  encounter: { select: { id: true, status: true, checkedInAt: true, startedAt: true, seenAt: true, checkedOutAt: true, noteRequired: true } },
+  encounter: {
+    select: {
+      id: true, status: true, checkedInAt: true, startedAt: true, seenAt: true, checkedOutAt: true, noteRequired: true,
+      coveringStaffId: true, coveringStaff: { select: { id: true, name: true, role: true } },
+    },
+  },
   noteSignature: { select: { signedAt: true, signedRole: true, signedByStaffId: true, type: true } },
   documentationDraft: { select: { id: true, updatedAt: true, scribeSessionId: true } },
 } satisfies Prisma.BookingInclude;
@@ -46,12 +52,16 @@ function queueRow(b: QueueRow, role: ProviderRole, ownStaffId: string | null, no
     service: { id: b.service.id, name: b.service.name, color: colorHexFor(b.service.color), documentationType: b.service.documentationType },
     subOption: b.subOption,
     patient: { id: b.patient?.id ?? null, name: b.patient ? `${b.patient.firstName} ${b.patient.lastName}` : b.user.name },
+    /** The SCHEDULED provider (the booking's). */
     staff: b.staff ? { id: b.staff.id, name: b.staff.name } : null,
-    /** This visit was booked with the signed-in provider personally (not just someone in their role). */
-    isMine: !!b.staffId && b.staffId === ownStaffId,
+    /** The covering (rendering) provider, when it is not the scheduled one (rev 2.1). */
+    covering: e.coveringStaff ? { id: e.coveringStaff.id, name: e.coveringStaff.name } : null,
+    /** The signed-in provider is this visit's provider (covering, else scheduled) — not just someone in their role. */
+    isMine: !!visitProviderId(b) && visitProviderId(b) === ownStaffId,
     /** No provider was assigned (a room-only service): any provider role may document it. */
-    unassigned: !b.staffId,
-    mayDocument: roleMayDocument(b.staff?.role, role),
+    unassigned: !visitProviderId(b),
+    /** May the signed-in provider write it: the same rule the write paths enforce (lib/visitProvider.ts). */
+    mayDocument: writeRefusal(b, { role, staffId: ownStaffId }) === null,
     encounter: { status: e.status, checkedInAt: e.checkedInAt, startedAt: e.startedAt, seenAt: e.seenAt, checkedOutAt: e.checkedOutAt },
     documentation: {
       status: doc,
@@ -106,8 +116,11 @@ export async function providerQueue(a: { role: ProviderRole; ownStaffId: string 
   };
 }
 
-/** The workspace for one visit. `canWrite` is false for an administrator and for the wrong provider role. */
-export async function loadWorkspace(a: { bookingId: string; role: ProviderRole | null; ownStaffId: string | null; ownAccountId: string | null; canAddend: boolean }) {
+/**
+ * The workspace for one visit. `canWrite` is false for an administrator, for the wrong provider role, and — rev 2.1 — for anyone who
+ * is not the visit's provider. `isAdmin` lets an administrator confirm a signer as the covering provider (lib/encounters.ts).
+ */
+export async function loadWorkspace(a: { bookingId: string; role: ProviderRole | null; ownStaffId: string | null; ownAccountId: string | null; canAddend: boolean; isAdmin?: boolean }) {
   const b = await prisma.booking.findUnique({
     where: { id: a.bookingId },
     include: {
@@ -115,7 +128,7 @@ export async function loadWorkspace(a: { bookingId: string; role: ProviderRole |
       staff: { select: { id: true, name: true, role: true } },
       user: { select: { name: true } },
       patient: { select: { id: true, firstName: true, lastName: true, preferredName: true } },
-      encounter: true,
+      encounter: { include: { coveringStaff: { select: { id: true, name: true, role: true } } } },
       noteSignature: true,
       documentationDraft: true,
       visitNotes: { include: { author: { select: { id: true, name: true, role: true } } }, orderBy: { createdAt: 'asc' } },
@@ -128,13 +141,16 @@ export async function loadWorkspace(a: { bookingId: string; role: ProviderRole |
   const signsAs = a.ownStaffId && a.role ? (await prisma.staff.findUnique({ where: { id: a.ownStaffId }, select: { name: true } }))?.name ?? null : null;
   const sig = b.noteSignature;
   const signer = sig ? await prisma.staff.findUnique({ where: { id: sig.signedByStaffId }, select: { name: true } }) : null;
+  const provider = visitProvider(b);
+  // Rev 2.1: a note signed by someone other than the visit's provider (possible under the old role rule) is flagged, never rewritten.
+  const signerMismatch = !!sig && !!visitProviderId(b) && sig.signedByStaffId !== visitProviderId(b);
   const d = b.documentationDraft;
   const scribe = scribeAvailability();
   const soap = b.service.documentationType === 'SOAP';
 
   let readOnlyReason: string | null = null;
   if (!a.role) readOnlyReason = 'Administrators can read clinical documentation but cannot write it.';
-  else if (!roleMayDocument(b.staff?.role, a.role)) readOnlyReason = 'This visit was booked with a different provider role.';
+  else if (writeRefusal(b, { role: a.role, staffId: a.ownStaffId })) readOnlyReason = writeRefusal(b, { role: a.role, staffId: a.ownStaffId })!.message;
   else if (!b.encounter || !(ENCOUNTER_STATES as readonly string[]).includes(b.encounter.status)) readOnlyReason = 'This patient has not been checked in.';
   else if (b.status !== 'CONFIRMED') readOnlyReason = 'Only a confirmed appointment can be documented.';
 
@@ -149,12 +165,16 @@ export async function loadWorkspace(a: { bookingId: string; role: ProviderRole |
       /** What the PATIENT wrote when booking — context for the provider, not a clinical note. */
       patientNote: b.patientNote,
       patient: { id: b.patient?.id ?? null, name: b.patient ? `${b.patient.firstName} ${b.patient.lastName}` : b.user.name },
-      provider: b.staff ? { id: b.staff.id, name: b.staff.name } : null,
+      /** The visit's provider: covering if set, else scheduled (rev 2.1). Only they may write and sign. */
+      provider: provider ? { id: provider.id, name: provider.name } : null,
+      /** The booking's provider, and whether someone else is covering. */
+      scheduledProvider: b.staff ? { id: b.staff.id, name: b.staff.name } : null,
+      covering: !!b.encounter?.coveringStaffId,
     },
     encounter: b.encounter
       ? { status: b.encounter.status, checkedInAt: b.encounter.checkedInAt, startedAt: b.encounter.startedAt, seenAt: b.encounter.seenAt, checkedOutAt: b.encounter.checkedOutAt, scribeConsentAt: b.encounter.scribeConsentAt }
       : null,
-    access: { canWrite: readOnlyReason === null, role: a.role, signsAs, readOnlyReason, canAddend: a.canAddend },
+    access: { canWrite: readOnlyReason === null, role: a.role, signsAs, readOnlyReason, canAddend: a.canAddend, canConfirmCovering: !!a.isAdmin && signerMismatch },
     documentation: { status: docStatus(b), type: b.service.documentationType },
     /** Rev 2.0: whether this visit needs a note at all (NOT_REQUIRED | PENDING | SIGNED; null before check-in). */
     note: noteStatusOf(b),
@@ -170,6 +190,8 @@ export async function loadWorkspace(a: { bookingId: string; role: ProviderRole |
         aiAssisted: sig.aiAssisted, aiDraftUnchanged: sig.aiDraftUnchanged,
         /** Signed after the patient was checked out (null: signed before rev 2.0 recorded it). */
         afterCheckout: sig.afterCheckout,
+        /** The signer is not the visit's provider (rev 2.1): shown as a flag; an admin may confirm them as the covering provider. */
+        signerIsVisitProvider: !signerMismatch,
         /** Newer rows exist behind the ones that were signed. */
         amended: b.visitNotes.some((n) => n.amendsId !== null),
       }

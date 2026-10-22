@@ -22,6 +22,7 @@ import { staffTransaction } from '../lib/staffTx.js';
 import { APPT_INCLUDE, appointmentView } from '../lib/appointmentView.js';
 import { checkIn, markNoShow, undoCheckIn } from '../lib/encounters.js';
 import { checkoutPreview, checkoutVisit } from '../lib/checkout.js';
+import { providerOptions, setCoveringProvider } from '../lib/coveringProvider.js';
 import { basePrisma } from '../lib/prismaBase.js';
 import { SchedulingError, createWalkIn, walkInSlotStart } from '../lib/scheduling.js';
 import { requireFrontDesk } from '../middleware/frontDesk.js';
@@ -98,6 +99,33 @@ visitAction('undo-check-in', (tx, rec, a) => undoCheckIn(tx, rec, a));
 // Check-out is no longer a bare state change: it settles the visit (credits, a perk, or cash),
 // records the revenue event, and checks the patient out in one transaction. See lib/checkout.ts.
 visitAction('no-show', (tx, rec, a) => markNoShow(tx, rec, a));
+
+// ---- the covering provider (rev 2.1) --------------------------------------------------------------------------------------------
+
+/** Who may see this patient instead, each with their other appointments at that time (a warning, nothing is refused for it). */
+fdRouter.get('/fd/appointments/:id/provider-options', requireFrontDesk, async (req, res) => {
+  const id = req.params.id ?? '';
+  const options = await providerOptions(id);
+  if (!options) return res.status(404).json({ error: 'Unknown appointment.', code: 'not_found' });
+  audit.read('appointment', id, { section: 'provider_options', overlaps: options.options.reduce((n, o) => n + o.overlaps.length, 0) });
+  res.json(options);
+});
+
+const providerBody = z.object({ staffId: z.string().min(1).max(64), confirmDraft: z.boolean().optional() }).strict();
+
+/** "Change provider…": a covering provider for a checked-in visit whose note is not signed. Before check-in it says to use Move. */
+fdRouter.post('/fd/appointments/:id/provider', requireFrontDesk, async (req, res) => {
+  const bookingId = req.params.id ?? '';
+  const parsed = providerBody.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Choose the provider who is seeing this patient.', code: 'bad_request' });
+  try {
+    const r = await staffTransaction((tx, rec) => setCoveringProvider(tx, rec, { bookingId, staffId: parsed.data.staffId, confirmDraft: parsed.data.confirmDraft === true }));
+    const row = await prisma.booking.findUniqueOrThrow({ where: { id: bookingId }, include: APPT_INCLUDE });
+    res.json({ appointment: appointmentView(row), changed: r.changed });
+  } catch (err) {
+    if (!sendSchedulingError(res, err)) throw err;
+  }
+});
 
 // ---- walk-ins ----------------------------------------------------------------
 

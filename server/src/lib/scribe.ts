@@ -57,9 +57,9 @@ export function assertScribeAvailable(): void {
 
 /** The provider records that the patient agreed to this visit being recorded. No audio can start without it. */
 export async function recordScribeConsent(tx: Tx, rec: Rec, a: { bookingId: string; accountId: string; role: ProviderRole; now: Date }) {
-  await documenter(tx, a.accountId);
+  const me = await documenter(tx, a.accountId);
   const v = await loadVisit(tx, a.bookingId);
-  assertMayDocument(v, a.role);
+  assertMayDocument(v, a.role, me);
   const enc = v.encounter!;
   if (enc.scribeConsentAt) return { scribeConsentAt: enc.scribeConsentAt, changed: false as const };
   await tx.encounter.update({ where: { id: enc.id }, data: { scribeConsentAt: a.now } });
@@ -71,9 +71,9 @@ export async function startSession(tx: Tx, rec: Rec, a: { bookingId: string; acc
   assertScribeAvailable();
   const ext = audioExtension(a.contentType);
   if (!ext) throw fail(400, 'bad_audio_type', 'That recording format is not supported.');
-  await documenter(tx, a.accountId);
+  const me = await documenter(tx, a.accountId);
   const v = await loadVisit(tx, a.bookingId);
-  assertMayDocument(v, a.role);
+  assertMayDocument(v, a.role, me);
   if (v.noteSignature) throw fail(409, 'already_signed', 'This visit\'s documentation is already signed.');
   if (v.service.documentationType !== 'SOAP') throw fail(409, 'not_soap', 'The scribe drafts SOAP notes; this service is documented as a session log.');
   if (!v.encounter!.scribeConsentAt) throw fail(409, 'consent_required', 'Confirm that the patient has agreed to the recording before it starts.');

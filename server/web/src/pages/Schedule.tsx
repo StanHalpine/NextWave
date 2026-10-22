@@ -263,7 +263,7 @@ function GridColumn({ col, openMin, closeMin, tz, onOpen, onEmpty }: {
                 left: `calc(${(lane / n) * 100}% + 2px)`, width: `calc(${100 / n}% - 4px)`, background: a.service.color,
               }}
               onClick={(e) => { e.stopPropagation(); onOpen(a.id); }}
-              title={`${fmtTime12(a.localStart)} – ${fmtTime12(a.localEnd)} · ${a.patient.name} · ${a.service.name}${seen ? ' · seen, needs check-out' : ''}${a.note ? ` · ${NOTE_LABEL[a.note].toLowerCase()}` : ''}`}
+              title={`${fmtTime12(a.localStart)} – ${fmtTime12(a.localEnd)} · ${a.patient.name} · ${a.service.name}${seen ? ' · seen, needs check-out' : ''}${a.covering ? ` · seen by ${a.covering.name} (covering)` : ''}${a.note ? ` · ${NOTE_LABEL[a.note].toLowerCase()}` : ''}`}
             >
               <span className="ev-top">
                 <span className="ev-time">{fmtTime12(a.localStart).replace(' ', '')}{here && ' ✓'}</span>

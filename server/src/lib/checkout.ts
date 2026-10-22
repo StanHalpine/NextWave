@@ -21,6 +21,7 @@ import { balance, clinicDay, CreditError, lockPatient, perkStates, takeCredits, 
 import { openMembership } from './membership.js';
 import { memberDiscount } from './pricing.js';
 import type { Rec } from './staffTx.js';
+import { visitProviderId } from './visitProvider.js';
 
 type Tx = Prisma.TransactionClient;
 const fail = (status: 400 | 404 | 409, code: string, message: string, extra: Record<string, unknown> = {}) => new CreditError(status, code, message, extra);
@@ -165,7 +166,8 @@ export async function checkoutVisit(tx: Tx, rec: Rec, a: { bookingId: string; ac
       id: eventId, encounterId: enc.id, bookingId: b.id, patientId, serviceId: b.serviceId,
       serviceName: b.service.name, serviceCategory: b.service.category, subOption: b.subOption,
       listPriceCents: recordedPrice, paymentType, memberBenefit, creditsRedeemed: credits,
-      discountPercent, discountCents, netPriceCents: netCents, discountCategory, staffId: b.staffId,
+      // The visit's provider (rev 2.1): the covering provider when one saw the patient, else the one it was booked with.
+      discountPercent, discountCents, netPriceCents: netCents, discountCategory, staffId: visitProviderId(b),
       planCode: membership && (paymentType === 'MEMBER' || membership.status === 'ACTIVE') ? membership.plan.code : null,
       occurredAt: a.now, recordedById: a.accountId,
     },

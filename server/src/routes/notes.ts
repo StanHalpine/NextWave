@@ -4,9 +4,9 @@
  * Every route here returns or accepts PHI, so all of them require a signed-in
  * staff account.
  *
- *   WRITE a note      provider roles only. The author is the signed-in account's
- *                     linked provider record — taken from the SESSION, never the
- *                     request body, so authorship is proven rather than claimed.
+ *   WRITE a note      not here any more (rev 2.1): POST /bookings/:id/notes answers 410 and notes are
+ *                     written and signed in the Provider workspace. Amendments (the signer only) and
+ *                     addenda (any provider) still are, attributed from the SESSION, never the body.
  *   READ note text    providers and admins. Front desk sees THAT notes exist
  *                     (a count) but not what they say — minimum necessary.
  */
@@ -48,48 +48,16 @@ async function sessionAuthor(req: Request): Promise<{ staffId: string; role: Acc
 
 const canReadNotes = (req: Request) => hasRole(req, 'ADMIN', ...PROVIDER_ROLES);
 
-const createBody = z.object({
-  kind: z.enum(['SUBJECTIVE', 'OBJECTIVE', 'ASSESSMENT', 'PLAN', 'GENERAL']).optional(),
-  body: z.string().trim().min(1, 'A note cannot be empty.').max(20000),
-}).strict();
-
-/** POST /api/bookings/:id/notes — add a clinical note to a visit. */
-notesRouter.post('/bookings/:id/notes', requireRole(...PROVIDER_ROLES), async (req, res) => {
-  const parsed = createBody.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Invalid body.' });
-  }
-  const { kind, body } = parsed.data;
-
-  const author = await sessionAuthor(req);
-  if ('error' in author) return res.status(403).json({ error: author.error, code: 'no_provider_identity' });
-
-  const booking = await prisma.booking.findUnique({ where: { id: req.params.id } });
-  if (!booking) return res.status(404).json({ error: 'Unknown booking.' });
-
-  // A note about a visit that never happened is almost always a mis-click.
-  if (booking.status === 'HOLD' || booking.status === 'PENDING_REVIEW') {
-    return res.status(409).json({
-      error: `Cannot add a clinical note to a ${booking.status} booking — confirm the visit first.`,
-    });
-  }
-
-  const note = await prisma.visitNote.create({
-    data: {
-      bookingId: booking.id, authorId: author.staffId, kind: kind ?? 'GENERAL', body,
-      authorAccountId: req.auth!.account.id, authorRole: author.role,
-    },
-    include: NOTE_INCLUDE,
-  });
-
-  res.status(201).json({
-    id: note.id,
-    kind: note.kind,
-    body: note.body,
-    author: note.author,
-    createdAt: note.createdAt.toISOString(),
-    amended: false,
-    history: [],
+/**
+ * POST /api/bookings/:id/notes — CLOSED to new notes (rev 2.1). It accepted a free-standing note on any booking from any provider-role
+ * account, outside the draft → sign flow and the rule that only the visit's provider may write (lib/visitProvider.ts). Notes are
+ * written and signed in the Provider workspace (/api/provider/visits/:id/…). The role gate stays, so front desk and admin-only
+ * accounts are still refused as before; a provider is told where notes are written. Reading notes here is unchanged.
+ */
+notesRouter.post('/bookings/:id/notes', requireRole(...PROVIDER_ROLES), (_req, res) => {
+  res.status(410).json({
+    code: 'notes_moved',
+    error: 'Clinical notes are written and signed in the Provider workspace (Provider → open the visit). This older route no longer accepts new notes; notes already written here can still be read.',
   });
 });
 

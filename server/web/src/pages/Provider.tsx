@@ -113,7 +113,7 @@ function QueueTable({ rows, tz, showDate, canWrite, empty }: { rows: QueueRow[];
               <td><strong>{r.patient.name}</strong></td>
               <td><ServiceDot color={r.service.color} /> {r.service.name}{r.subOption ? ` · ${r.subOption}` : ''}
                 <div className="muted small">{r.service.documentationType === 'SOAP' ? 'SOAP note' : 'Session log'}</div></td>
-              <td>{r.staff?.name ?? <span className="muted">Not assigned</span>}{r.isMine && <span className="pill ok mine">you</span>}</td>
+              <td>{r.covering ? <>{r.covering.name}<div className="muted small">covering for {r.staff?.name ?? 'no one assigned'}</div></> : (r.staff?.name ?? <span className="muted">Not assigned</span>)}{r.isMine && <span className="pill ok mine">you</span>}</td>
               <td>
                 {ENCOUNTER_LABEL[r.encounter.status] ?? r.encounter.status}
                 {r.waitingMinutes != null && r.encounter.status === 'CHECKED_IN' && <div className="muted small">in at {r.encounter.checkedInAt && fmtInstantTime(r.encounter.checkedInAt, tz)} · {r.waitingMinutes} min</div>}

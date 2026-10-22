@@ -1,6 +1,6 @@
 # NextWave Wellness — Clinic System Specification
 
-Version 2.0 · 2026-10-22 · Status: **Phases 1–5 approved and built. Ledger phase L1 (the patient Ledger, read only) approved and built. Phase 2a (documentation decoupled from check-out: per-service note requirement, note status apart from visit state, the Unsigned notes worklist) built — revision 2.0 below. Phase 2b (the money layer: payments, balance, promotions, adjustments) is a design only, `docs/MONEY_LAYER_DESIGN.md`; it and L4 (kiosk) are NOT approved.** Member discounts are enabled (Prevent 10% · Restore 15% · Optimize 20%; rev 1.8); perks stay off. `docs/STAGING_CHECKLIST.md` lists everything that needs a real environment. Nothing is merged to `main` or deployed from this branch.
+Version 2.1 · 2026-10-23 · Status: **Phases 1–5 approved and built. Ledger phase L1 (the patient Ledger, read only) approved and built. Phase 2a (documentation decoupled from check-out: per-service note requirement, note status apart from visit state, the Unsigned notes worklist) built — revision 2.0. Note ownership by person and the covering provider built — revision 2.1 below. Phase 2b (the money layer: payments, balance, promotions, adjustments) is a design only, `docs/MONEY_LAYER_DESIGN.md`; it and L4 (kiosk) are NOT approved.** Member discounts are enabled (Prevent 10% · Restore 15% · Optimize 20%; rev 1.8); perks stay off. `docs/STAGING_CHECKLIST.md` lists everything that needs a real environment. Nothing is merged to `main` or deployed from this branch.
 
 > **Revision 1.1 — decisions recorded after approval** (the body below is otherwise
 > unchanged from the approved v1; sections touched are marked *[rev 1.1]*):
@@ -75,7 +75,7 @@ Version 2.0 · 2026-10-22 · Status: **Phases 1–5 approved and built. Ledger p
 > | Item | As built |
 > |---|---|
 > | Notes | **No `SoapNote` / `SoapNoteRevision`.** The owner's instruction was to build on the existing amend-only `VisitNote` model **without changing its amendment semantics**, so: a mutable **`DocumentationDraft`** (the scratchpad), **signing copies it into `VisitNote` rows** (S, O, A, P — or one GENERAL note for a session log) and writes an append-only **`NoteSignature`** (account, provider role used, time, which notes). Corrections after signing are the existing amendment. `VisitNote` gains a nullable `durationMin` (session logs) so a duration correction is an ordinary amendment. The database now **rejects UPDATE/DELETE/TRUNCATE on `VisitNote` and `NoteSignature`** |
-> | Legacy `VisitNote` endpoints "made read-only" | *[rev 1.6: the amend route is now signer-only, and other providers add addenda]* **Not done.** They are the existing model the owner told me not to change; the amend route still lets any provider amend any note (§7 of the notes) |
+> | Legacy `VisitNote` endpoints "made read-only" | *[rev 1.6: the amend route is now signer-only, and other providers add addenda; rev 2.1: `POST /api/bookings/:id/notes` answers 410 — no new notes there]* **Not done.** They are the existing model the owner told me not to change; the amend route still lets any provider amend any note (§7 of the notes) |
 > | Queue | `GET /api/provider/queue?role=` — by **provider role** (not `scope=mine\|specialty`): today's checked-in patients for the role plus visits with **no provider assigned**, with each visit's documentation status, and earlier unsigned visits (30 days). Role switching for multi-role accounts; an admin may view any role read-only |
 > | Workspace | `/api/provider/visits/:id/{documentation,start,draft,sign}` (the spec's `/encounters/:id/soap…` paths). Optimistic `version` on the draft. A SOAP note needs all four sections (write N/A where one does not apply); a session log needs duration and notes |
 > | Macros | **One-click insertion by section**, not typed `trigger` expansion (the owner's wording). `MacroSet` is `PERSONAL` (one per provider) or `SHARED` (admin-defined, all provider roles or the listed ones); `Macro` has a title, a section and a body of at most 4,000 characters |
@@ -101,6 +101,24 @@ Version 2.0 · 2026-10-22 · Status: **Phases 1–5 approved and built. Ledger p
 > | **Time zones and raw SQL** | Every `DateTime` column is a UTC `timestamp`. **Raw SQL must bind an instant with `utcTimestamp()`** (`lib/sqlTime.ts`): a bare `Date` is compared in the *database session's* zone, which is wrong by the offset on any non-UTC database. Three queries from Phases 2–3 had it and are fixed. The test database now runs in `Asia/Kolkata` unless `NW_TEST_TZ` says otherwise |
 > | Revenue basis | *[superseded by rev 1.7: dues are now a separate line in every Accounting view]* **Membership dues are not in Accounting**: nothing records them (A-13 assumed they would be). Revenue is what was recorded at check-out |
 > | Not built | *[rev 1.7: the Twilio adapter and dues are built]* A **Twilio sending adapter** (texts still go to the stub; only the inbound webhook, its signature check and the wording are real), the **AWS adapters**, a dues record, void/refund, print/PDF, a free-form analytics builder |
+
+> **Revision 2.1 — a visit's note belongs to the visit's provider (a person), not to their role; the covering provider.**
+> From a staging finding: Dr. Stan Halpine (chiropractor) signed the note for a visit booked with Dr. Chase L'Heureux, which the role
+> rule allowed. **Supersedes** "own specialty" in §1, "write visits booked with their own role" (`server/README.md`), and the rev 1.5
+> row on the legacy `VisitNote` endpoints.
+>
+> | Item | Decision / as built |
+> |---|---|
+> | **Who may write a note** (§1) | **By person.** Only **the visit's provider** may start the visit, save the draft, use the AI draft, record scribe consent or audio, and **sign**. One rule, in `src/lib/visitProvider.ts` (`writeRefusal`), called by `assertMayDocument` on every write path and by the scribe's follow-up routes; the screens' read-only flags use the same function. **An administrator who also holds a provider role is held to it.** A visit with **no provider assigned** keeps the **role rule** (any provider role). A provider of another role still gets `wrong_role`; a colleague in the same role gets `403 not_visit_provider`. **Reading is unchanged** (any provider or admin, authenticator first) |
+> | Amend and addendum | **Amend stays signer-only; an addendum stays open to any provider** (rev 1.6, unchanged) — the addendum is how a covering or co-treating provider adds to a signed note |
+> | **Scheduled vs rendering provider** | **Scheduled** = `Booking.staffId`, owned by the scheduling engine (availability, the calendar column, Move). **Rendering** = `Encounter.coveringStaffId` when set, else the scheduled one — **"the visit's provider"**. The booking, and so the engine, is never changed by any of this |
+> | **Change provider…** | Front Desk dialog, **front desk or admin**, after check-in: `POST /api/fd/appointments/:id/provider { staffId, confirmDraft? }` sets the covering provider. Refused unless the person is **active**, in the **same staff role** as the scheduled provider, and **allowed to perform the service** (Configuration → Services → Who can perform this); refused **once the note is signed**; a draft another provider has open needs `confirmDraft` (the draft is kept for the new provider). Naming the scheduled provider again clears it. Audited as `encounter` UPDATE `{ fields: ['coveringStaffId'], from, to, draftOpen, via }` — **ids only**. **Before check-in** it answers `409 use_move`: change the provider with **Move…**, which re-proves availability |
+> | Overlap warning | `GET /api/fd/appointments/:id/provider-options`: the eligible providers, each with their **other confirmed or requested appointments overlapping this visit** (booked with them and not covered by someone else, or covered by them). **A warning only**; nothing is refused for it. A plain read — the availability engine is not consulted, and the engine still counts the slot as the scheduled provider's, so it will not stop someone booking the covering provider into that time |
+> | **Legacy note route** | `POST /api/bookings/:id/notes` **no longer writes**: `410 notes_moved`, "notes are written and signed in the Provider workspace". Its role gate stays (front desk and admin-only accounts still get 403). **Reading it is unchanged.** The legacy grid's (`dashboard.html`) **Add note** form is replaced by a link to the workspace |
+> | **Accounting provider** | `RevenueEvent.staffId` is **the visit's provider at check-out** — the covering one when set, else the booked one. Rows recorded before rev 2.1 keep the booked provider (append-only) |
+> | **Notes signed by another provider** | Signed under the old role rule. **The `NoteSignature` rows are not touched.** Flagged on the workspace ("Signed by X, who is not this visit's provider (Y)"), listed for administrators on **Admin → Notes signed by another provider** (`GET /api/provider/signature-mismatches`), where an administrator may **Confirm as covering provider** (`POST /api/provider/visits/:id/confirm-covering`: sets `coveringStaffId` to the signer, audited `via: 'confirm_signer'`) or leave it flagged; the visit's provider can add an addendum. Admin only, authenticator first |
+> | Worklist and queue | The Unsigned notes worklist and the queue's "mine" follow the visit's provider: a covered visit moves to the covering provider's list |
+> | Schema | Migration `20261023100000_covering_provider`: `Encounter.coveringStaffId` (nullable, FK → `Staff`, `ON DELETE RESTRICT`) and its index. Nothing else; no data changed; no new table |
 
 > **Revision 2.0 — billing and documentation decoupled (Chase's answers to the rev 1.9 open items), and Phase 2a as built.**
 > **Replaces A-18. Resolves A-23** and the red-light price-note item. Amends A-19 and A-21 for the money layer (Phase 2b, design only).
@@ -203,7 +221,7 @@ existing enums.
 | Role | Linked `Staff` row | Sees |
 |---|---|---|
 | `front_desk` | optional | Front Desk, Schedule, Patient directory/profile, Credits, Reports |
-| `provider_chiro` | **required**, `StaffRole.CHIROPRACTOR` | Provider queue + SOAP, own schedule, read-only profile for patients in their scope |
+| `provider_chiro` | **required**, `StaffRole.CHIROPRACTOR` | Provider queue + SOAP, own schedule, read-only profile for patients in their scope. *[rev 2.1]* Writes and signs only visits where they are **the visit's provider** (covering, else booked); reads any |
 | `provider_np` | **required**, `NURSE_PRACTITIONER` | same, NP queue |
 | `provider_nurse` | **required**, `REGISTERED_NURSE` | same, nurse queue |
 | `admin` | optional | Everything, plus Admin (accounts, audit log, catalogue, plans). **Cannot author SOAP notes** (assumption A-4) |
@@ -220,7 +238,7 @@ identity must outlive a password reset. Provider accounts must link to a
 | 1 Front Desk (dashboard) | ✅ | — | ✅ |
 | Patient directory / profile / credits | ✅ | read-only demographics, scoped (see §2) | ✅ |
 | 2 Schedule | ✅ edit | read own | ✅ |
-| 3 Provider (queue, SOAP) | — | ✅ own specialty | read-only |
+| 3 Provider (queue, SOAP) | — | ✅ read: own specialty · **write and sign: only as the visit's provider** *[rev 2.1; was "own specialty"]* | read-only (an admin who is also a provider: as that provider, same rule) |
 | 4 Accounting | — | — | ✅ |
 | 5 Reports | ✅ | — | ✅ |
 | Admin | — | — | ✅ |
@@ -297,6 +315,7 @@ nav bar (assumption A-2).
 | `/app/admin/accounts` | Create/deactivate accounts, set role, link `Staff`, reset password, unlock |
 | `/app/admin/audit` | Audit log viewer (filter by actor, resource, date) |
 | `/app/admin/membership` | Plans, credit cost per service, member discounts |
+| `/app/admin/note-signers` *[rev 2.1]* | Notes signed by someone other than the visit's provider: confirm the signer as covering, or leave flagged |
 
 **URL hygiene.** No patient names, dates of birth, phone numbers or search
 terms in any URL, query string, or page `<title>`. IDs are opaque UUIDs. All
@@ -751,6 +770,7 @@ No new tables beyond indexes: reports and accounting read `Charge`,
 | `Service` *[rev 2.0]* | `requiresNote Boolean @default(true)` | 2a | Whether a visit needs a signed note at all; false for red light, HBOT, body composition |
 | `Encounter` *[rev 2.0]* | `noteRequired Boolean @default(false)`, set by trigger at check-in | 2a | The visit's own requirement, fixed when checked in |
 | `NoteSignature` *[rev 2.0]* | `afterCheckout Boolean?` | 2a | A late note (signed after check-out) |
+| `Encounter` *[rev 2.1]* | `coveringStaffId String?` (FK → `Staff`, indexed) | 2.1 | The rendering provider when not the scheduled one |
 | `Service` | `reportGroup` enum `CHIRO HBOT RED_LIGHT IV CONSULT BLOODWORK OTHER` | 5 | Service-demand grouping (A-6) |
 | `VisitNote` | none — superseded by `SoapNote` in Phase 4; kept read-only, removed in a later migration. Its `authorId` is sourced from the session from Phase 1 | 1/4 | Authorship proven |
 
@@ -810,6 +830,8 @@ patient / appointment / SOAP / credit data writes an `AuditLog` row (§6).
 | `POST /api/schedule/appointments` | fd, admin | Staff-created booking (source PHONE/FRONT_DESK) via the existing availability engine |
 | `POST /api/schedule/appointments/:id/reschedule` | fd, admin | Cancel + rebook, linked |
 | `POST /api/fd/encounters/:id/check-out` | fd, admin | Phase 2: state only. Phase 3 adds charge + credits |
+| `GET /api/fd/appointments/:id/provider-options` *[rev 2.1]* | fd, admin | Who may cover a checked-in visit, with each one's overlapping appointments (warning only) |
+| `POST /api/fd/appointments/:id/provider` *[rev 2.1]* | fd, admin | Set the covering provider after check-in (before: use Move) |
 
 ### 5.3 Patient Profile + Credits (Phase 3)
 
@@ -834,6 +856,7 @@ patient / appointment / SOAP / credit data writes an `AuditLog` row (§6).
 |---|---|---|
 | `GET /api/provider/queue?scope=mine\|specialty` | provider_* | Checked-in patients awaiting a note |
 | `GET /api/provider/unsigned-notes?staffId=` *[rev 2.0]* | provider_* (own), admin (any) | The Unsigned notes worklist (rev 2.0) |
+| `GET /api/provider/signature-mismatches` · `POST /api/provider/visits/:id/confirm-covering` *[rev 2.1]* | admin | Notes signed by another provider; confirm the signer as covering |
 | `GET /api/provider/encounters/:id` | provider_* | Encounter + patient summary (demographics, relevant history) |
 | `POST /api/provider/encounters/:id/start` | provider_* | → `IN_PROGRESS` |
 | `GET/PUT /api/provider/encounters/:id/soap` | provider_* | Read / autosave draft |

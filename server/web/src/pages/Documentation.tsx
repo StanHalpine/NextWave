@@ -42,6 +42,8 @@ export default function Documentation() {
   const [save, setSave] = useState<Save>({ state: 'idle' });
   const [signing, setSigning] = useState(false);
   const [macrosOpen, setMacrosOpen] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
 
   const version = useRef<number | undefined>(undefined);
   const lastSaved = useRef('');
@@ -82,6 +84,14 @@ export default function Documentation() {
       return null;
     }
   }, [id]);
+
+  /** Rev 2.1, administrator: the note's signer did see the patient — record them as the visit's covering provider. The signature is untouched. */
+  async function confirmCovering() {
+    setConfirming(true); setConfirmError(null);
+    try { await api(`/api/provider/visits/${id}/confirm-covering`, { method: 'POST', body: {} }); await load(); }
+    catch (e) { setConfirmError(errorText(e)); }
+    finally { setConfirming(false); }
+  }
 
   useEffect(() => {
     void load().then((w) => {
@@ -216,6 +226,16 @@ export default function Documentation() {
             {ws.signature.aiAssisted && <span className="pill off" title="The note began as an AI-generated draft that the provider reviewed.">Began as an AI draft{ws.signature.aiDraftUnchanged ? ' · signed unchanged' : ' · edited'}</span>}
             {ws.signature.afterCheckout && <span className="pill off" title="Signed after the patient had been checked out.">Signed after check-out</span>}
           </div>
+          {/* Rev 2.1: signed by someone other than the visit's provider (the old role rule allowed it). Flagged; the signature is never changed. */}
+          {!ws.signature.signerIsVisitProvider && (
+            <Notice kind="warn">
+              Signed by <strong>{ws.signature.signedBy ?? 'a provider'}</strong>, who is not this visit’s provider ({b.provider?.name ?? 'not assigned'}).
+              {ws.access.canConfirmCovering
+                ? <> If they saw the patient, confirm them as the covering provider. <button className="btn small" disabled={confirming} onClick={() => void confirmCovering()}>Confirm as covering provider</button></>
+                : ' An administrator can confirm them as the covering provider; the visit’s provider can add an addendum.'}
+              {confirmError && <span className="error"> {confirmError}</span>}
+            </Notice>
+          )}
           <SignedNotes notes={ws.notes} canAddend={ws.access.canAddend} tz={tz} onAmended={async () => { await load(); }} />
         </section>
       )}

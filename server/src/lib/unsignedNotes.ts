@@ -4,8 +4,9 @@
  * often write them after the patient has gone: thirty adjustments in a day, notes on breaks or at the end of it), so this is
  * where a pending note is found once its visit has left the day's queue.
  *
- *   scope     the provider PERSON the visit is booked with (Booking.staffId), not their role: "my unsigned notes". An
- *             administrator may read anyone's; who may WRITE is still decided by the workspace (lib/documentation.ts).
+ *   scope     the visit's provider PERSON, not their role: the covering provider when one is set, else the one it is booked with
+ *             (lib/visitProvider.ts, rev 2.1) — "my unsigned notes". A covered visit moves to the covering provider's list. An
+ *             administrator may read anyone's; who may WRITE is decided by the same rule (lib/documentation.ts).
  *   never     a visit whose service needed no note when it was checked in (Encounter.noteRequired = false), a cancelled or
  *             deleted one, or one the patient was never checked in for.
  *   overdue   pending longer than NOTE_OVERDUE_HOURS (config.noteOverdueHours, default 24) since check-in, in elapsed hours.
@@ -32,12 +33,12 @@ const INCLUDE = {
   documentationDraft: { select: { id: true, updatedAt: true } },
 } satisfies Prisma.BookingInclude;
 
-/** The worklist's rule, in one place: booked with this provider, checked in, a note required, none signed. */
+/** The worklist's rule, in one place: this is the visit's provider (covering, else booked), checked in, a note required, none signed. */
 const pendingFor = (staffId: string) => ({
-  staffId,
   status: 'CONFIRMED',
   encounter: { is: { noteRequired: true, deletedAt: null, status: { in: [...CHECKED_IN_STATES] } } },
   noteSignature: { is: null },
+  AND: [{ OR: [{ encounter: { is: { coveringStaffId: staffId } } }, { staffId, encounter: { is: { coveringStaffId: null } } }] }],
 }) satisfies Prisma.BookingWhereInput;
 
 export async function unsignedNotes(a: { staffId: string; now: Date }) {

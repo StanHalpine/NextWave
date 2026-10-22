@@ -28,7 +28,8 @@ import type { AccountRole, DocumentationType, NoteKind, Prisma } from '@prisma/c
 import { config } from '../config.js';
 import { lockedBooking } from './encounters.js';
 import { isOverdue, pendingSince } from './noteStatus.js';
-import { roleMayDocument, type ProviderRole } from './providerRoles.js';
+import type { ProviderRole } from './providerRoles.js';
+import { writeRefusal } from './visitProvider.js';
 import { prisma } from './prisma.js';
 import type { Rec } from './staffTx.js';
 
@@ -95,7 +96,7 @@ export async function loadVisit(tx: Tx, bookingId: string) {
   return tx.booking.findUniqueOrThrow({
     where: { id: bookingId },
     include: {
-      encounter: true,
+      encounter: { include: { coveringStaff: { select: { id: true, name: true, role: true } } } },
       service: { select: { id: true, name: true, documentationType: true } },
       staff: { select: { id: true, name: true, role: true } },
       noteSignature: true,
@@ -105,22 +106,32 @@ export async function loadVisit(tx: Tx, bookingId: string) {
 }
 export type Visit = Awaited<ReturnType<typeof loadVisit>>;
 
-/** A confirmed visit whose patient has been checked in, booked with this provider's role. */
-export function assertMayDocument(v: Visit, role: ProviderRole): void {
+/**
+ * THE write rule (rev 2.1): a confirmed visit whose patient has been checked in, and `me` is the visit's provider — the covering
+ * provider if one is set, else the scheduled one (lib/visitProvider.ts). Every write path calls this; nothing else decides it.
+ */
+export function assertMayDocument(v: Visit, role: ProviderRole, me: { staffId: string }): void {
   if (v.status !== 'CONFIRMED') throw fail(409, 'not_confirmed', 'Only a confirmed appointment can be documented.');
   if (!v.encounter || !(DOCUMENTABLE as readonly string[]).includes(v.encounter.status)) {
     throw fail(409, 'not_checked_in', 'This patient has not been checked in yet.');
   }
-  if (!roleMayDocument(v.staff?.role, role)) {
-    throw fail(403, 'wrong_role', 'This visit was booked with a different provider role, so you cannot document it.');
-  }
+  const refused = writeRefusal(v, { role, staffId: me.staffId });
+  if (refused) throw fail(403, refused.code, refused.message);
 }
 
-/** Role check for the scribe's follow-up calls (upload, finish, retry, discard), which act on a session rather than load the whole visit. */
-export async function assertRoleForBooking(bookingId: string, role: ProviderRole): Promise<void> {
-  const b = await prisma.booking.findUnique({ where: { id: bookingId }, select: { staff: { select: { role: true } } } });
+/** The same rule for the scribe's follow-up calls (upload, finish, retry, discard), which act on a session rather than load the whole visit. */
+export async function assertMayWriteForBooking(bookingId: string, role: ProviderRole, accountId: string): Promise<void> {
+  const b = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    select: {
+      staffId: true, staff: { select: { id: true, name: true, role: true } },
+      encounter: { select: { coveringStaffId: true, coveringStaff: { select: { id: true, name: true, role: true } } } },
+    },
+  });
   if (!b) throw fail(404, 'not_found', 'Unknown appointment.');
-  if (!roleMayDocument(b.staff?.role, role)) throw fail(403, 'wrong_role', 'This visit was booked with a different provider role, so you cannot document it.');
+  const account = await prisma.account.findUnique({ where: { id: accountId }, select: { staffId: true } });
+  const refused = writeRefusal(b, { role, staffId: account?.staffId ?? null });
+  if (refused) throw fail(403, refused.code, refused.message);
 }
 
 /** CHECKED_IN → IN_PROGRESS the first time a provider works on the visit. Idempotent. */
@@ -131,9 +142,9 @@ export async function ensureStarted(tx: Tx, rec: Rec, v: Visit, accountId: strin
 }
 
 export async function startVisit(tx: Tx, rec: Rec, a: { bookingId: string; accountId: string; role: ProviderRole; now: Date }) {
-  await documenter(tx, a.accountId);
+  const me = await documenter(tx, a.accountId);
   const v = await loadVisit(tx, a.bookingId);
-  assertMayDocument(v, a.role);
+  assertMayDocument(v, a.role, me);
   await ensureStarted(tx, rec, v, a.accountId, a.now);
   return { status: v.encounter!.status === 'CHECKED_IN' ? ('IN_PROGRESS' as const) : v.encounter!.status };
 }
@@ -158,9 +169,9 @@ function sentFields(f: DraftFields): Record<string, string | number | null> {
 }
 
 export async function saveDraft(tx: Tx, rec: Rec, a: { bookingId: string; accountId: string; role: ProviderRole; version?: number; fields: DraftFields; now: Date }) {
-  await documenter(tx, a.accountId);
+  const me = await documenter(tx, a.accountId);
   const v = await loadVisit(tx, a.bookingId);
-  assertMayDocument(v, a.role);
+  assertMayDocument(v, a.role, me);
   if (v.noteSignature) throw fail(409, 'already_signed', 'This visit\'s documentation is already signed. Use an amendment to correct it.');
   checkFieldsFit(v.service.documentationType, a.fields);
   const data = sentFields(a.fields);
@@ -202,9 +213,9 @@ export async function applyAiDraft(
   tx: Tx, rec: Rec,
   a: { bookingId: string; accountId: string; role: ProviderRole; sessionId: string; mode: 'fill_empty' | 'replace_all'; version?: number; now: Date },
 ) {
-  await documenter(tx, a.accountId);
+  const me = await documenter(tx, a.accountId);
   const v = await loadVisit(tx, a.bookingId);
-  assertMayDocument(v, a.role);
+  assertMayDocument(v, a.role, me);
   if (v.noteSignature) throw fail(409, 'already_signed', 'This visit\'s documentation is already signed. Use an amendment to correct it.');
   if (v.service.documentationType !== 'SOAP') throw fail(409, 'not_soap', 'The scribe drafts SOAP notes; this service is documented as a session log.');
 
@@ -258,7 +269,7 @@ export async function signDocumentation(
 ): Promise<SignResult> {
   const who = await documenter(tx, a.accountId);
   const v = await loadVisit(tx, a.bookingId);                              // 1. the Booking row, held to the end
-  assertMayDocument(v, a.role);
+  assertMayDocument(v, a.role, who);
   if (v.noteSignature) throw fail(409, 'already_signed', 'This visit\'s documentation is already signed.');
 
   const draft = v.documentationDraft;

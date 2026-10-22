@@ -459,7 +459,7 @@
 
         data.notes.forEach(function (n) { box.appendChild(noteEl(n, b)); });
 
-        if (clinical && canWriteNotes()) box.appendChild(composer(b));
+        if (clinical && canWriteNotes()) box.appendChild(writeInWorkspace(b));
       })
       .catch(function (e) {
         box.innerHTML = '<p class="note-empty">Could not load notes: ' + esc(e.message) + '</p>';
@@ -551,44 +551,13 @@
     });
   }
 
-  function composer(b) {
-    var f = document.createElement('div');
-    f.className = 'note-composer';
-    f.innerHTML =
-      '<select class="note-kind-select">'
-      + ['SUBJECTIVE', 'OBJECTIVE', 'ASSESSMENT', 'PLAN', 'GENERAL'].map(function (k) {
-          return '<option value="' + k + '"' + (k === 'GENERAL' ? ' selected' : '') + '>' + k + '</option>';
-        }).join('')
-      + '</select>'
-      + '<p class="note-as">Signed as <strong>' + esc(NW.me.displayName) + '</strong> — recorded from your login.</p>'
-      + '<textarea class="note-input" rows="3" placeholder="Clinical note for this visit…"></textarea>';
-
-    var actions = document.createElement('div');
-    actions.className = 'note-actions';
-    var add = document.createElement('button');
-    add.className = 'btn btn-approve';
-    add.textContent = 'Add note';
-    actions.appendChild(add);
-    f.appendChild(actions);
-
-    add.addEventListener('click', function () {
-      var body = f.querySelector('.note-input').value.trim();
-      if (!body) return toast('A note cannot be empty.', true);
-      add.disabled = true;
-      api('/api/bookings/' + b.id + '/notes', {
-        method: 'POST',
-        body: JSON.stringify({
-          kind: f.querySelector('.note-kind-select').value,
-          body: body,
-        }),
-      }).then(function () {
-        toast('Note added.');
-        renderNotes(b);
-        load();
-      }).catch(function (e) { toast(e.message, true); add.disabled = false; });
-    });
-
-    return f;
+  // Rev 2.1: new notes are written and signed in the staff app's Provider workspace, where only the visit's provider may sign. The old
+  // "Add note" form posted to POST /api/bookings/:id/notes, which no longer accepts new notes (it answers 410). Reading is unchanged.
+  function writeInWorkspace(b) {
+    var p = document.createElement('p');
+    p.className = 'note-empty';
+    p.innerHTML = 'New notes are written and signed in the <a href="/app/provider/visits/' + encodeURIComponent(b.id) + '">Provider workspace</a>.';
+    return p;
   }
 
   // ---- load --------------------------------------------------------------

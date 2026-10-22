@@ -10,6 +10,7 @@ import { CheckoutDialog } from '../schedule/CheckoutDialog';
 import { DeskActions } from '../schedule/DeskActions';
 import { deskActions, visitStateLabel, type DeskVerb } from '../frontdesk';
 import FrontDeskNav from './FrontDeskNav';
+import { providerLine } from '../coveringProvider';
 
 export default function FrontDesk() {
   const [date, setDate] = useState<string | undefined>(undefined);   // undefined = today
@@ -152,7 +153,7 @@ function Card({ a, onOpen, children, extra, muted, error }: {
         <span className="appt-time">{fmtTime12(a.localStart)}</span>
         <span className="appt-who">{a.patient.name}</span>
         <span className="appt-svc"><ServiceDot color={a.service.color} /> {a.service.name}{a.subOption ? ` · ${a.subOption}` : ''}</span>
-        <span className="appt-meta">{a.staff?.name ?? 'No provider'} · {a.resource.name}{a.source !== 'ONLINE' ? ` · ${sourceLabel(a.source)}` : ''}</span>
+        <span className="appt-meta">{providerLine(a)} · {a.resource.name}{a.source !== 'ONLINE' ? ` · ${sourceLabel(a.source)}` : ''}</span>
         {extra}
         {a.note && <NotePill note={a.note} doc={a.documentation.status} />}
         {!a.patient.linked && <span className="pill warn">not linked to a patient record</span>}

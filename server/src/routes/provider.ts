@@ -6,6 +6,8 @@
  *   GET  /api/provider/visits/:id/documentation           the workspace: draft, signed notes, scribe state
  *   PUT  /api/provider/visits/:id/draft                   save the working draft (optimistic version)
  *   GET  /api/provider/unsigned-notes?staffId=            a provider's visits whose required note is unsigned, oldest first (rev 2.0)
+ *   GET  /api/provider/signature-mismatches               admin: notes signed by someone other than the visit's provider (rev 2.1)
+ *   POST /api/provider/visits/:id/confirm-covering        admin: confirm that signer as the visit's covering provider (rev 2.1)
  *   POST /api/provider/visits/:id/sign                    sign: draft → VisitNotes + NoteSignature; an open visit → SEEN (a checked-out one stays checked out)
  *   POST /api/provider/visits/:id/scribe/consent          the patient agreed to be recorded
  *   POST /api/provider/visits/:id/scribe/sessions         begin a recording
@@ -25,7 +27,7 @@ import { z } from 'zod';
 import { config } from '../config.js';
 import { audit } from '../lib/audit.js';
 import { now } from '../lib/clock.js';
-import { applyAiDraft, assertRoleForBooking, saveDraft, signDocumentation, startVisit } from '../lib/documentation.js';
+import { applyAiDraft, assertMayWriteForBooking, saveDraft, signDocumentation, startVisit } from '../lib/documentation.js';
 import { isProviderRole, providerRolesOf, type ProviderRole } from '../lib/providerRoles.js';
 import { prisma } from '../lib/prisma.js';
 import { loadWorkspace, providerQueue } from '../lib/providerViews.js';
@@ -34,6 +36,7 @@ import {
 } from '../lib/scribe.js';
 import { staffTransaction } from '../lib/staffTx.js';
 import { unsignedNoteCounts, unsignedNotes } from '../lib/unsignedNotes.js';
+import { confirmSignerAsCovering, signatureMismatches } from '../lib/coveringProvider.js';
 import { actingRole, requireClinicalRead, requireClinicalWrite } from '../middleware/clinical.js';
 import { sendKnownError } from './http.js';
 
@@ -122,6 +125,31 @@ providerRouter.get('/provider/unsigned-notes', ...requireClinicalRead, async (re
   res.json({ ...base, provider: { ...staff, own: staffId === me.staffId }, ...list, reason: null });
 });
 
+// ---- notes signed by someone other than the visit's provider (rev 2.1) ---------------------------------------------------------
+
+const adminOnly = (req: Request, res: Response): boolean => {
+  if (req.auth!.account.roles.includes('ADMIN')) return true;
+  res.status(403).json({ error: 'Only an administrator can do this.', code: 'forbidden' });
+  return false;
+};
+
+/** Every signature whose signer is not the visit's provider — left as signed, listed for an administrator to review. */
+providerRouter.get('/provider/signature-mismatches', ...requireClinicalRead, async (req, res) => {
+  if (!adminOnly(req, res)) return;
+  const list = await signatureMismatches();
+  audit.read('note_signature', null, { scope: 'signature_mismatches', count: list.rows.length }, 'signature_mismatches');
+  res.json(list);
+});
+
+/** The administrator confirms the signer saw the patient: they become the visit's covering provider. The signature is not touched. */
+providerRouter.post('/provider/visits/:id/confirm-covering', ...requireClinicalRead, async (req, res) => {
+  if (!adminOnly(req, res)) return;
+  try {
+    const r = await staffTransaction((tx, rec) => confirmSignerAsCovering(tx, rec, { bookingId: id(req) }));
+    res.json({ changed: r.changed });
+  } catch (err) { if (!sendKnownError(res, err)) throw err; }
+});
+
 // ---- the workspace -------------------------------------------------------------------------------------
 
 providerRouter.get('/provider/visits/:id/documentation', ...requireClinicalRead, async (req, res) => {
@@ -134,6 +162,7 @@ providerRouter.get('/provider/visits/:id/documentation', ...requireClinicalRead,
   const ws = await loadWorkspace({
     bookingId: id(req), role, ownStaffId: req.auth!.account.staffId, ownAccountId: req.auth!.account.id,
     canAddend: providerRolesOf(req.auth!.account.roles).length > 0,
+    isAdmin: req.auth!.account.roles.includes('ADMIN'),
   });
   if (!ws) return res.status(404).json({ error: 'Unknown appointment.', code: 'not_found' });
 
@@ -226,7 +255,7 @@ providerRouter.post('/provider/visits/:id/scribe/sessions/:sid/upload', ...requi
   if (!role) return;
   try {
     assertScribeAvailable();
-    await assertRoleForBooking(id(req), role);
+    await assertMayWriteForBooking(id(req), role, req.auth!.account.id);
     res.json(await uploadTargetFor(sid(req), id(req)));
   } catch (err) { if (!sendKnownError(res, err)) throw err; }
 });
@@ -238,7 +267,7 @@ providerRouter.post('/provider/visits/:id/scribe/sessions/:sid/finish', ...requi
   if (!role) return;
   try {
     assertScribeAvailable();
-    await assertRoleForBooking(id(req), role);
+    await assertMayWriteForBooking(id(req), role, req.auth!.account.id);
     const r = await finishSession({ sessionId: sid(req), bookingId: id(req), accountId: req.auth!.account.id, roles: req.auth!.account.roles, bytes: parsed.data.bytes });
     res.status(202).json({ session: { id: r.session.id, status: r.session.status }, queued: r.queued });
   } catch (err) { if (!sendKnownError(res, err)) throw err; }
@@ -287,7 +316,7 @@ providerRouter.post('/provider/visits/:id/scribe/sessions/:sid/retry', ...requir
   if (!role) return;
   try {
     assertScribeAvailable();
-    await assertRoleForBooking(id(req), role);
+    await assertMayWriteForBooking(id(req), role, req.auth!.account.id);
     const s = await retrySession({ sessionId: sid(req), bookingId: id(req), accountId: req.auth!.account.id, roles: req.auth!.account.roles });
     res.status(202).json({ session: { id: s.id, status: s.status } });
   } catch (err) { if (!sendKnownError(res, err)) throw err; }
@@ -299,7 +328,7 @@ providerRouter.post('/provider/visits/:id/scribe/sessions/:sid/discard', ...requ
   const role = writeRole(req, res, parsed.data.role);
   if (!role) return;
   try {
-    await assertRoleForBooking(id(req), role);
+    await assertMayWriteForBooking(id(req), role, req.auth!.account.id);
     const s = await discardSession({ sessionId: sid(req), bookingId: id(req) });
     res.json({ session: { id: s.id, status: s.status } });
   } catch (err) { if (!sendKnownError(res, err)) throw err; }

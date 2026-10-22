@@ -58,18 +58,20 @@ model User {
 }
 
 model Staff {
-  id         String          @id @default(uuid())
-  name       String
-  role       StaffRole
+  id                String          @id @default(uuid())
+  name              String
+  role              StaffRole
   /// Soft delete. A departed provider must keep their historical bookings and
   /// authored clinical notes, so rows are deactivated, never removed.
   /// Inactive staff are excluded from availability.
-  active     Boolean         @default(true)
-  schedules  StaffSchedule[]
-  bookings   Booking[]
-  visitNotes VisitNote[]
-  services   ServiceStaff[]
-  account    Account?
+  active            Boolean         @default(true)
+  schedules         StaffSchedule[]
+  bookings          Booking[]
+  visitNotes        VisitNote[]
+  services          ServiceStaff[]
+  account           Account?
+  /// Visits this person rendered as the covering provider (Encounter.coveringStaffId).
+  coveredEncounters Encounter[]     @relation("EncounterCoveringStaff")
 
   @@index([role])
 }
@@ -523,15 +525,21 @@ model Encounter {
   /// visit is checked in, the walk-in included, gets it. The note's status is derived from this and the NoteSignature
   /// (lib/noteStatus.ts) and is independent of `status`: a visit can be CHECKED_OUT with its note still pending.
   noteRequired    Boolean         @default(false)
+  /// The RENDERING provider when it is not the scheduled one (rev 2.1): a covering doctor set by the front desk after check-in,
+  /// or confirmed by an admin from a note's signer. The visit's provider is this, else Booking.staffId (lib/visitProvider.ts);
+  /// only they may write and sign its note, and check-out records them. The booking — and so the scheduling engine — is not changed.
+  coveringStaffId String?
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
   /// Soft delete — clinical records are never hard-deleted.
   deletedAt       DateTime?
 
-  booking      Booking       @relation(fields: [bookingId], references: [id])
-  revenueEvent RevenueEvent?
+  booking       Booking       @relation(fields: [bookingId], references: [id])
+  revenueEvent  RevenueEvent?
+  coveringStaff Staff?        @relation("EncounterCoveringStaff", fields: [coveringStaffId], references: [id], onDelete: Restrict)
 
   @@index([status, checkedInAt])
+  @@index([coveringStaffId])
 }
 
 enum IntegrationKind {
@@ -906,8 +914,8 @@ model RevenueEvent {
   discountCategory String?
   /// The member's tier at the time (code): set for a member event and for a discounted cash one.
   planCode         String?
-  /// The provider the visit was booked with at check-out (a snapshot, for the Accounting provider filter).
-  /// Null for a room-only service with no provider assigned.
+  /// The visit's provider at check-out (a snapshot, for the Accounting provider filter): since rev 2.1 the covering provider when
+  /// one saw the patient, else the one the visit was booked with. Null for a room-only service with no provider assigned.
   staffId          String?
   occurredAt       DateTime
   recordedById     String

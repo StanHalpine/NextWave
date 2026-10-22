@@ -166,6 +166,13 @@ services were seeded long ago and the seed skips them — that is the point. No 
       only that row, and only while it still says 3:
       `UPDATE "Service" SET "priceNote" = 'Full-dose 10 minute session — 2 credits' WHERE "slug" = 'red-light-therapy' AND "priceNote" = 'Full-dose 10 minute session — 3 credits';`
       It should report `UPDATE 1`. Then open the public booking page at `/?service=red-light-therapy` and read the note under the service name.
+- [ ] **Only the visit's provider signs** *(rev 2.1)*. Signed in as a different chiropractor, open another chiropractor's checked-in visit: it is read-only and
+      names its provider. On the Front Desk card's dialog, **Change provider…** to that colleague (the dialog lists anything else they have at that time): the card
+      reads "X (covering for Y)", the visit moves to X's Unsigned notes, X can sign and Y cannot. Before check-in the dialog sends you to **Move…**.
+- [ ] **Notes signed under the old rule** *(rev 2.1)*. **Admin → Notes signed by another provider** lists them (Ben Aflax's visit should be there). For each: if the
+      signer saw the patient, **Confirm as covering provider**; otherwise leave it, and the visit's provider can add an addendum. To count them in the SQL editor
+      (read only): `SELECT count(*) FROM "NoteSignature" s JOIN "Booking" b ON b.id = s."bookingId" LEFT JOIN "Encounter" e ON e."bookingId" = b.id WHERE COALESCE(e."coveringStaffId", b."staffId") <> s."signedByStaffId";` — the same rule as the admin list (a visit with no provider assigned is not counted).
+- [ ] The legacy grid (`/dashboard.html`) no longer offers **Add note**; it links to the Provider workspace.
 - [ ] **Editing your own roles** (Admin → Accounts) keeps you signed in and refreshes your roles in place; anyone else's sign-ins end at once.
 - [ ] **Enrolling that test membership billed its first month's dues.** Accounting → any view: under the service table there is a separate
       **Membership dues (billed)** table with one month at the tier's price, **not** added into the service totals above it.

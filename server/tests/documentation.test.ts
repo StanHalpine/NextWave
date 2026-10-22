@@ -28,7 +28,7 @@ describe('access to the workspace', () => {
 
   it('lets an administrator READ but not write: the workspace loads, every write is refused as read-only', async () => {
     const p = await providerLogin('PROVIDER_CHIRO');
-    const v = await visit({});
+    const v = await visit({ staffId: p.staff.id });
     await saveSoap(p, v.booking.id);
     const admin = await adminLogin();
     const ws = await admin.agent.get(URL.ws(v.booking.id));
@@ -59,7 +59,7 @@ describe('access to the workspace', () => {
   it('lets any provider READ a visit but only the booked role write it', async () => {
     const owner = await providerLogin('PROVIDER_CHIRO');
     const other = await providerLogin('PROVIDER_NP');
-    const v = await visit({ staffRole: 'CHIROPRACTOR' });
+    const v = await visit({ staffId: owner.staff.id });
     await saveSoap(owner, v.booking.id);
 
     const ws = (await other.agent.get(URL.ws(v.booking.id))).body;
@@ -162,7 +162,7 @@ describe('MFA gates the workspace', () => {
 describe('the working draft', () => {
   it('is created by the first save, then needs the version it read; a stale save is refused and changes nothing', async () => {
     const p = await providerLogin('PROVIDER_CHIRO');
-    const v = await visit({});
+    const v = await visit({ staffId: p.staff.id });
     const first = await put(p, URL.draft(v.booking.id), { subjective: 'one' });
     expect(first.status).toBe(200);
     expect(first.body.version).toBe(1);
@@ -182,7 +182,7 @@ describe('the working draft', () => {
 
   it('saves only the fields it is sent, leaving the rest as they were', async () => {
     const p = await providerLogin('PROVIDER_CHIRO');
-    const v = await visit({});
+    const v = await visit({ staffId: p.staff.id });
     const v1 = await saveSoap(p, v.booking.id);
     await put(p, URL.draft(v.booking.id), { version: v1, assessment: 'changed' });
     expect(await prisma.documentationDraft.findUniqueOrThrow({ where: { bookingId: v.booking.id } })).toMatchObject({ subjective: SOAP.subjective, assessment: 'changed', plan: SOAP.plan });
@@ -190,8 +190,8 @@ describe('the working draft', () => {
 
   it('is shaped by the service: a SOAP service takes four sections, a session log takes a duration and notes', async () => {
     const p = await providerLogin('PROVIDER_CHIRO');
-    const soap = await visit({ doc: 'SOAP' });
-    const log = await visit({ doc: 'SESSION_LOG' });
+    const soap = await visit({ staffId: p.staff.id, doc: 'SOAP' });
+    const log = await visit({ staffId: p.staff.id, doc: 'SESSION_LOG' });
     for (const bad of [{ notes: 'x' }, { durationMin: 20 }]) {
       const r = await put(p, URL.draft(soap.booking.id), bad);
       expect([r.status, r.body.code], JSON.stringify(bad)).toEqual([400, 'wrong_fields']);
@@ -205,8 +205,8 @@ describe('the working draft', () => {
 
   it('validates what it is sent: unknown fields, oversize text, a duration out of range', async () => {
     const p = await providerLogin('PROVIDER_CHIRO');
-    const soap = await visit({ doc: 'SOAP' });
-    const log = await visit({ doc: 'SESSION_LOG' });
+    const soap = await visit({ staffId: p.staff.id, doc: 'SOAP' });
+    const log = await visit({ staffId: p.staff.id, doc: 'SESSION_LOG' });
     expect((await put(p, URL.draft(soap.booking.id), { subjective: 'x'.repeat(20001) })).status).toBe(400);
     expect((await put(p, URL.draft(soap.booking.id), { subjective: 'ok', extra: 1 })).status).toBe(400);
     for (const d of [0, -5, 1441, 12.5, '20']) expect((await put(p, URL.draft(log.booking.id), { durationMin: d })).status, String(d)).toBe(400);
@@ -216,40 +216,40 @@ describe('the working draft', () => {
   it('can only be written for a patient who has been checked in, on a confirmed appointment', async () => {
     const p = await providerLogin('PROVIDER_CHIRO');
     for (const encounter of ['SCHEDULED', 'NO_SHOW', null] as const) {
-      const v = await visit({ encounter });
+      const v = await visit({ staffId: p.staff.id, encounter });
       const r = await put(p, URL.draft(v.booking.id), SOAP);
       expect([r.status, r.body.code], String(encounter)).toEqual([409, 'not_checked_in']);
     }
-    const pending = await visit({ bookingStatus: 'PENDING_REVIEW' });
+    const pending = await visit({ staffId: p.staff.id, bookingStatus: 'PENDING_REVIEW' });
     expect((await put(p, URL.draft(pending.booking.id), SOAP)).body.code).toBe('not_confirmed');
     expect((await put(p, URL.draft('no-such-booking'), SOAP)).status).toBe(404);
     for (const encounter of ['CHECKED_IN', 'IN_PROGRESS', 'SEEN', 'CHECKED_OUT'] as const) {
-      const v = await visit({ encounter });
+      const v = await visit({ staffId: p.staff.id, encounter });
       expect((await put(p, URL.draft(v.booking.id), SOAP)).status, encounter).toBe(200);
     }
   });
 
   it('moves the visit to IN_PROGRESS on first work, recording who started it — and the start call is idempotent', async () => {
     const p = await providerLogin('PROVIDER_CHIRO');
-    const a = await visit({});
+    const a = await visit({ staffId: p.staff.id });
     expect((await put(p, URL.draft(a.booking.id), SOAP)).status).toBe(200);
     expect(await prisma.encounter.findUniqueOrThrow({ where: { bookingId: a.booking.id } })).toMatchObject({ status: 'IN_PROGRESS', startedById: p.accountId });
     expect((await prisma.encounter.findUniqueOrThrow({ where: { bookingId: a.booking.id } })).startedAt).not.toBeNull();
 
-    const b = await visit({});
+    const b = await visit({ staffId: p.staff.id });
     const first = await post(p, URL.start(b.booking.id));
     const startedAt = (await prisma.encounter.findUniqueOrThrow({ where: { bookingId: b.booking.id } })).startedAt;
     const again = await post(p, URL.start(b.booking.id));
     expect([first.body.status, again.body.status]).toEqual(['IN_PROGRESS', 'IN_PROGRESS']);
     expect((await prisma.encounter.findUniqueOrThrow({ where: { bookingId: b.booking.id } })).startedAt).toEqual(startedAt);   // not restarted
 
-    const done = await visit({ encounter: 'SEEN' });
+    const done = await visit({ staffId: p.staff.id, encounter: 'SEEN' });
     expect((await post(p, URL.start(done.booking.id))).body.status).toBe('SEEN');                                              // never moved backwards
   });
 
   it('audits every save with the field NAMES touched and never the text', async () => {
     const p = await providerLogin('PROVIDER_CHIRO');
-    const v = await visit({});
+    const v = await visit({ staffId: p.staff.id });
     const v1 = await saveSoap(p, v.booking.id, { subjective: 'SECRET-PHRASE-AAA' });
     await put(p, URL.draft(v.booking.id), { version: v1, plan: 'SECRET-PHRASE-BBB' });
     const rows = await auditRows({ resourceType: 'clinical_draft', actorAccountId: p.accountId }, 2);
@@ -262,7 +262,7 @@ describe('the working draft', () => {
 describe('signing a SOAP note', () => {
   it('turns the draft into four attributed notes, a signature, a SEEN visit — and removes the draft', async () => {
     const p = await providerLogin('PROVIDER_NP');
-    const v = await visit({ staffRole: 'NURSE_PRACTITIONER' });
+    const v = await visit({ staffId: p.staff.id, staffRole: 'NURSE_PRACTITIONER' });
     const version = await saveSoap(p, v.booking.id);
 
     const r = await post(p, URL.sign(v.booking.id), { version });
@@ -289,7 +289,7 @@ describe('signing a SOAP note', () => {
 
   it('records the provider role USED when one person holds several hats', async () => {
     const p = await providerLogin('PROVIDER_NURSE', ['ADMIN', 'FRONT_DESK']);
-    const v = await visit({ staffRole: 'REGISTERED_NURSE' });
+    const v = await visit({ staffId: p.staff.id, staffRole: 'REGISTERED_NURSE' });
     const version = await saveSoap(p, v.booking.id);
     expect((await post(p, URL.sign(v.booking.id), { version, role: 'PROVIDER_NURSE' })).status).toBe(201);
     expect((await prisma.noteSignature.findUniqueOrThrow({ where: { bookingId: v.booking.id } })).signedRole).toBe('PROVIDER_NURSE');
@@ -297,7 +297,7 @@ describe('signing a SOAP note', () => {
 
   it('refuses an incomplete note, naming the missing sections, and signs nothing', async () => {
     const p = await providerLogin('PROVIDER_CHIRO');
-    const v = await visit({});
+    const v = await visit({ staffId: p.staff.id });
     const version = await saveSoap(p, v.booking.id, { objective: '   ', plan: '' });
     const r = await post(p, URL.sign(v.booking.id), { version });
     expect(r.status).toBe(409);
@@ -309,7 +309,7 @@ describe('signing a SOAP note', () => {
 
   it('refuses when there is no draft, and when the draft changed since the provider read it', async () => {
     const p = await providerLogin('PROVIDER_CHIRO');
-    const v = await visit({});
+    const v = await visit({ staffId: p.staff.id });
     expect((await post(p, URL.sign(v.booking.id), { version: 1 })).body.code).toBe('no_draft');
     const version = await saveSoap(p, v.booking.id);
     await put(p, URL.draft(v.booking.id), { version, plan: 'edited elsewhere' });
@@ -328,7 +328,7 @@ describe('signing a SOAP note', () => {
 
   it('can be done once: a second sign, and any later draft save, are refused', async () => {
     const p = await providerLogin('PROVIDER_CHIRO');
-    const v = await visit({});
+    const v = await visit({ staffId: p.staff.id });
     const version = await saveSoap(p, v.booking.id);
     expect((await post(p, URL.sign(v.booking.id), { version })).status).toBe(201);
     expect((await post(p, URL.sign(v.booking.id), { version })).body.code).toBe('already_signed');
@@ -338,7 +338,7 @@ describe('signing a SOAP note', () => {
 
   it('works for a visit the patient has already been checked out of (late documentation)', async () => {
     const p = await providerLogin('PROVIDER_CHIRO');
-    const v = await visit({ encounter: 'CHECKED_OUT' });
+    const v = await visit({ staffId: p.staff.id, encounter: 'CHECKED_OUT' });
     const version = await saveSoap(p, v.booking.id);
     expect((await post(p, URL.sign(v.booking.id), { version })).status).toBe(201);
     expect((await prisma.encounter.findUniqueOrThrow({ where: { bookingId: v.booking.id } })).status).toBe('CHECKED_OUT');   // not pulled back to SEEN
@@ -346,7 +346,7 @@ describe('signing a SOAP note', () => {
 
   it('refuses to sign text left over from the demonstration scribe', async () => {
     const p = await providerLogin('PROVIDER_CHIRO');
-    const v = await visit({});
+    const v = await visit({ staffId: p.staff.id });
     const version = await saveSoap(p, v.booking.id, { assessment: '[DEMO DRAFT] Low back stiffness.' });
     const r = await post(p, URL.sign(v.booking.id), { version });
     expect([r.status, r.body.code]).toEqual([409, 'demo_text_present']);
@@ -355,7 +355,7 @@ describe('signing a SOAP note', () => {
 
   it('audits each record it creates and the draft it removes, without the text', async () => {
     const p = await providerLogin('PROVIDER_CHIRO');
-    const v = await visit({});
+    const v = await visit({ staffId: p.staff.id });
     const version = await saveSoap(p, v.booking.id, { subjective: 'SIGNED-SECRET-QQQ' });
     await post(p, URL.sign(v.booking.id), { version });
     const notes = await notesOf(v.booking.id);
@@ -371,7 +371,7 @@ describe('signing a SOAP note', () => {
 describe('signing a session log', () => {
   it('needs the duration and the notes, and records both as one note carrying the duration', async () => {
     const p = await providerLogin('PROVIDER_NURSE');
-    const v = await visit({ doc: 'SESSION_LOG', staffRole: 'REGISTERED_NURSE' });
+    const v = await visit({ staffId: p.staff.id, doc: 'SESSION_LOG', staffRole: 'REGISTERED_NURSE' });
     const a = await put(p, URL.draft(v.booking.id), { notes: 'Session tolerated well.' });
     const noDuration = await post(p, URL.sign(v.booking.id), { version: a.body.version });
     expect([noDuration.status, noDuration.body.code, noDuration.body.missing]).toEqual([409, 'incomplete', ['durationMin']]);
@@ -390,7 +390,7 @@ describe('signing a session log', () => {
 describe('amending after signing (the existing model, unchanged)', () => {
   async function signed(doc: 'SOAP' | 'SESSION_LOG' = 'SOAP') {
     const p = await providerLogin('PROVIDER_CHIRO');
-    const v = await visit({ doc });
+    const v = await visit({ staffId: p.staff.id, doc });
     if (doc === 'SOAP') {
       await post(p, URL.sign(v.booking.id), { version: await saveSoap(p, v.booking.id) });
     } else {
@@ -461,7 +461,7 @@ describe('amending after signing (the existing model, unchanged)', () => {
 describe('a signed record cannot be rewritten at the database', () => {
   it('rejects UPDATE, DELETE and TRUNCATE on VisitNote and NoteSignature', async () => {
     const p = await providerLogin('PROVIDER_CHIRO');
-    const v = await visit({});
+    const v = await visit({ staffId: p.staff.id });
     await post(p, URL.sign(v.booking.id), { version: await saveSoap(p, v.booking.id) });
     const n = (await notesOf(v.booking.id))[0]!;
     await expect(exec(`UPDATE "VisitNote" SET "body" = 'rewritten' WHERE "id" = '${n.id}'`)).rejects.toThrow(/append-only/);
@@ -492,7 +492,7 @@ describe('a signed record cannot be rewritten at the database', () => {
 describe('races', () => {
   it('signing twice at once signs once: one 201, one 409, four notes, one signature', async () => {
     const p = await providerLogin('PROVIDER_CHIRO');
-    const v = await visit({});
+    const v = await visit({ staffId: p.staff.id });
     const version = await saveSoap(p, v.booking.id);
     const results = await Promise.all([post(p, URL.sign(v.booking.id), { version }), post(p, URL.sign(v.booking.id), { version }), post(p, URL.sign(v.booking.id), { version })]);
     expect(results.map((r) => r.status).sort()).toEqual([201, 409, 409]);
@@ -504,7 +504,7 @@ describe('races', () => {
   it('saving while signing never leaves a stray draft or an unsigned edit in a signed note: what is signed is what was saved', async () => {
     for (let i = 0; i < 4; i++) {
       const p = await providerLogin('PROVIDER_CHIRO');
-      const v = await visit({});
+      const v = await visit({ staffId: p.staff.id });
       const version = await saveSoap(p, v.booking.id);
       const [save, sign] = await Promise.all([put(p, URL.draft(v.booking.id), { version, plan: 'RACED EDIT' }), post(p, URL.sign(v.booking.id), { version })]);
       const notes = await notesOf(v.booking.id);
@@ -526,7 +526,7 @@ describe('races', () => {
 
   it('two tabs saving the same version: exactly one wins', async () => {
     const p = await providerLogin('PROVIDER_CHIRO');
-    const v = await visit({});
+    const v = await visit({ staffId: p.staff.id });
     const version = await saveSoap(p, v.booking.id);
     const rs = await Promise.all([1, 2, 3, 4].map((i) => put(p, URL.draft(v.booking.id), { version, plan: `tab ${i}` })));
     expect(rs.map((r) => r.status).sort()).toEqual([200, 409, 409, 409]);
@@ -542,7 +542,7 @@ describe('the workspace read', () => {
     await saveSoap(p, v.booking.id);
     const ws = (await p.agent.get(URL.ws(v.booking.id))).body;
     expect(ws.booking).toMatchObject({ id: v.booking.id, patientNote: 'Knee surgery in March', patient: { id: patient.id, name: 'Ingrid Holloway' }, provider: { id: p.staff.id }, service: { documentationType: 'SOAP' } });
-    expect(ws.access).toEqual({ canWrite: true, role: 'PROVIDER_CHIRO', signsAs: p.staff.name, readOnlyReason: null, canAddend: true });
+    expect(ws.access).toEqual({ canWrite: true, role: 'PROVIDER_CHIRO', signsAs: p.staff.name, readOnlyReason: null, canAddend: true, canConfirmCovering: false });
     expect(ws.encounter.status).toBe('IN_PROGRESS');
     expect(ws.documentation).toEqual({ status: 'DRAFT', type: 'SOAP' });
     expect(ws.draft).toMatchObject({ version: 1, subjective: SOAP.subjective, aiDrafted: false });
@@ -553,7 +553,7 @@ describe('the workspace read', () => {
 
   it('shows a signed visit: the notes, who signed, in what role, and no draft', async () => {
     const p = await providerLogin('PROVIDER_CHIRO');
-    const v = await visit({});
+    const v = await visit({ staffId: p.staff.id });
     await post(p, URL.sign(v.booking.id), { version: await saveSoap(p, v.booking.id) });
     const ws = (await p.agent.get(URL.ws(v.booking.id))).body;
     expect(ws.documentation.status).toBe('SIGNED');
@@ -571,8 +571,8 @@ describe('the workspace read', () => {
 
   it('audits the read — the visit, its draft and its notes — and the patient history read of note text', async () => {
     const p = await providerLogin('PROVIDER_CHIRO');
-    const v = await visit({});
-    const signedV = await visit({});
+    const v = await visit({ staffId: p.staff.id });
+    const signedV = await visit({ staffId: p.staff.id });
     await saveSoap(p, v.booking.id);
     await post(p, URL.sign(signedV.booking.id), { version: await saveSoap(p, signedV.booking.id) });
     await p.agent.get(URL.ws(v.booking.id));
@@ -596,7 +596,7 @@ describe('what the front desk sees as a visit is documented', () => {
   it('moves from nothing, to a draft, to signed — the status only', async () => {
     const fd = await frontDeskLogin();
     const p = await providerLogin('PROVIDER_CHIRO');
-    const v = await visit({});
+    const v = await visit({ staffId: p.staff.id });
     const status = async () => {
       const d = (await fd.agent.get('/api/fd/dashboard?date=2026-10-13')).body;
       return [...d.checkedIn, ...d.done].find((a: any) => a.id === v.booking.id).documentation.status;

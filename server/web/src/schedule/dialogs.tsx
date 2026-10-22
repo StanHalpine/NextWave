@@ -10,6 +10,8 @@ import { CheckoutDialog } from './CheckoutDialog';
 import { DeskActions } from './DeskActions';
 import { PatientLedger } from '../patients/Ledger';
 import { visitStateLabel, type DeskVerb } from '../frontdesk';
+import { ChangeProviderDialog } from './ChangeProviderDialog';
+import { providerLine } from '../coveringProvider';
 
 interface SlotsResponse { date: string; durationMin: number; closedReason: string | null; slots: SlotLite[]; staff: Array<{ id: string; name: string }> }
 
@@ -353,7 +355,7 @@ export function AppointmentDialog({ id, today, desk = false, onClose, onChanged 
   const [d, setD] = useState<Detail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [sub, setSub] = useState<null | 'move' | 'cancel' | 'link' | 'checkout' | 'ledger'>(null);
+  const [sub, setSub] = useState<null | 'move' | 'cancel' | 'link' | 'checkout' | 'ledger' | 'provider'>(null);
   const [ledgerCheckout, setLedgerCheckout] = useState<Appt | null>(null);
 
   const load = useCallback(() => api<Detail>(`/api/schedule/appointments/${id}`).then((r) => { setD(r); setError(null); }).catch((e) => setError(errorText(e))), [id]);
@@ -375,6 +377,7 @@ export function AppointmentDialog({ id, today, desk = false, onClose, onChanged 
   if (sub === 'cancel' && a) return <CancelDialog appt={a} onClose={() => setSub(null)} onCancelled={() => { setSub(null); changed(); }} />;
   if (sub === 'link' && a) return <LinkPatientDialog appt={a} onClose={() => setSub(null)} onLinked={() => { setSub(null); changed(); }} />;
   if (sub === 'checkout' && a) return <CheckoutDialog appt={a} onClose={() => setSub(null)} onDone={changed} />;
+  if (sub === 'provider' && a) return <ChangeProviderDialog appt={a} onClose={() => setSub(null)} onChanged={changed} onMove={() => setSub('move')} />;
   // The patient's ledger, from this visit's dialog: the same view as the profile's Ledger tab. A check-out started from it replaces it (never
   // two dialogs on top of each other) and returns to it when closed, showing what was just recorded.
   if (sub === 'ledger' && a?.patient.id) {
@@ -407,7 +410,7 @@ export function AppointmentDialog({ id, today, desk = false, onClose, onChanged 
               {a.patient.id ? <Link to={`/front-desk/patients/${a.patient.id}`} onClick={onClose}>{a.patient.name}</Link> : a.patient.name}
               {!a.patient.linked && <> <span className="pill warn">not linked to a record</span></>}
             </dd>
-            <dt>Provider</dt><dd>{a.staff?.name ?? '—'}</dd>
+            <dt>Provider</dt><dd>{a.staff || a.covering ? providerLine(a) : '—'}</dd>
             <dt>Room</dt><dd>{a.resource.name}</dd>
             {a.note && (<><dt>Note</dt><dd><NotePill note={a.note} doc={a.documentation.status} />
               {a.note === 'PENDING' && <span className="muted small"> · check-out does not wait for it; the provider signs it from their Unsigned notes list</span>}</dd></>)}
@@ -443,6 +446,9 @@ export function AppointmentDialog({ id, today, desk = false, onClose, onChanged 
               <button className="btn" disabled={busy} onClick={() => setSub('move')}>Move…</button>
               <button className="btn" disabled={busy} onClick={() => setSub('cancel')}>Cancel…</button>
             </>)}
+            {desk && a.status === 'CONFIRMED' && a.note !== 'SIGNED' && a.encounter?.status !== 'NO_SHOW' && (
+              <button className="btn small" disabled={busy} onClick={() => setSub('provider')}>Change provider…</button>
+            )}
             {desk && a.patient.linked && a.patient.id && <button className="btn small" disabled={busy} onClick={() => setSub('ledger')}>Ledger…</button>}
             {!desk && !a.patient.linked && a.status !== 'CANCELLED' && <button className="btn" disabled={busy} onClick={() => setSub('link')}>Link patient…</button>}
             {!desk && started && <button className="btn" onClick={() => { onClose(); nav('/front-desk'); }}>Open on Front Desk</button>}

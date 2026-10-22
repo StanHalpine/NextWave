@@ -56,7 +56,8 @@ describe('role filtering', () => {
     const none = await visit({ staffRole: null });
     const rows = (await p.agent.get(URL.queue())).body.rows as any[];
     expect(rows.find((r) => r.bookingId === mine.booking.id)).toMatchObject({ isMine: true, unassigned: false, mayDocument: true });
-    expect(rows.find((r) => r.bookingId === colleague.booking.id)).toMatchObject({ isMine: false, unassigned: false, mayDocument: true });
+    // Rev 2.1 (was mayDocument: true under the role rule): a colleague's visit, same role, is theirs to write — read-only to everyone else.
+    expect(rows.find((r) => r.bookingId === colleague.booking.id)).toMatchObject({ isMine: false, unassigned: false, mayDocument: false });
     expect(rows.find((r) => r.bookingId === none.booking.id)).toMatchObject({ isMine: false, unassigned: true, mayDocument: true });
   });
 });

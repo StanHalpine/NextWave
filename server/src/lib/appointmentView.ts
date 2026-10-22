@@ -11,7 +11,12 @@ export const APPT_INCLUDE = {
   resource: { select: { id: true, name: true } },
   user: { select: { name: true } },
   patient: { select: { id: true, firstName: true, lastName: true, preferredName: true, smsOptIn: true } },
-  encounter: { select: { id: true, status: true, checkedInAt: true, seenAt: true, checkedOutAt: true, noShowAt: true, noteRequired: true } },
+  encounter: {
+    select: {
+      id: true, status: true, checkedInAt: true, seenAt: true, checkedOutAt: true, noShowAt: true, noteRequired: true,
+      coveringStaffId: true, coveringStaff: { select: { id: true, name: true } },
+    },
+  },
   // Phase 4: only THAT documentation exists and is signed — never its text. These two selects carry
   // a timestamp and an id; the clinical content is in models this include does not reach.
   noteSignature: { select: { signedAt: true } },
@@ -39,7 +44,10 @@ export function appointmentView(b: ApptRow) {
     bufferMin: b.service.bufferMin,
     service: { id: b.service.id, name: b.service.name, color: colorHexFor(b.service.color), category: b.service.category, documentationType: b.service.documentationType },
     subOption: b.subOption,
+    /** The SCHEDULED provider — the booking's, the calendar column. */
     staff: b.staff,
+    /** Rev 2.1: the covering provider when someone other than the scheduled one is seeing the patient; they are the visit's provider. */
+    covering: b.encounter?.coveringStaff ?? null,
     resource: b.resource,
     // The linked patient when there is one; otherwise the contact the booking was made under.
     patient: {

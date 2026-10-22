@@ -238,9 +238,13 @@ note status every screen shows — *NOT_REQUIRED / PENDING / SIGNED* — is deri
 (`src/lib/noteStatus.ts`). It is independent of the visit's state: check-out is open from CHECKED_IN, IN_PROGRESS or SEEN
 whatever the note says, and only check-out reaches CHECKED_OUT.
 
-**Who may do what.** Front desk: nothing clinical. Provider: read anything, write visits booked with their own
-role. Admin: read only (an admin who also holds a provider role writes as that role). Every clinical route
-needs the authenticator first.
+**Who may do what** (rev 2.1). Front desk: nothing clinical, except naming a visit's covering provider. Provider: read anything;
+write and sign only a visit where they are **the visit's provider** — the covering provider if the desk set one ("Change provider…"
+on the Front Desk dialog, after check-in), else the one it was booked with (`src/lib/visitProvider.ts`, one rule for every write
+path). A visit with no provider assigned can be documented by any provider role. Amend: the signer only. Addendum: any provider.
+Admin: read only (an admin who also holds a provider role is held to the same rule), plus **Admin → Notes signed by another
+provider**, where a note signed under the old role rule can be confirmed as the covering provider's. Every clinical route needs the
+authenticator first. The legacy grid's `POST /api/bookings/:id/notes` no longer writes (410); notes are written in the workspace.
 
 **The scribe never runs on stubs in production.** FileStorage and AiScribe are local stubs until real adapters
 exist; in production, while either is a stub, the scribe switches itself off (`503 scribe_unavailable`, and the

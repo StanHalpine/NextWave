@@ -16,6 +16,7 @@ import AdminMacros from './pages/AdminMacros';
 import Provider from './pages/Provider';
 import Documentation from './pages/Documentation';
 import UnsignedNotes from './pages/UnsignedNotes';
+import SignatureReview from './pages/SignatureReview';
 import FrontDesk from './pages/FrontDesk';
 import Patients from './pages/Patients';
 import PatientProfile from './pages/PatientProfile';
@@ -60,6 +61,7 @@ export default function App() {
           <Route path="/admin/membership" element={<Protected roles={['ADMIN']}><AdminMemberships /></Protected>} />
           <Route path="/admin/macros" element={<Protected roles={['ADMIN']}><AdminMacros /></Protected>} />
           <Route path="/admin/audit" element={<Protected roles={['ADMIN']}><AuditLog /></Protected>} />
+          <Route path="/admin/note-signers" element={<Protected roles={['ADMIN']}><SignatureReview /></Protected>} />
 
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
