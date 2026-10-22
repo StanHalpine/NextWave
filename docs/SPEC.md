@@ -119,7 +119,7 @@ Version 1.9 · 2026-10-22 · Status: **Phases 1–5 approved and built. Ledger p
 > | Kiosk (L4) | **Deferred.** The design is recorded in §0 (proposal) and §7 L4 — device pairing, mobile number + date of birth + a hashed 6-digit PIN, lockout, minimal PHI — **not yet approved** (A-22) |
 > | Audit of a re-read | A record read that a screen repeats on a timer is audited **once per five minutes of viewing per person** (`audit.read` with a `listKey`), not on every refresh — opening the Ledger is always audited |
 > | Open item (A-23) | Whether red light / HBOT-type sessions **keep the signed session-log requirement** before they can be checked out (A-5 says they get a session log; L2 would then require it before check-out). **Pending the owner's confirmation** |
-> | Open item | Red light therapy: the service's price note says *"3 credits"*, its credit cost is **2**. Not changed; the owner decides which is right |
+> | ~~Open item~~ Resolved (rev 2.0) | Red light therapy: the service's price note said *"3 credits"*, its credit cost is **2**. **The owner confirmed 2** (the same as a manual adjustment); the seed's price note and the service page now say 2 credits |
 
 > **Revision 1.8 — member discounts enabled.**
 >
