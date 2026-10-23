@@ -209,7 +209,8 @@ describe('Accounting: the arithmetic', () => {
   it('the identity list = discount + covered + net holds in every row and in the totals', async () => {
     for (const g of ['day', 'month', 'service', 'bucket', 'tier', 'paymentType', 'serviceMonth', 'category', 'provider', 'discountCategory'] as const) {
       const t = await revenueTable({ range: WHOLE }, g);
-      for (const r of [...t.rows, t.totals]) expect(r.listCents, `${g}`).toBe((r.discountCents as number) + (r.coveredCents as number) + (r.netCents as number));
+      // rev 2.2: promotions and adjustments are reductions of their own
+      for (const r of [...t.rows, t.totals]) expect(r.listCents, `${g}`).toBe((r.discountCents as number) + (r.promotionCents as number) + (r.adjustmentCents as number) + (r.coveredCents as number) + (r.netCents as number));
     }
   });
 
@@ -615,7 +616,7 @@ describe('the endpoints', () => {
   it('return the totals row in cents with the column kinds the screen formats by', async () => {
     const r = await get(ctx.admin, `/api/accounting/monthly?from=${WHOLE.from}&to=${WHOLE.to}`);
     expect(r.status).toBe(200);
-    expect(r.body.columns.map((c: { key: string }) => c.key)).toEqual(['month', 'service', 'visits', 'listCents', 'discountCents', 'netCents', 'coveredCents', 'credits']);
+    expect(r.body.columns.map((c: { key: string }) => c.key)).toEqual(['month', 'service', 'visits', 'listCents', 'discountCents', 'promotionCents', 'adjustmentCents', 'netCents', 'coveredCents', 'credits']);
     expect(r.body.columns.find((c: { key: string }) => c.key === 'netCents').kind).toBe('money');
     expect(r.body.totals).toMatchObject({ month: 'Total', ...metrics(sales) });
     expect(r.body.notes.join(' ')).toMatch(/Membership dues are billed when each month's credits are granted and are shown below, separately/);
@@ -656,9 +657,9 @@ describe('the endpoints', () => {
     // Two tables, a blank line apart: service revenue, then the dues billed, each with its own header and totals.
     const [serviceTable, duesTable_] = text.trim().split('\r\n\r\n').map((t) => t.split('\r\n'));
     expect(serviceTable![0]).toBe('Service revenue');
-    expect(serviceTable![1]).toBe('"Who paid, and how",Visits,List price,Discount,Net,Covered by membership,Credits redeemed');
-    expect(serviceTable).toContain(`Member — credits,1,100.00,0.00,0.00,100.00,2`);
-    expect(serviceTable!.at(-1)).toBe(`Total,${sales.length},${dollars(sum(sales, 'list'))},${dollars(sum(sales, 'discount'))},${dollars(sum(sales, 'net'))},${dollars(sum(sales, 'covered'))},${sum(sales, 'credits')}`);
+    expect(serviceTable![1]).toBe('"Who paid, and how",Visits,List price,Discount,Promotions,Adjustments,Net,Covered by membership,Credits redeemed');
+    expect(serviceTable).toContain(`Member — credits,1,100.00,0.00,0.00,0.00,0.00,100.00,2`);
+    expect(serviceTable!.at(-1)).toBe(`Total,${sales.length},${dollars(sum(sales, 'list'))},${dollars(sum(sales, 'discount'))},0.00,0.00,${dollars(sum(sales, 'net'))},${dollars(sum(sales, 'covered'))},${sum(sales, 'credits')}`);
     expect(serviceTable!.some((l) => l.startsWith('All members,'))).toBe(true);
     expect(serviceTable!.some((l) => l.startsWith('Non-members,'))).toBe(true);
     expect(duesTable_![0]).toBe('Membership dues (billed)');
@@ -674,7 +675,23 @@ describe('the endpoints', () => {
     const { booking } = await checkedInVisit(hostile, null);
     await staffTransaction((tx, rec) => checkoutVisit(tx, rec, { bookingId: booking.id, accountId: ctx.accountId, now: CDT('2033-09-05T10:00:00'), payment: 'CASH' }));
     const r = await get(ctx.admin, '/api/accounting/monthly?from=2033-09-01&to=2033-09-30&format=csv');
-    expect(r.text).toContain(`2033-09,"'=HYPERLINK(""http://x.test"",""hi"")",1,50.00,0.00,50.00,0.00,0`);
+    expect(r.text).toContain(`2033-09,"'=HYPERLINK(""http://x.test"",""hi"")",1,50.00,0.00,0.00,0.00,50.00,0.00,0`);
+  });
+
+  it('count a promotion and a desk adjustment in their own columns, never as covered by membership (rev 2.2)', async () => {
+    const clinic = await creditService({ priceCents: 5500, creditCost: 1 });
+    await basePrisma.promotion.create({
+      data: { name: 'Report promo', kind: 'PERCENT', value: 20, startsOn: new Date('2031-01-01T00:00:00Z'), endsOn: new Date('2031-01-31T00:00:00Z'),
+        createdById: 'test', services: { create: [{ serviceId: clinic.service.id }] } },
+    });
+    for (const adjustment of [undefined, { cents: 500, reason: 'COURTESY' as const }]) {
+      const { booking } = await checkedInVisit(clinic, null);
+      await staffTransaction((tx, rec) => checkoutVisit(tx, rec, { bookingId: booking.id, accountId: ctx.accountId, now: CDT('2033-10-05T10:00:00'), payment: 'CASH', adjustment }));
+    }
+    const r = await get(ctx.admin, `/api/accounting/monthly?from=2033-10-01&to=2033-10-31`);
+    const row = r.body.rows.find((x: { service: string }) => x.service === clinic.service.name);
+    // list 2 × 55.00; the promotion 2 × 11.00; the adjustment 5.00; net 44.00 + 39.00; nothing covered
+    expect(row).toMatchObject({ visits: 2, listCents: 11000, discountCents: 0, promotionCents: 2200, adjustmentCents: 500, netCents: 8300, coveredCents: 0 });
   });
 });
 

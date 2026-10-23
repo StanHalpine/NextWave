@@ -50,6 +50,9 @@ export const METRIC_COLUMNS: Column[] = [
   { key: 'visits', label: 'Visits', kind: 'int' },
   { key: 'listCents', label: 'List price', kind: 'money' },
   { key: 'discountCents', label: 'Discount', kind: 'money' },
+  // Rev 2.2: a promotion (instead of the tier discount, never both) and a one-off adjustment are their own reductions.
+  { key: 'promotionCents', label: 'Promotions', kind: 'money' },
+  { key: 'adjustmentCents', label: 'Adjustments', kind: 'money' },
   { key: 'netCents', label: 'Net', kind: 'money' },
   { key: 'coveredCents', label: 'Covered by membership', kind: 'money' },
   { key: 'credits', label: 'Credits redeemed', kind: 'int' },
@@ -120,8 +123,11 @@ export const revenueSql = (f: RevenueFilter, d: Dimension): Prisma.Sql => Prisma
            COUNT(*)::int AS "visits",
            COALESCE(SUM(e."listPriceCents"), 0)::bigint AS "listCents",
            COALESCE(SUM(e."discountCents"), 0)::bigint AS "discountCents",
+           COALESCE(SUM(e."promotionCents"), 0)::bigint AS "promotionCents",
+           COALESCE(SUM(e."adjustmentCents"), 0)::bigint AS "adjustmentCents",
            COALESCE(SUM(e."netPriceCents"), 0)::bigint AS "netCents",
-           COALESCE(SUM(COALESCE(e."listPriceCents", 0) - e."discountCents" - e."netPriceCents"), 0)::bigint AS "coveredCents",
+           -- what the membership covered: whatever is left of the list price after every reduction and the net (only a member visit has any)
+           COALESCE(SUM(COALESCE(e."listPriceCents", 0) - e."discountCents" - e."promotionCents" - e."adjustmentCents" - e."netPriceCents"), 0)::bigint AS "coveredCents",
            COALESCE(SUM(e."creditsRedeemed"), 0)::bigint AS "credits"
     FROM "RevenueEvent" e ${d.join}
     WHERE ${revenueWhere(f)}
