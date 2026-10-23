@@ -1,6 +1,7 @@
-# Phase 2b — the money layer (design only, not approved)
+# Phase 2b — the money layer
 
-Status: **design for review. No code, no migration.** It replaces the L2 and L3 sketches in `docs/SPEC.md` §4.7 / §5.6 / §7, and
+Status: **APPROVED (SPEC rev 2.2), with the owner's decisions in §0 — they override anything below that disagrees.** Built on
+rev 2.1 (note ownership). It replaces the L2 and L3 sketches in `docs/SPEC.md` §4.7 / §5.6 / §7, and
 builds on rev 2.0's decisions: check-out never waits for a note; partial payments are recorded on the date collected and the
 rest carries forward until paid or written off by an admin; admin promotions apply automatically; the front desk may make a
 one-off adjustment with a reason code; a list price is never edited. **Tender types are recorded by hand. No card processing,
@@ -10,6 +11,31 @@ Ground rules carried over from the credit ledger and `RevenueEvent`: **integer c
 `nw_reject_ledger_mutation()` triggers on UPDATE / DELETE / TRUNCATE), **Row Level Security enabled on every new table** (no
 policies; the app is the owner), every write audited in the same transaction (`rec()`), and **nothing that can be derived is
 stored** — above all, no stored balance.
+
+
+## 0. The owner's decisions (Chase, rev 2.2) — these govern
+
+| # | Decision | What it changes below |
+|---|---|---|
+| 1 | **Promotion vs member tier discount: whichever is better for the patient. Never stacked.** Promotions never stack with each other either: the single best one | §4 |
+| 2 | A promotion applies by **the VISIT's clinic date**, not the payment's or the check-out's | §4 |
+| 3 | **Front desk adjustment cap: 20% of the visit's list price or $25.00, whichever is less**, with a required reason code. Anything larger only by an **admin on an MFA-verified session**. Enforced on the server | §4 |
+| 4 | **Overpayment**: the patient chooses — a **refund** (a `Refund` row, with its tender type) or **account credit in dollars**. Account credit is **completely separate from membership credits** (FIFO lots, 90-day expiry): its own table, its own math, its own label (**"Account credit ($)"** vs **"Membership credits"**). The desk chooses to apply it to future charges at check-out; an admin can refund it | §2.3, §2.7 (new) |
+| 5 | **Tender types: Cash, Card, Check, HSA/FSA, Other.** Recorded by hand. No card processing, no card data stored | §2.2 |
+| 6 | **Reversing a payment**: the front desk **on the same clinic day** (America/Chicago) it was collected; after that, **admin only** (MFA). A new row referencing the original, never an edit | §2.4 |
+| 7 | **Everything checked out before 2b goes live counts as paid in full** — see §3 for how | §3 |
+| 8 | **Partial payments** are recorded on the date collected; the remaining balance shows **at the bottom of the Ledger** and carries forward; allocation is **oldest charge first** | §5, §8 |
+| — | **Biomarker testing needs no note** (`requiresNote = false`, migration and seed). Uploading results is a later phase, not 2b | — |
+
+**Not in 2b** (not in the approved scope; the design is kept for later): **write-offs** (`ChargeWriteOff`) and **voids** (`ChargeVoid`).
+A balance therefore carries forward until it is paid; nothing clears it but a payment or account credit.
+
+**As built, two refinements of the original sketch** (both stricter, neither changes a decision):
+- **Idempotency stores the response.** `IdempotencyRecord(key, scope, patientId, requestHash, status, response)`, written in the same
+  transaction as the money it describes; a retry with the same key and body returns the stored response byte for byte.
+- **Promotions are configuration, not a ledger.** `Promotion` / `PromotionService` cannot be deleted, and once a charge has used a
+  promotion its kind, value, dates and scope are frozen **by a database trigger** — only *active* may still change. Every other new
+  table is append-only.
 
 ---
 
@@ -51,7 +77,7 @@ never edited; every reduction is its own column.
 | `id`, `patientId` | |
 | `collectedOn DATE` | **The clinic day the money was collected** (decision 4). Accounting's "collected" is by this date |
 | `receivedAt`, `recordedById` | The instant and the desk login |
-| `tender` | enum `CASH · CHECK · CARD_TERMINAL · OTHER` — `CARD_TERMINAL` means "run on the clinic's own card machine"; the app sees only the amount. `OTHER` needs a note |
+| `tender` | enum **`CASH · CARD · CHECK · HSA_FSA · OTHER`** (decision 5) — a card or an HSA/FSA card is run on the clinic's own terminal; the app sees only the amount. `OTHER` needs a note |
 | `amountCents` | `> 0` |
 | `reference` | Optional (cheque number, terminal receipt number). The server **refuses anything that looks like a card number** (13–19 digits passing Luhn) |
 | `idempotencyKey` | `UNIQUE` (§6) |
@@ -61,16 +87,18 @@ never edited; every reduction is its own column.
 
 `(paymentId, revenueEventId, amountCents > 0)`. A **deferred constraint trigger** (the same pattern as `nw_credit_guard`)
 refuses a commit in which a payment allocates more than its amount, or a charge receives more than its net less its write-offs.
-Allocation is **oldest charge first** (A-21) unless the desk picks specific visits. **Overpayment is refused** in this phase
-(there is no "credit on account" yet — see open question 5), so every payment is fully allocated.
+Allocation is **oldest charge first** (A-21, decision 8). **Overpayment** (decision 4): what is left after the charges are paid goes,
+as the patient chooses, to a **`Refund`** (source `OVERPAYMENT`, its own tender) or to **account credit** (§2.7). A guard checks at
+commit that every payment is accounted for exactly: allocations + its overpayment refund + its account credit = its amount.
 
 ### 2.4 Reversals and write-offs
 
 | Table | What | Who |
 |---|---|---|
-| `PaymentReversal` | Undoes one payment entirely (`paymentId UNIQUE`, reason code, note). Its allocations count as undone; a refund of cash is a reversal | **admin, MFA session** (A-19) |
-| `ChargeWriteOff` | Clears all or part of a charge's outstanding amount (`revenueEventId`, `amountCents > 0`, reason code). Decision 4: "carries forward until paid or **written off by an admin**" | **admin, MFA session** |
-| `ChargeVoid` *(L3, flagged)* | Cancels a charge recorded in error (`revenueEventId UNIQUE`, reason). Credits it redeemed are returned by an `ADJUSTMENT` lot in the credit ledger, in the same transaction | admin, MFA session |
+| `PaymentReversal` | Undoes one payment entirely (`paymentId UNIQUE`, reason code, note, `reversedOn`). Its allocations count as undone, and the account credit it created is taken back (refused if that credit has already been used). A payment whose overpayment was refunded cannot be reversed | **front desk on the payment's own clinic day; admin (MFA) after that** (decision 6) |
+| `Refund` | Money paid back: source `OVERPAYMENT` (at the payment, decision 4) or `ACCOUNT_CREDIT` (an admin refunding a patient's account credit), with its tender | the desk (overpayment, at the payment); **admin, MFA** (account credit) |
+| `ChargeWriteOff` | *Not in 2b.* Clears all or part of a charge's outstanding amount | admin, MFA session |
+| `ChargeVoid` *(L3, not in 2b)* | Cancels a charge recorded in error | admin, MFA session |
 
 A reversal never edits what it reverses; each references its original, and the original stays visible with a "reversed" mark.
 
@@ -92,6 +120,18 @@ and create a new one), so the snapshot on each charge always matches a promotion
 `(id, patientId, idempotencyKey UNIQUE, requestHash, createdById, createdAt)`. Append-only. It groups the charges and the payment
 one combined check-out wrote, and is what makes a retried request return the same answer (§6).
 
+### 2.7 `AccountCreditEntry` — account credit in dollars (decision 4)
+
+Append-only signed rows: `+` **OVERPAYMENT** (from a payment), `−` **APPLIED** (to a charge, at check-out, when the desk chooses), `−`
+**REFUNDED** (an admin refund, with its `Refund` row), `−` **REVERSED** (its payment was reversed). The balance is `Σ delta`, never
+stored; a guard refuses a commit that would take it below zero. **It shares nothing with membership credits** — not a table, not a
+function, not a column, not a label.
+
+### 2.8 `PreTrackingSettlement` — charges from before payments were tracked (decision 7)
+
+One row per visit charge that existed when the migration ran, written **by the migration** (`INSERT … SELECT`). Such a charge counts as
+settled in full. See §3.
+
 ## 3. The balance (derived, never stored)
 
 ```
@@ -103,26 +143,35 @@ Membership **dues are not in it** (A-21; they are billed with the month's credit
 under the patient's row lock when it matters for a write; the same query, unlocked, for the Ledger. Indexes:
 `PaymentAllocation(revenueEventId)`, `Payment(patientId, collectedOn)`, `ChargeWriteOff(revenueEventId)`.
 
-**Charges recorded before 2b goes live** were "paid at the desk" with no record of it. Default: they are **settled by
-definition** — the balance counts charges from the go-live date (`MONEY_LAYER_START`, a config date) onward, and the Ledger
-labels anything older "before payments were tracked". The alternative (treat them as outstanding) would show every staging
-visit as owed. Open question 4.
+**Charges recorded before 2b goes live** were "paid at the desk" with no record of it (decision 7: they count as paid in full). As
+built: the migration writes a **`PreTrackingSettlement`** row for every visit charge that exists at that moment, and
+`outstanding = 0` for a settled charge. Why this and not the two alternatives:
+- **Not a cut-off date in configuration** — a date is only as right as whoever sets it, and a charge written in the minutes between
+  the migration and the new code would fall on the wrong side. The migration knows exactly which charges it found.
+- **Not synthetic `Payment` rows** — they would put invented tenders and amounts into "collected". The settlement says what is true:
+  settled before tracking. Accounting shows it as its own column, so billed − collected for an old month is explained, not missing.
+
+```
+outstanding(charge) = net − Σ allocations of payments not reversed − Σ account credit applied − (pre-tracking ? net : 0)
+balance(patient)    = Σ outstanding(charge)                        account credit(patient) = Σ AccountCreditEntry.delta
+```
 
 ## 4. Promotions and one-off adjustments
 
 **At check-out**, for a visit paid in money, the server (never the browser) finds the active promotions whose scope includes the
 service and whose dates include **the visit's clinic date** (so a check-out done the next morning keeps the week's price), and
 applies the **one** that gives the lowest price (promotions do not stack with each other). A fixed amount is capped at the price.
-Credit- and perk-paid visits are not promoted.
+Credit- and perk-paid visits are not promoted. A percentage rounds like the tier discount (to the cent, halves up).
 
-**Stacking with the tier discount** is the owner's call (open question 1). The default proposed here: the member gets **the
-better of** their tier discount and the promotion, not both — the patient never pays more than either alone would give, and
-the clinic never gives two discounts it did not decide to combine.
+**With the tier discount: the better of the two, never both** (decision 1). The charge records whichever applied — the tier's
+`discountPercent`/`discountCents`, or the promotion's `promotionId`/`promotionCents` — and the other as zero. On a tie the tier
+discount is recorded (the price is the same).
 
 **The desk's one-off adjustment**: per visit, at check-out, a reduction in cents (≤ what is left after discounts) plus a
 **required reason code** (`SERVICE_RECOVERY · PRICE_MATCH · COURTESY · BILLING_ERROR · OTHER`; `OTHER` needs the note). It is
-shown on the check-out screen before confirming, recorded on the charge, audited (code and cents, no note text), and listed in
-**Accounting → Adjustments for review** (§7). An optional cap above which only an admin may adjust is open question 3.
+shown on the check-out screen before confirming, recorded on the charge, audited (the code — no cents, no note text), and listed in
+**Accounting → Review** (§7). **Cap (decision 3): the front desk may adjust up to `min(floor(20% × list), $25.00)`**; above that the
+server refuses it unless the person is an **admin on an MFA-verified session**. Neither may take a visit below zero.
 
 ## 5. Combined check-out with partial payment
 
@@ -152,10 +201,11 @@ One transaction:
    Credits and perks are taken exactly as today.
 4. Write one `RevenueEvent` per visit (with `batchId`), check each visit out (`checkOut()`, still the only writer of
    CHECKED_OUT).
-5. If a payment is given: refuse more than the balance after step 4 (no overpayment); if it is less, require
-   `confirmPartial: true` (A-21) — otherwise 400 `partial_needs_confirmation` and nothing is written. Write the `Payment`
-   (`collectedOn` = today, clinic time) and allocate it **oldest charge first** — so an old carried-forward balance is paid
-   before today's visits unless the desk chose otherwise.
+5. Account credit, if the desk chose to apply some: at most what the patient has and what is due, oldest charge first.
+6. If a payment is given: if it is less than what is still due, require `confirmPartial: true` (decision 8) — otherwise 400
+   `partial_needs_confirmation` and nothing is written; if it is **more**, require the patient's choice for the rest —
+   `overpayment: { as: "REFUND", tender }` or `{ as: "ACCOUNT_CREDIT" }` (decision 4). Write the `Payment` (`collectedOn` = today,
+   clinic time) and allocate it **oldest charge first**, so an old carried-forward balance is paid before today's visits.
 6. Write the `CheckoutBatch`; audit everything; commit. The deferred allocation guard runs at commit.
 
 The single-visit check-out keeps its route and becomes the same code with one visit. A payment **without** a visit — a patient
@@ -186,8 +236,9 @@ state the person did not see.
 | **Written off** | `ChargeWriteOff.amountCents` | write-off date |
 | **Outstanding** at the end of the range | derived (§3) | — |
 
-Added to *Daily* and *Monthly*, plus two views: **Receivables** (outstanding by age: 0–30, 31–60, 61–90, 90+ days; counts and
-sums) and **Adjustments for review** (each adjustment and write-off: date, service, amount, reason, who). Accounting's rule is
+As built in 2b: a **Billed vs collected** view (by day or month: billed, promotions, adjustments, collected = payments − reversals −
+refunds each on its own date, settled before tracking) and a **Review** list for admins (each desk/admin adjustment, payment reversal and
+refund: date, kind, service, amount, reason, who). Receivables by age is not in 2b. Accounting's rule is
 aggregates only — **no patient is named** — so the review list shows no patient; the admin opens the visit from its row, which
 is audited as a record read (open question 6). Dues stay their own table, billed only. CSV export as today.
 
@@ -241,7 +292,7 @@ both ends of the clinic day and across the 2026-11-01 fall-back; promotion vs ti
 promotion; card-number-shaped references refused; Accounting by `collectedOn` across a Chicago midnight; RLS on every new table;
 a reversed payment reopens exactly what it paid.
 
-## 10. Open questions for the owner
+## 10. Open questions for the owner *(answered — see §0; kept for the record)*
 
 1. **Promotion and tier discount together?** Default: the better of the two, not both.
 2. **Which date decides a promotion** — the visit's (default) or the check-out's?

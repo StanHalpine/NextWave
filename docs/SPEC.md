@@ -1,6 +1,6 @@
 # NextWave Wellness — Clinic System Specification
 
-Version 2.1 · 2026-10-23 · Status: **Phases 1–5 approved and built. Ledger phase L1 (the patient Ledger, read only) approved and built. Phase 2a (documentation decoupled from check-out: per-service note requirement, note status apart from visit state, the Unsigned notes worklist) built — revision 2.0. Note ownership by person and the covering provider built — revision 2.1 below. Phase 2b (the money layer: payments, balance, promotions, adjustments) is a design only, `docs/MONEY_LAYER_DESIGN.md`; it and L4 (kiosk) are NOT approved.** Member discounts are enabled (Prevent 10% · Restore 15% · Optimize 20%; rev 1.8); perks stay off. `docs/STAGING_CHECKLIST.md` lists everything that needs a real environment. Nothing is merged to `main` or deployed from this branch.
+Version 2.2 · 2026-10-23 · Status: **Phases 1–5, L1, 2a and rev 2.1 approved and built. Phase 2b (the money layer: payments, the derived balance, combined check-out with partial payment, account credit, refunds, reversals, promotions, desk adjustments, billed vs collected) APPROVED with the owner's decisions in revision 2.2 below — design `docs/MONEY_LAYER_DESIGN.md`. L4 (kiosk) is NOT approved.** Member discounts are enabled (Prevent 10% · Restore 15% · Optimize 20%; rev 1.8); perks stay off. `docs/STAGING_CHECKLIST.md` lists everything that needs a real environment. Nothing is merged to `main` or deployed from this branch.
 
 > **Revision 1.1 — decisions recorded after approval** (the body below is otherwise
 > unchanged from the approved v1; sections touched are marked *[rev 1.1]*):
@@ -101,6 +101,22 @@ Version 2.1 · 2026-10-23 · Status: **Phases 1–5 approved and built. Ledger p
 > | **Time zones and raw SQL** | Every `DateTime` column is a UTC `timestamp`. **Raw SQL must bind an instant with `utcTimestamp()`** (`lib/sqlTime.ts`): a bare `Date` is compared in the *database session's* zone, which is wrong by the offset on any non-UTC database. Three queries from Phases 2–3 had it and are fixed. The test database now runs in `Asia/Kolkata` unless `NW_TEST_TZ` says otherwise |
 > | Revenue basis | *[superseded by rev 1.7: dues are now a separate line in every Accounting view]* **Membership dues are not in Accounting**: nothing records them (A-13 assumed they would be). Revenue is what was recorded at check-out |
 > | Not built | *[rev 1.7: the Twilio adapter and dues are built]* A **Twilio sending adapter** (texts still go to the stub; only the inbound webhook, its signature check and the wording are real), the **AWS adapters**, a dues record, void/refund, print/PDF, a free-form analytics builder |
+
+> **Revision 2.2 — Phase 2b (the money layer) approved, with the owner's decisions (Chase).** The design is
+> `docs/MONEY_LAYER_DESIGN.md`, updated to match; where it and this table differ, this table wins.
+>
+> | # | Decision |
+> |---|---|
+> | 1 | **Promotion vs member tier discount: whichever is better for the patient. Never stacked** (nor two promotions together) |
+> | 2 | A promotion applies by **the visit's clinic date** (America/Chicago), not the payment's |
+> | 3 | **Front desk one-off adjustment: at most 20% of the visit's list price or $25.00, whichever is less**, with a required reason code. Anything larger only by an **admin on an MFA-verified session**. Enforced on the server |
+> | 4 | **Overpayment: the patient chooses a refund** (a refund row with its tender type) **or account credit in dollars**. **Account credit ("Account credit ($)") is entirely separate from membership credits ("Membership credits")** — tables, math and screens. The desk chooses to apply it at check-out; an admin can refund it |
+> | 5 | **Tender types: Cash, Card, Check, HSA/FSA, Other** — recorded by hand. **No card processing, no card data stored** (a reference that looks like a card number is refused) |
+> | 6 | **Reversing a payment: the front desk on the same clinic day it was collected; after that, admin only (MFA).** A reversal is a new row referencing the original, never an edit |
+> | 7 | **Everything checked out before 2b goes live counts as paid in full** — the migration writes a settlement row for each such charge (design §3) |
+> | 8 | **Partial payments** are recorded on the date collected; the remaining balance shows **at the bottom of the Ledger** and carries forward; **oldest charge first** |
+> | — | **Biomarker testing needs no note** (`requiresNote = false`; migration and seed). Uploading results to the profile is a later phase, not 2b |
+> | Not in 2b | **Write-offs and voids** (designed, not approved for this phase): a balance is cleared only by a payment or account credit |
 
 > **Revision 2.1 — a visit's note belongs to the visit's provider (a person), not to their role; the covering provider.**
 > From a staging finding: Dr. Stan Halpine (chiropractor) signed the note for a visit booked with Dr. Chase L'Heureux, which the role
@@ -1022,6 +1038,11 @@ Each has a default; say "defaults OK" or override.
 | A-21 | *[rev 1.9; amended rev 2.0]* Allocation and balance | **Decided:** oldest charge first; partial payments need explicit confirmation; dues not in the balance (for now); unpaid balance carries forward. *Rev 2.0:* a partial payment is recorded on the date collected; the balance shows at the bottom of the Ledger and carries forward **until paid or written off by an admin** |
 | A-22 | *[rev 1.9]* Kiosk | **Deferred**; design in §7 L4 and the §0 proposal row, **not yet approved** |
 | A-23 | *[rev 1.9; resolved rev 2.0]* Session-log requirement for red light / HBOT-type sessions | **Resolved:** no note is required for them (`Service.requiresNote` false), and no check-out waits for a note of any kind |
+| A-24 | *[rev 2.2]* Promotion vs tier discount | **Decided:** the better of the two for the patient, never both; promotions by the visit's clinic date |
+| A-25 | *[rev 2.2]* Desk adjustment cap | **Decided:** min(20% of list, $25.00) for the front desk; above it admin (MFA) only; reason code always |
+| A-26 | *[rev 2.2]* Overpayment and account credit | **Decided:** refund (tender recorded) or account credit in dollars, the patient's choice; account credit never mixes with membership credits |
+| A-27 | *[rev 2.2]* Payment reversal | **Decided:** front desk the same clinic day; admin (MFA) after |
+| A-28 | *[rev 2.2]* Charges before 2b | **Decided:** paid in full — settled by the migration |
 
 ---
 
