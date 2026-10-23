@@ -9,7 +9,7 @@ import { adminLogin, frontDeskLogin, visit } from './phase4.js';
 import { makeMembership } from './phase3.js';
 
 /**
- * The money layer's database backstops (migration 20261024110000_money_layer): append-only tables, the commit-time money guard, the
+ * The money layer's database backstops (migration 20261023120000_money_layer): append-only tables, the commit-time money guard, the
  * charge rule, the promotion freeze, and the settlement of charges from before payments were tracked — exercised with direct SQL,
  * past the application's own checks.
  */
@@ -202,7 +202,7 @@ describe('promotions are frozen once used, and never deleted', () => {
 
 describe('charges from before payments were tracked: the migration\'s own statement', () => {
   it('settles every visit charge that exists when it runs — not dues, and not a charge made afterwards', async () => {
-    const sql = readFileSync('prisma/migrations/20261024110000_money_layer/migration.sql', 'utf8');
+    const sql = readFileSync('prisma/migrations/20261023120000_money_layer/migration.sql', 'utf8');
     const stmt = sql.slice(sql.indexOf('INSERT INTO "PreTrackingSettlement"'), sql.indexOf(';', sql.indexOf('INSERT INTO "PreTrackingSettlement"')));
     expect(stmt).toMatch(/SELECT "id" FROM "RevenueEvent" WHERE "paymentType" <> 'DUES'/);
     const fd = await frontDeskLogin();

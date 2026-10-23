@@ -160,7 +160,7 @@ services were seeded long ago and the seed skips them — that is the point. No 
       **Note signed**, the signed note says **Signed after check-out**, and the visit stays checked out (no second payment).
 - [ ] **Services that need no note** read **No note needed** (red light, both hyperbaric sessions, body composition, and — rev 2.2 — **biomarker testing**) and
       never appear on an Unsigned notes list. On **Configuration → Services**, check which services have **Requires a signed note** ticked: vitamin shots and
-      spinal X-rays are ticked until the owner says otherwise; biomarker testing is not (migration `20261024100000_biomarker_no_note`).
+      spinal X-rays are ticked until the owner says otherwise; biomarker testing is not (migration `20261023110000_biomarker_no_note`).
 - [ ] **The red light price note** on this database (the seed does not rewrite an existing one): it should read *"Full-dose 10 minute session — 2 credits"*. The
       Configuration screen has **no price-note field** (the API accepts one; the screen never sends it), so paste this into the Supabase SQL editor — it changes
       only that row, and only while it still says 3:
