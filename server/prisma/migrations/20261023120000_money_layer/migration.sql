@@ -278,6 +278,7 @@ ALTER TABLE "PaymentAllocation" ADD CONSTRAINT "PaymentAllocation_amount_positiv
 ALTER TABLE "PaymentReversal" ADD CONSTRAINT "PaymentReversal_other_has_note" CHECK ("reason" <> 'OTHER' OR length(btrim(coalesce("note", ''))) > 0);
 ALTER TABLE "Refund" ADD CONSTRAINT "Refund_amount_positive" CHECK ("amountCents" > 0);
 ALTER TABLE "Refund" ADD CONSTRAINT "Refund_source_shape" CHECK (("source" = 'OVERPAYMENT') = ("paymentId" IS NOT NULL));
+ALTER TABLE "Refund" ADD CONSTRAINT "Refund_other_has_note" CHECK ("tender" <> 'OTHER' OR length(btrim(coalesce("note", ''))) > 0);
 ALTER TABLE "AccountCreditEntry" ADD CONSTRAINT "AccountCreditEntry_shape" CHECK (
      ("kind" = 'OVERPAYMENT' AND "deltaCents" > 0 AND "paymentId" IS NOT NULL)
   OR ("kind" = 'APPLIED'     AND "deltaCents" < 0 AND "revenueEventId" IS NOT NULL)

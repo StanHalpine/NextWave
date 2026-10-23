@@ -128,10 +128,12 @@ describe('the money guard, at commit', () => {
       .toMatch(/no matching account credit/);
   });
 
-  it('refuses the wrong shapes: a zero payment, OTHER with no note, an account-credit row of the wrong sign', async () => {
+  it('refuses the wrong shapes: a zero payment, OTHER with no note (payment or refund), an account-credit row of the wrong sign', async () => {
     const p = await makePatient();
     expect(await commitError([pay(randomUUID(), p.id, 0)])).toMatch(/Payment_amount_positive/);
     expect(await commitError([pay(randomUUID(), p.id, 100, 'OTHER')])).toMatch(/Payment_other_has_note/);
+    expect(await commitError([`INSERT INTO "Refund" ("id","patientId","source","tender","amountCents","refundedOn","refundedAt","recordedById","note") VALUES ('${randomUUID()}','${p.id}','ACCOUNT_CREDIT','OTHER',100,'2026-10-13',now(),'test','  ')`]))
+      .toMatch(/Refund_other_has_note/);
     expect(await commitError([`INSERT INTO "AccountCreditEntry" ("patientId","kind","deltaCents","paymentId","entryOn","createdById") VALUES ('${p.id}','OVERPAYMENT',-5,'${randomUUID()}','2026-10-13','test')`])).toMatch(/AccountCreditEntry_shape/);
   });
 });

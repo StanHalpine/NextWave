@@ -229,7 +229,8 @@ export interface ReportData {
   rows: ReportRow[];
   /** Rows between the body and the totals (e.g. all members / non-members). */
   subtotals: ReportRow[];
-  totals: ReportRow;
+  /** Null where adding the rows up would mean nothing (the review list shows a subtotal per kind instead). */
+  totals: ReportRow | null;
   dues: ReportDues | null;
   summary: Record<string, number> | null;
   notes: string[];

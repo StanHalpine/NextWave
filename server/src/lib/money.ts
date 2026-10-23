@@ -164,7 +164,7 @@ export interface SettleInput {
   /** Required when the payment is less than what is due (decision 8). */
   confirmPartial?: boolean;
   /** Required when the payment is MORE than is due: what to do with the rest (decision 4). */
-  overpayment?: { as: 'REFUND'; tender?: Tender } | { as: 'ACCOUNT_CREDIT' } | null;
+  overpayment?: { as: 'REFUND'; tender?: Tender; note?: string | null } | { as: 'ACCOUNT_CREDIT' } | null;
 }
 
 export interface SettleResult {
@@ -282,10 +282,12 @@ export async function settle(tx: Tx, rec: Rec, actor: Actor, now: Date, a: Settl
     let refund: { id: string; tender: Tender; amountCents: number } | null = null;
     let toCredit = 0;
     if (overCents > 0 && a.overpayment!.as === 'REFUND') {
-      const tender = (a.overpayment as { tender?: Tender }).tender ?? pay.tender;
-      if (tender === 'OTHER') throw fail(400, 'tender_note_required', 'Choose how the difference is handed back.');
+      const choice = a.overpayment as { tender?: Tender; note?: string | null };
+      const tender = choice.tender ?? pay.tender;
+      // "Other" needs a note saying how the difference was handed back — the same rule as a payment's tender.
+      const { note: refundNote } = checkTender({ tender, note: choice.note }, 'refund');
       const id = randomUUID();
-      await tx.refund.create({ data: { id, patientId: a.patientId, source: 'OVERPAYMENT', paymentId, tender, amountCents: overCents, refundedOn: toDateOnly(today), refundedAt: now, recordedById: actor.accountId } });
+      await tx.refund.create({ data: { id, patientId: a.patientId, source: 'OVERPAYMENT', paymentId, tender, amountCents: overCents, refundedOn: toDateOnly(today), refundedAt: now, recordedById: actor.accountId, note: refundNote } });
       await rec({ action: 'CREATE', resourceType: 'refund', resourceId: id, meta: { source: 'OVERPAYMENT', tender, paymentId } });
       refund = { id, tender, amountCents: overCents };
     } else if (overCents > 0) {

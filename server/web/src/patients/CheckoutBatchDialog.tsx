@@ -53,6 +53,7 @@ export function CheckoutBatchDialog({ patientId, preselect = [], mode = 'checkou
   const [confirmPartial, setConfirmPartial] = useState(false);
   const [overAs, setOverAs] = useState<'REFUND' | 'ACCOUNT_CREDIT' | ''>('');
   const [refundTender, setRefundTender] = useState<Tender>('CASH');
+  const [refundNote, setRefundNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<SettleResult | null>(null);
@@ -109,6 +110,7 @@ export function CheckoutBatchDialog({ patientId, preselect = [], mode = 'checkou
   const shape = paymentShape(paying, dueAfterCredit);
   const ready = !!ledger && !unpriced && (mode === 'payment' || chosen.length > 0)
     && (shape.kind !== 'partial' || confirmPartial) && (shape.kind !== 'over' || !!overAs)
+    && (shape.kind !== 'over' || overAs !== 'REFUND' || refundTender !== 'OTHER' || refundNote.trim() !== '')
     && (tender !== 'OTHER' || shape.kind === 'none' || note.trim() !== '')
     && chosen.every((v) => !lines[v.id]!.adjusting || ((parseDollars(lines[v.id]!.adjCents) ?? 0) > 0 && (lines[v.id]!.adjReason !== 'OTHER' || lines[v.id]!.adjNote.trim() !== '')))
     && (mode === 'checkout' || paying > 0 || credit > 0);
@@ -122,7 +124,7 @@ export function CheckoutBatchDialog({ patientId, preselect = [], mode = 'checkou
       ...(credit > 0 ? { applyAccountCreditCents: credit } : {}),
       ...(shape.kind !== 'none' ? { payment: { tender, amountCents: paying, ...(reference.trim() ? { reference: reference.trim() } : {}), ...(note.trim() ? { note: note.trim() } : {}) } } : {}),
       ...(shape.kind === 'partial' ? { confirmPartial: true } : {}),
-      ...(shape.kind === 'over' ? { overpayment: overAs === 'REFUND' ? { as: 'REFUND', tender: refundTender } : { as: 'ACCOUNT_CREDIT' } } : {}),
+      ...(shape.kind === 'over' ? { overpayment: overAs === 'REFUND' ? { as: 'REFUND', tender: refundTender, ...(refundNote.trim() ? { note: refundNote.trim() } : {}) } : { as: 'ACCOUNT_CREDIT' } } : {}),
     };
     if (mode === 'checkout') {
       body.visits = chosen.map((v) => {
@@ -254,7 +256,11 @@ export function CheckoutBatchDialog({ patientId, preselect = [], mode = 'checkou
               <div className="stack">
                 <p><strong>{fmtMoney(shape.restCents)} more than is due.</strong> Ask the patient:</p>
                 <label className="check"><input type="radio" name="over" checked={overAs === 'REFUND'} onChange={() => setOverAs('REFUND')} /> Refund it now, in
-                  <select value={refundTender} onChange={(e) => setRefundTender(e.target.value as Tender)} aria-label="Refund tender">{TENDERS.filter((t) => t.value !== 'OTHER').map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}</select></label>
+                  <select value={refundTender} onChange={(e) => setRefundTender(e.target.value as Tender)} aria-label="Refund tender">{TENDERS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}</select></label>
+                {overAs === 'REFUND' && (
+                  <label>Refund note{refundTender === 'OTHER' && <span className="error small"> required for Other</span>}
+                    <input value={refundNote} maxLength={200} onChange={(e) => setRefundNote(e.target.value)} placeholder={refundTender === 'OTHER' ? 'How the difference was handed back' : 'Optional'} /></label>
+                )}
                 <label className="check"><input type="radio" name="over" checked={overAs === 'ACCOUNT_CREDIT'} onChange={() => setOverAs('ACCOUNT_CREDIT')} /> Keep it as {ACCOUNT_CREDIT_LABEL.toLowerCase()} for a future visit</label>
               </div>
             )}

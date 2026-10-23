@@ -117,6 +117,9 @@ Version 2.2 · 2026-10-23 · Status: **Phases 1–5, L1, 2a and rev 2.1 approved
 > | 8 | **Partial payments** are recorded on the date collected; the remaining balance shows **at the bottom of the Ledger** and carries forward; **oldest charge first** |
 > | — | **Biomarker testing needs no note** (`requiresNote = false`; migration and seed). Uploading results to the profile is a later phase, not 2b |
 > | Not in 2b | **Write-offs and voids** (designed, not approved for this phase): a balance is cleared only by a payment or account credit |
+> | Audit | **The check-out audit row records ids and flags only — no amounts** (approved at review). Before 2b its meta carried the list, discount and net; it now carries `paymentType`, `memberBenefit`, `credits`, `discountCategory`, `tierDiscount` (true/false), `promotionId`, `adjustmentReason` and `batchId`. The amounts live only in the append-only `RevenueEvent` the audit row points to. Every money write in 2b (payment, allocation, reversal, refund, account credit, promotion edit) follows the same rule |
+> | Review | **Accounting → Review shows a subtotal per kind — adjustments, payment reversals, refunds — and no grand total** (approved at review); the CSV likewise |
+> | Refund tender | **An overpayment refund may be in "Other", with a note saying how** — required only for Other, as for a payment; the database refuses a refund in Other without one (`Refund_other_has_note`) |
 
 > **Revision 2.1 — a visit's note belongs to the visit's provider (a person), not to their role; the covering provider.**
 > From a staging finding: Dr. Stan Halpine (chiropractor) signed the note for a visit booked with Dr. Chase L'Heureux, which the role

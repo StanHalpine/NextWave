@@ -102,7 +102,7 @@ export default function ReportPanel({ endpoint, view, extra, children }: {
                 {data.rows.length === 0 && <tr><td colSpan={data.columns.length} className="muted">No activity in this range.</td></tr>}
                 {data.subtotals.map((r, i) => <tr key={`s${i}`} className="report-sub">{data.columns.map((c) => cell(c, r))}</tr>)}
               </tbody>
-              <tfoot><tr className="report-total">{data.columns.map((c) => cell(c, data.totals))}</tr></tfoot>
+              {data.totals && <tfoot><tr className="report-total">{data.columns.map((c) => cell(c, data.totals!))}</tr></tfoot>}
             </table>
           </div>
           {data.summary && 'outstandingNowCents' in data.summary && (

@@ -198,7 +198,7 @@ services were seeded long ago and the seed skips them — that is the point. No 
 - [ ] **Combined check-out with a partial payment.** Book two visits for one fake patient on the same day; check them in; from the Ledger, **Check out today's
       visits…**: both are listed, pick **Money** for each, pay **less** than due in **Cash** — the screen asks for the patient's agreement — confirm. The Ledger's
       **Balance carried forward** shows the rest. Next day, **Take a payment…** for the rest by **Check**: the oldest charge is paid first and the balance reads $0.00.
-- [ ] **Overpayment.** Pay $10 more than due: choose **Refund it now** (pick the tender) once and **Keep it as account credit ($)** once. The second shows **Account credit ($)**
+- [ ] **Overpayment.** Pay $10 more than due: choose **Refund it now** (pick the tender) once — and once in **Other**, which asks for a refund note — and **Keep it as account credit ($)** once. The second shows **Account credit ($)**
       on the Ledger, separate from **Membership credits**; on the next check-out, apply it. As an admin (MFA), **Refund account credit…** some of the rest.
 - [ ] **Desk adjustment cap.** As the front desk, on a $55 visit an adjustment of $11.00 (20%) with a reason goes through; $11.01 is refused ("An administrator must make
       a larger adjustment"). On a $200 visit the cap is $25.00. As an admin (MFA) the larger one goes through. No reason → refused.
@@ -208,7 +208,7 @@ services were seeded long ago and the seed skips them — that is the point. No 
       **Reverse…** button is gone for it; an admin (MFA) can still reverse it.
 - [ ] **No card numbers.** Type a test card number (4242 4242 4242 4242) into a payment's reference: refused.
 - [ ] **Accounting → Billed vs collected** and **Review**: the day's billed and collected agree with what you did above (collected less reversals and refunds);
-      Review lists each adjustment, reversal and refund with who recorded it and **no patient name**; the CSV exports likewise.
+      Review lists each adjustment, reversal and refund with who recorded it and **no patient name**, ending in a **subtotal per kind and no grand total**; the CSV exports likewise.
 - [ ] A signed note: only the provider who signed it is offered **Amend**; another provider is offered **Add addendum**; an admin is offered neither.
 - [ ] Reports are quick on the real host: the current month appears at once; a three-year range in a second or two. (The timings
       in `docs/PHASE5_NOTES.md` §4 are from a laptop; `npm run perf:reports` repeats them against any database you can create a schema in.)

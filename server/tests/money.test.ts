@@ -202,6 +202,21 @@ describe('overpayment: a refund or account credit — the patient\'s choice (dec
     expect(r.body).toMatchObject({ balanceCents: 0, accountCreditCents: 0 });
   });
 
+  it('REFUND in "Other": allowed, with a note saying how — refused without one, whether chosen or carried over from the payment', async () => {
+    const p = await makePatient();
+    const v = await priced({ patientId: p.id, start: at('09:00') });
+    const fd = await frontDeskLogin();
+    const go = (overpayment: Record<string, unknown>, payment: Record<string, unknown> = { tender: 'CASH', amountCents: 6000 }) =>
+      checkout(fd, p.id, { visits: [money(ofV(v))], payment, overpayment });
+    expect((await go({ as: 'REFUND', tender: 'OTHER' })).body.code).toBe('tender_note_required');
+    expect((await go({ as: 'REFUND', tender: 'OTHER', note: '   ' })).body.code).toBe('tender_note_required');
+    expect((await go({ as: 'REFUND' }, { tender: 'OTHER', amountCents: 6000, note: 'Venmo' })).body.code).toBe('tender_note_required');   // the payment's note is not the refund's
+    expect((await go({ as: 'REFUND', tender: 'OTHER', note: '4242 4242 4242 4242' })).body.code).toBe('card_number_refused');
+    const r = await go({ as: 'REFUND', tender: 'OTHER', note: ' Store gift card ' });
+    expect(r.status).toBe(200);
+    expect(await basePrisma.refund.findUniqueOrThrow({ where: { id: r.body.payment.refund.id } })).toMatchObject({ tender: 'OTHER', note: 'Store gift card', amountCents: 500 });
+  });
+
   it('ACCOUNT CREDIT: the difference is held in dollars, applied later when the desk chooses — and never touches membership credits', async () => {
     const { plan } = await makePlan({ credits: 6 });
     const p = await makePatient();

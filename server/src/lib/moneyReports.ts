@@ -94,8 +94,11 @@ const REASON: Record<string, string> = {
 };
 const TENDER: Record<string, string> = { CASH: 'Cash', CARD: 'Card', CHECK: 'Check', HSA_FSA: 'HSA/FSA', OTHER: 'Other' };
 
+/** The review list: its rows, then one subtotal per kind. No grand total — adjustments, reversals and refunds are different things. */
+export interface ReviewTable extends Omit<Table, 'totals'> { subtotals: Array<Record<string, string | number>>; totals: null }
+
 /** Every adjustment, payment reversal and refund in the range, oldest first. No patient is named; the id is for the record. */
-export async function reviewTable(range: DateRange): Promise<Table> {
+export async function reviewTable(range: DateRange): Promise<ReviewTable> {
   const { start, end } = bounds(range);
   const raw = await basePrisma.$queryRaw<Array<Record<string, unknown>>>`
     SELECT * FROM (
@@ -116,6 +119,17 @@ export async function reviewTable(range: DateRange): Promise<Table> {
   const rows = raw.map((r) => ({
     date: String(r.date), kind: String(r.kind), service: String(r.service ?? ''), amountCents: num(r.amount),
     reason: REASON[String(r.reason)] ?? '', tender: r.tender ? (TENDER[String(r.tender)] ?? String(r.tender)) : '', who: String(r.who ?? ''), ref: String(r.ref),
+    k: num(r.k),
   }));
-  return { columns: REVIEW_COLUMNS, rows, totals: { date: 'Total', kind: '', service: '', amountCents: rows.reduce((t, r) => t + r.amountCents, 0), reason: '', tender: '', who: '', ref: '' } };
+  // Every kind is listed, even at $0.00, so an empty one reads as "none" rather than as missing.
+  const subtotal = (label: string, k: number) => {
+    const of = rows.filter((r) => r.k === k);
+    return { date: 'Subtotal', kind: `${label} (${of.length})`, service: '', amountCents: of.reduce((t, r) => t + r.amountCents, 0), reason: '', tender: '', who: '', ref: '' };
+  };
+  return {
+    columns: REVIEW_COLUMNS,
+    rows: rows.map(({ k: _k, ...r }) => r),
+    subtotals: [subtotal('Adjustments', 1), subtotal('Payment reversals', 3), subtotal('Refunds', 2)],
+    totals: null,
+  };
 }

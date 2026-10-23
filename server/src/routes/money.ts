@@ -33,7 +33,7 @@ const version = z.string().min(3).max(60);
 const tender = z.enum(TENDERS);
 const paymentBody = z.object({ tender, amountCents: cents, reference: z.string().max(200).nullish(), note: z.string().max(400).nullish() }).strict();
 const overpayment = z.union([
-  z.object({ as: z.literal('REFUND'), tender: tender.optional() }).strict(),
+  z.object({ as: z.literal('REFUND'), tender: tender.optional(), note: z.string().max(400).nullish() }).strict(),
   z.object({ as: z.literal('ACCOUNT_CREDIT') }).strict(),
 ]);
 const adjustment = z.object({

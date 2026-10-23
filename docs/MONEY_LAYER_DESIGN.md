@@ -96,7 +96,7 @@ commit that every payment is accounted for exactly: allocations + its overpaymen
 | Table | What | Who |
 |---|---|---|
 | `PaymentReversal` | Undoes one payment entirely (`paymentId UNIQUE`, reason code, note, `reversedOn`). Its allocations count as undone, and the account credit it created is taken back (refused if that credit has already been used). A payment whose overpayment was refunded cannot be reversed | **front desk on the payment's own clinic day; admin (MFA) after that** (decision 6) |
-| `Refund` | Money paid back: source `OVERPAYMENT` (at the payment, decision 4) or `ACCOUNT_CREDIT` (an admin refunding a patient's account credit), with its tender | the desk (overpayment, at the payment); **admin, MFA** (account credit) |
+| `Refund` | Money paid back: source `OVERPAYMENT` (at the payment, decision 4) or `ACCOUNT_CREDIT` (an admin refunding a patient's account credit), with its tender; `OTHER` needs a note saying how (`Refund_other_has_note`) | the desk (overpayment, at the payment); **admin, MFA** (account credit) |
 | `ChargeWriteOff` | *Not in 2b.* Clears all or part of a charge's outstanding amount | admin, MFA session |
 | `ChargeVoid` *(L3, not in 2b)* | Cancels a charge recorded in error | admin, MFA session |
 
@@ -238,7 +238,8 @@ state the person did not see.
 
 As built in 2b: a **Billed vs collected** view (by day or month: billed, promotions, adjustments, collected = payments − reversals −
 refunds each on its own date, settled before tracking) and a **Review** list for admins (each desk/admin adjustment, payment reversal and
-refund: date, kind, service, amount, reason, who). Receivables by age is not in 2b. Accounting's rule is
+refund: date, kind, service, amount, reason, who), ending in **a subtotal per kind and no grand total** — the three are different
+things, so adding them up would mean nothing. Receivables by age is not in 2b. Accounting's rule is
 aggregates only — **no patient is named** — so the review list shows no patient; the admin opens the visit from its row, which
 is audited as a record read (open question 6). Dues stay their own table, billed only. CSV export as today.
 

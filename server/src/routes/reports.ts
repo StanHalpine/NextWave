@@ -36,7 +36,9 @@ import { requireRole } from '../middleware/session.js';
 
 export const reportsRouter = Router();
 
-interface ViewResult extends Table {
+interface ViewResult extends Omit<Table, 'totals'> {
+  /** The totals row — null where adding the rows up would mean nothing (the review list: subtotals per kind instead). */
+  totals: Table['totals'] | null;
   /** Rows shown after the body and before the totals (e.g. members vs non-members). */
   subtotals?: Array<Record<string, string | number>>;
   /** Membership dues billed, kept apart from the service revenue above. Accounting views only. */
@@ -170,10 +172,10 @@ async function serve(resourceType: 'accounting_report' | 'clinic_report', views:
       // Accounting is two tables — service revenue, and dues apart from it — in one file; a Report is one.
       const text = out.dues
         ? toCsvSections([
-          { title: 'Service revenue', columns: out.columns, rows, totals: out.totals },
+          { title: 'Service revenue', columns: out.columns, rows, totals: out.totals ?? undefined },
           { title: DUES_TITLE, columns: out.dues.columns, rows: out.dues.rows, totals: out.dues.totals, footer: out.dues.note },
         ])
-        : toCsv(out.columns, rows, out.totals);
+        : toCsv(out.columns, rows, out.totals ?? undefined);
       return res.send('\uFEFF' + text);
     }
     res.json({ view: key, title: def.title, range, filters: def.filters ? def.filters(q) : {}, columns: out.columns, rows: out.rows, subtotals: out.subtotals ?? [], totals: out.totals, dues: out.dues ?? null, summary: out.summary ?? null, notes: out.notes ?? [] });

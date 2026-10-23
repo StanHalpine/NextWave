@@ -91,11 +91,27 @@ describe('Accounting: billed vs collected, by the clinic\'s day', () => {
     ]);
     expect(mine[0].service).toMatch(/^Review Service/);
     expect(JSON.stringify(list.body)).not.toMatch(/Reviewa|Unnamed/);
+    // a subtotal per kind, and no grand total: the three are different things
+    expect(list.body.totals).toBeNull();
+    const sub = (label: string) => list.body.subtotals.find((x: any) => String(x.kind).startsWith(label));
+    const of = (pred: (k: string) => boolean) => list.body.rows.filter((x: any) => pred(x.kind));
+    const sum = (rs: any[]) => rs.reduce((t: number, x: any) => t + x.amountCents, 0);
+    expect(list.body.subtotals.map((x: any) => x.date)).toEqual(['Subtotal', 'Subtotal', 'Subtotal']);
+    expect(sub('Adjustments')).toMatchObject({ kind: `Adjustments (${of((k) => k === 'Adjustment').length})`, amountCents: sum(of((k) => k === 'Adjustment')) });
+    expect(sub('Payment reversals')).toMatchObject({ amountCents: sum(of((k) => k === 'Payment reversal')) });
+    expect(sub('Refunds')).toMatchObject({ amountCents: sum(of((k) => k.startsWith('Refund'))) });
+    expect(sub('Adjustments').amountCents).toBeGreaterThanOrEqual(1500);
+    expect(list.body.rows.every((x: any) => !('k' in x))).toBe(true);
 
     const csv = await admin.agent.get('/api/accounting/review?from=2034-03-21&to=2034-03-21&format=csv');
     expect(csv.status).toBe(200);
     expect(csv.text).toContain('Reference id');
     expect(csv.text).toContain('15.00');
+    const lines = csv.text.slice(1).trim().split('\r\n');
+    expect(lines.slice(-3).map((l: string) => l.split(',').slice(0, 2).join(','))).toEqual([
+      expect.stringMatching(/^Subtotal,Adjustments \(\d+\)$/), expect.stringMatching(/^Subtotal,Payment reversals \(\d+\)$/), expect.stringMatching(/^Subtotal,Refunds \(\d+\)$/),
+    ]);
+    expect(lines.some((l: string) => l.startsWith('Total,'))).toBe(false);
     const audit = await basePrisma.auditLog.findFirst({ where: { resourceType: 'accounting_report', resourceId: 'review', action: 'EXPORT' }, orderBy: { id: 'desc' } });
     expect(audit?.meta).toMatchObject({ view: 'review', from: '2034-03-21', to: '2034-03-21', format: 'csv' });
   });
