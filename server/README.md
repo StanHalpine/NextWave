@@ -268,7 +268,7 @@ administrator has no write path to either.
 
 | Where | What |
 |---|---|
-| **Accounting** (`/app/accounting`, **admin only**) | *Monthly by service*, *Daily*, *Members vs. non-members*, and a *Custom* view (date range, service, payment type, provider, and how to total). Columns: visits, **list**, **discount**, **net**, **covered by membership**, credits redeemed — and `list = discount + covered + net` on every row |
+| **Accounting** (`/app/accounting`, **admin only**) | *Monthly by service*, *Daily*, *Members vs. non-members*, and a *Custom* view (date range, service, payment type, provider, and how to total). Columns: visits, **list**, **discount**, **promotions**, **adjustments**, **net**, **covered by membership**, credits redeemed — and `list = discount + promotions + adjustments + covered + net` on every row. Plus (Phase 2b) *Billed vs collected* (by day or month: billed net, tier discounts, promotions, adjustments, collected, settled before tracking; owed and account credit held now) and *Review* (every adjustment, payment reversal and refund — date, service, amount, reason, tender, who; no patient) |
 | **Reports** (`/app/reports`, front desk and admin) | *New memberships* (by tier), *Walk-ins* by day and by hour, *Weekend visits*, *Service demand* (chiropractic, HBOT, red light, IV, consults, bloodwork, other) |
 | Every view | A date range that starts on the **current month in the clinic's calendar**, a **totals row**, and a **CSV export** of what is on screen |
 
@@ -277,11 +277,11 @@ type or provider. No patient, booking or encounter is named or identified. Every
 `EXPORT` (`accounting_report` / `clinic_report`), with the range and filters it was asked with.
 
 **Where the numbers come from.** Service revenue is `RevenueEvent` of the visits: what the front desk recorded at check-out (net =
-list − member discount; $0 for a visit a membership covered, which shows its list value under *Covered by membership*).
+list − member discount or a promotion, whichever was better, never both − any one-off adjustment; $0 for a visit a membership covered, which shows its list value under *Covered by membership*). What was actually **collected** is the payments recorded since Phase 2b, in *Billed vs collected* (rev 2.2; `docs/MONEY_LAYER_DESIGN.md`).
 **Membership dues are a separate line, in every Accounting view:** a `RevenueEvent` of payment type `DUES`, status `BILLED`, written
 with each month's credits (at enrolment, on resume, and by the monthly job) for the tier's price at the time and dated the first day
 of the period. They are never added into service revenue, never counted as visits, and shown as their own table (and a second
-section of the CSV); a service, provider or cash/credit filter leaves them out. *Billed* is not *paid*: collection is outside this
+section of the CSV); a service, provider or cash/credit filter leaves them out. Dues are *billed*, not *paid*: their collection is outside this
 system. Visit counts come from `Booking` and `Encounter`; sign-ups from `Membership.startedOn`. Days and
 months are the **clinic's** (`CLINIC_TIMEZONE`), so a sale at 11:59 p.m. on the last day of a month belongs to that month. The
 service-demand categories are SPEC assumption A-6 by service, in `src/lib/reportFormat.ts`, plus *Vitamin shots & injections*; a
@@ -451,7 +451,13 @@ allowed. Every non-GET staff request also needs the `x-csrf-token` header.
 | GET | `/api/schedule/appointments/:id` | front desk, admin | One appointment, with text delivery status |
 | POST | `/api/schedule/appointments` · `/:id/move` · `/:id/cancel` | front desk, admin | Create / move / cancel |
 | GET | `/api/fd/appointments/:id/checkout-preview` | front desk, admin | Price, balance and every way the visit can be paid |
-| POST | `/api/fd/appointments/:id/check-out` | front desk, admin | **Settle the visit** — body `{ payment: CREDITS \| PERK \| CASH }`; one revenue event; idempotent |
+| POST | `/api/fd/appointments/:id/check-out` | front desk, admin | **Settle the visit** — body `{ payment: CREDITS \| PERK \| CASH }`; one revenue event; idempotent. Used for a walk-in with no patient record |
+| GET | `/api/fd/patients/:id/ledger` | front desk, admin | The patient's Ledger: visits and charges, membership credits, and (Phase 2b) the posted money lines with a running balance, account credit ($), and the `version` a money write must send |
+| POST | `/api/fd/patients/:id/checkout` | front desk, admin | **Phase 2b combined check-out**: one or more of the patient's visits (money / membership credits / perk, optional adjustment with reason), account credit ($) to apply, and a payment (tender, amount; partial needs `confirmPartial`; overpayment as `REFUND` or `ACCOUNT_CREDIT`). Needs `idempotencyKey` and the ledger `expectedVersion`; 409 + fresh ledger on a concurrent change |
+| POST | `/api/fd/patients/:id/payments` | front desk, admin | A payment against the carried-forward balance, oldest charge first |
+| POST | `/api/fd/patients/:id/payments/:paymentId/reverse` | front desk (the payment's clinic day), MFA admin (any day) | A reversal row; the payment is never edited |
+| POST | `/api/fd/patients/:id/account-credit/refund` | **MFA admin** | Hand back account credit ($) — never membership credits |
+| GET · POST · PATCH | `/api/admin/promotions` · `/:id` | admin | Promotions by visit date; type, amount, dates and services frozen once used (409 `promotion_in_use`) |
 | GET | `/api/fd/patients/:id/credits[?before]` | front desk, admin | Membership, balance, lots, perks, paged history |
 | POST | `/api/fd/patients/:id/credits/adjust` | **admin** | Add or remove credits; reason code from a fixed list |
 | POST · PATCH | `/api/fd/patients/:id/membership` | front desk, admin | Enrol / change plan, pause, resume, cancel |
@@ -459,7 +465,7 @@ allowed. Every non-GET staff request also needs the `x-csrf-token` header.
 | GET | `/api/membership-plans` | staff | The tiers, for the enrol dialog |
 | GET · PATCH | `/api/admin/membership-plans` · `/:id` · `/:id/perks/:perkId` | admin | Tiers and perks as data; audited before → after |
 | GET · POST · PATCH · PUT · DELETE | `/api/admin/discount-categories` · `/:id` · `/:id/discounts` | admin | Member discounts: a percentage per tier per service category; none exist until created |
-| GET | `/api/accounting/options` · `/monthly` · `/daily` · `/members` · `/custom` (`?from&to`, `&format=csv`; custom adds `serviceId`, `paymentType`, `providerId`, `group`) | **admin** | Revenue: list, discount, net, covered. Aggregates only; every view and export audited |
+| GET | `/api/accounting/options` · `/monthly` · `/daily` · `/members` · `/custom` (`?from&to`, `&format=csv`; custom adds `serviceId`, `paymentType`, `providerId`, `group`) · `/collections` (`&group=day\|month`) · `/review` | **admin** | Revenue: list, discount, promotions, adjustments, net, covered; billed vs collected; review list. Aggregates only (the review list names no patient); every view and export audited |
 | GET | `/api/reports/signups` · `/walkins-day` · `/walkins-hour` · `/weekend` · `/demand` (`?from&to`, `&format=csv`) | front desk, admin | Counts only; every view and export audited |
 | GET | `/api/sms/consent-label` | — | The exact words for the booking widget's text-consent checkbox |
 | POST | `/api/bookings/:id/sms-consent` | — (booking id; ≤ 30 min old; rate limited) | Record the tick and the words shown |
@@ -583,7 +589,7 @@ mapping. Spec §8.5.
 **Not built** (nobody specified them): patient-facing booking UI, recurring
 appointment expansion (`isRecurring` is stored but never acted on), a real SMS provider
 (texts go to the local stub unless both Twilio credentials are set), collecting membership dues (they are billed, not collected), accounting print/PDF, cancellation or reschedule texts, email
-confirmations, payment processing, void of a check-out, cancellation windows, provider
+confirmations, card processing (payments are recorded by tender, no card data), void of a check-out, write-offs, cancellation windows, provider
 time-off/blackout dates. (Automated tests now exist — `npm test` — covering auth, access control, audit and start-up guards; the booking engine itself is still verified by `scripts/race-test.sh` rather than unit tests.)
 
 ## Scripts

@@ -158,9 +158,9 @@ services were seeded long ago and the seed skips them — that is the point. No 
 - [ ] **Check-out does not wait for the note** *(rev 2.0)*. Check a patient out of a manual adjustment before the provider has written anything: the card reads
       "Checked out" with **Note pending**, and the visit is on that provider's **Provider → Your unsigned notes** list. Open it from there, sign it: the card says
       **Note signed**, the signed note says **Signed after check-out**, and the visit stays checked out (no second payment).
-- [ ] **Services that need no note** read **No note needed** (red light, both hyperbaric sessions, body composition) and never appear on an Unsigned notes list. On
-      **Configuration → Services**, check which services have **Requires a signed note** ticked: vitamin shots, biomarker testing and spinal X-rays are ticked
-      until the owner says otherwise.
+- [ ] **Services that need no note** read **No note needed** (red light, both hyperbaric sessions, body composition, and — rev 2.2 — **biomarker testing**) and
+      never appear on an Unsigned notes list. On **Configuration → Services**, check which services have **Requires a signed note** ticked: vitamin shots and
+      spinal X-rays are ticked until the owner says otherwise; biomarker testing is not (migration `20261024100000_biomarker_no_note`).
 - [ ] **The red light price note** on this database (the seed does not rewrite an existing one): it should read *"Full-dose 10 minute session — 2 credits"*. The
       Configuration screen has **no price-note field** (the API accepts one; the screen never sends it), so paste this into the Supabase SQL editor — it changes
       only that row, and only while it still says 3:
@@ -177,7 +177,7 @@ services were seeded long ago and the seed skips them — that is the point. No 
 - [ ] **Enrolling that test membership billed its first month's dues.** Accounting → any view: under the service table there is a separate
       **Membership dues (billed)** table with one month at the tier's price, **not** added into the service totals above it.
 - [ ] **Accounting** (admin): *Monthly by service*, *Daily*, *Members vs. non-members* and *Custom* each show those two visits; the totals row
-      adds up; for the credit visit **Net is $0.00 and Covered by membership shows its list price**; *list = discount + covered + net* on every row.
+      adds up; for the credit visit **Net is $0.00 and Covered by membership shows its list price**; *list = discount + promotions + adjustments + covered + net* on every row.
       Filtering the custom view by a service or provider leaves the dues table empty and says why; payment type **Membership dues** shows only dues.
 - [ ] **Reports** (front desk): *New memberships*, *Walk-ins*, *Weekend visits*, *Service demand* load (a vitamin shot appears under
       **Vitamin shots & injections**, not Other); the front desk **cannot** open Accounting (it says "Not available to your role").
@@ -192,6 +192,23 @@ services were seeded long ago and the seed skips them — that is the point. No 
       services, no service). It prints what it created; run twice, it says there is nothing to do. Perks stay off (Admin → Memberships shows every perk switch off).
 - [ ] **Check the discount at the desk:** a **Restore** member paying cash for a **Spinal X-Ray** ($250.00) is shown **list $250.00 − $37.50 = net $212.50** before confirming
       (Prevent $25.00 off, Optimize $50.00 off); a **credit-paid** visit, a **paused** member and a **non-member** are not discounted; Accounting shows the discount and the category.
+- [ ] **Payments (Phase 2b, rev 2.2).** Everything checked out before this deploy reads **"Settled — before payments were tracked"** on the patient's
+      Ledger and owes nothing. To count those rows in the SQL editor (read only): `SELECT count(*) FROM "PreTrackingSettlement";` — it should equal
+      `SELECT count(*) FROM "RevenueEvent" WHERE "paymentType" <> 'DUES';` as it stood before the deploy.
+- [ ] **Combined check-out with a partial payment.** Book two visits for one fake patient on the same day; check them in; from the Ledger, **Check out today's
+      visits…**: both are listed, pick **Money** for each, pay **less** than due in **Cash** — the screen asks for the patient's agreement — confirm. The Ledger's
+      **Balance carried forward** shows the rest. Next day, **Take a payment…** for the rest by **Check**: the oldest charge is paid first and the balance reads $0.00.
+- [ ] **Overpayment.** Pay $10 more than due: choose **Refund it now** (pick the tender) once and **Keep it as account credit ($)** once. The second shows **Account credit ($)**
+      on the Ledger, separate from **Membership credits**; on the next check-out, apply it. As an admin (MFA), **Refund account credit…** some of the rest.
+- [ ] **Desk adjustment cap.** As the front desk, on a $55 visit an adjustment of $11.00 (20%) with a reason goes through; $11.01 is refused ("An administrator must make
+      a larger adjustment"). On a $200 visit the cap is $25.00. As an admin (MFA) the larger one goes through. No reason → refused.
+- [ ] **Promotions.** Admin → **Promotions**: create 20% off red light for today only. A non-member's red light check-out shows the promotion; an **Optimize**
+      member with a bigger tier discount on that service gets the tier discount instead, never both. Once used, the promotion's amount and dates are locked.
+- [ ] **Reversals.** As the front desk, reverse a payment taken today (it stays on the Ledger, marked reversed, and the balance comes back). Tomorrow, the desk's
+      **Reverse…** button is gone for it; an admin (MFA) can still reverse it.
+- [ ] **No card numbers.** Type a test card number (4242 4242 4242 4242) into a payment's reference: refused.
+- [ ] **Accounting → Billed vs collected** and **Review**: the day's billed and collected agree with what you did above (collected less reversals and refunds);
+      Review lists each adjustment, reversal and refund with who recorded it and **no patient name**; the CSV exports likewise.
 - [ ] A signed note: only the provider who signed it is offered **Amend**; another provider is offered **Add addendum**; an admin is offered neither.
 - [ ] Reports are quick on the real host: the current month appears at once; a three-year range in a second or two. (The timings
       in `docs/PHASE5_NOTES.md` §4 are from a laptop; `npm run perf:reports` repeats them against any database you can create a schema in.)
