@@ -23,6 +23,8 @@ import { fdRouter } from './routes/fd.js';
 import { smsPublicRouter } from './routes/smsPublic.js';
 import { creditsRouter } from './routes/credits.js';
 import { ledgerRouter } from './routes/ledger.js';
+import { moneyRouter } from './routes/money.js';
+import { promotionsAdminRouter } from './routes/promotionsAdmin.js';
 import { membershipAdminRouter } from './routes/membershipAdmin.js';
 import { discountAdminRouter } from './routes/discountAdmin.js';
 import { reportsRouter } from './routes/reports.js';
@@ -133,6 +135,8 @@ export function buildApp() {
   app.use('/api', fdRouter);
   app.use('/api', creditsRouter);
   app.use('/api', ledgerRouter);   // the patient ledger: one read-only view of a patient's visits and their amounts
+  app.use('/api', moneyRouter);    // Phase 2b: check-out with payment, payments, reversals, account-credit refunds
+  app.use('/api', promotionsAdminRouter); // Phase 2b: admin promotions
   app.use('/api', membershipAdminRouter);
   app.use('/api', discountAdminRouter);
   app.use('/api', reportsRouter);  // Accounting (admin) and Reports (front desk, admin): aggregates only

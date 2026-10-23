@@ -31,6 +31,7 @@ import { noteStatusOf, type NoteStatus } from './noteStatus.js';
 import { balance, clinicDay, expiringSoon, getLots } from './credits.js';
 import { openMembership } from './membership.js';
 import { localDayBounds } from './time.js';
+import { moneyView } from './moneyLedger.js';
 import { config } from '../config.js';
 
 /** Where the visit is, for check-out. `ready_to_check_out` is any checked-in visit (CHECKED_IN, IN_PROGRESS, SEEN) — the note does not matter. */
@@ -54,6 +55,11 @@ export interface VisitCharge {
   priceKnown: boolean;
   paidWith: 'CASH' | 'CREDITS' | 'PERK' | null;
   recordedAt: string | null;
+  /** Rev 2.2: a promotion that applied instead of the tier discount (never both), and a one-off adjustment, with its reason. */
+  promotionCents: number;
+  promotionName: string | null;
+  adjustmentCents: number;
+  adjustmentReason: string | null;
 }
 
 export interface LedgerVisit {
@@ -77,6 +83,7 @@ const DUES_LIMIT = 24;
 const NO_CHARGE: VisitCharge = {
   basis: 'none', listPriceCents: null, discountPercent: 0, discountCents: 0, creditsApplied: null, creditCost: null,
   creditsAvailable: null, netCents: null, priceKnown: false, paidWith: null, recordedAt: null,
+  promotionCents: 0, promotionName: null, adjustmentCents: 0, adjustmentReason: null,
 };
 
 function stateOf(status: string | undefined): VisitState {
@@ -97,6 +104,7 @@ function recorded(e: RevenueRow): VisitCharge {
     netCents: e.netPriceCents, priceKnown: e.listPriceCents != null,
     paidWith: e.paymentType === 'CASH' ? 'CASH' : e.memberBenefit === 'PERK' ? 'PERK' : 'CREDITS',
     recordedAt: e.occurredAt.toISOString(),
+    promotionCents: e.promotionCents, promotionName: null, adjustmentCents: e.adjustmentCents, adjustmentReason: e.adjustmentReason,
   };
 }
 
@@ -120,7 +128,7 @@ export async function patientLedger(patientId: string, now: Date) {
     const prior = priorRows.slice(0, PRIOR_LIMIT);
 
     const encounterIds = [...todayRows, ...prior].map((b) => b.encounter?.id).filter((x): x is string => !!x);
-    const events = encounterIds.length ? await tx.revenueEvent.findMany({ where: { encounterId: { in: encounterIds } } }) : [];
+    const events = encounterIds.length ? await tx.revenueEvent.findMany({ where: { encounterId: { in: encounterIds } }, include: { promotion: { select: { name: true } } } }) : [];
     const byEncounter = new Map(events.map((e) => [e.encounterId, e]));
 
     const visit = async (b: (typeof todayRows)[number], priceUnrecorded: boolean): Promise<LedgerVisit> => {
@@ -128,7 +136,7 @@ export async function patientLedger(patientId: string, now: Date) {
       let charge: VisitCharge = NO_CHARGE;
       const ev = b.encounter ? byEncounter.get(b.encounter.id) : undefined;
       if (state === 'checked_out' && ev) {
-        charge = recorded(ev);
+        charge = { ...recorded(ev), promotionName: ev.promotion?.name ?? null };
       } else if (state !== 'no_show' && state !== 'checked_out' && priceUnrecorded) {
         // The very figures the check-out screen will show for it.
         const pv = await checkoutPreview(tx, b.id, now);
@@ -137,6 +145,7 @@ export async function patientLedger(patientId: string, now: Date) {
             basis: 'projected', listPriceCents: pv.listPriceCents, discountPercent: pv.cash.discountPercent, discountCents: pv.cash.discountCents ?? 0,
             creditsApplied: null, creditCost: pv.creditCost, creditsAvailable: pv.creditCost != null ? pv.credits.available : null,
             netCents: pv.cash.netPriceCents, priceKnown: pv.cash.priceKnown, paidWith: null, recordedAt: null,
+            promotionCents: pv.cash.promotion?.cents ?? 0, promotionName: pv.cash.promotion?.name ?? null, adjustmentCents: 0, adjustmentReason: null,
           };
         }
       }
@@ -208,6 +217,8 @@ export async function patientLedger(patientId: string, now: Date) {
         id: d.id, periodStart: d.periodStart ? d.periodStart.toISOString().slice(0, 10) : null, description: d.serviceName,
         listPriceCents: d.listPriceCents, billingStatus: d.billingStatus ?? null, recordedAt: d.occurredAt.toISOString(),
       })),
+      /** Phase 2b: what has been posted, the balance carried forward, and account credit ($). Read in this same snapshot. */
+      money: await moneyView(tx, patientId, today),
     };
   }, { isolationLevel: 'RepeatableRead', maxWait: 10_000, timeout: 20_000 });
 }

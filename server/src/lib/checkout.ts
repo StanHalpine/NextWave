@@ -17,9 +17,11 @@
 import { randomUUID } from 'node:crypto';
 import type { Prisma } from '@prisma/client';
 import { lockedBooking, checkOut } from './encounters.js';
+import { toLocalDateISO } from './time.js';
 import { balance, clinicDay, CreditError, lockPatient, perkStates, takeCredits, usePerk, type PerkState } from './credits.js';
 import { openMembership } from './membership.js';
-import { memberDiscount } from './pricing.js';
+import { adjustmentRefusal, betterOf, deskAdjustmentCap, looksLikeCardNumber } from './moneyMath.js';
+import { promotionsFor } from './promotions.js';
 import type { Rec } from './staffTx.js';
 import { visitProviderId } from './visitProvider.js';
 
@@ -37,7 +39,12 @@ export type PaymentChoice =
    */
   | { payment: 'CASH'; priceCents?: number; expectedNetCents?: number };
 
+/** A one-off reduction at check-out (rev 2.2, decision 3): a reason code always; a note required for OTHER; never in the audit log. */
+export interface AdjustmentInput { cents: number; reason: 'SERVICE_RECOVERY' | 'PRICE_MATCH' | 'COURTESY' | 'BILLING_ERROR' | 'OTHER'; note?: string | null }
+
 export interface CheckoutSummary {
+  /** The charge this check-out recorded. */
+  revenueEventId: string;
   paymentType: 'MEMBER' | 'CASH';
   memberBenefit: 'CREDITS' | 'PERK' | null;
   /** What the visit is worth at list price, before any discount. */
@@ -45,7 +52,12 @@ export interface CheckoutSummary {
   /** The tier's discount that applied (0 unless an active member paid cash), and what it took off. */
   discountPercent: number;
   discountCents: number;
-  /** What the patient owes in money: list − discount for cash, 0 when the membership covered it. */
+  /** The promotion that applied instead of the tier discount (never both, decision 1). */
+  promotion: { id: string; name: string; cents: number } | null;
+  /** The one-off adjustment taken off, and its reason. */
+  adjustmentCents: number;
+  adjustmentReason: AdjustmentInput['reason'] | null;
+  /** What the patient owes in money: list − discount − promotion − adjustment for cash, 0 when the membership covered it. */
   netPriceCents: number;
   creditsRedeemed: number;
   /** The patient's spendable credits before and after (null when there is no patient record). */
@@ -89,7 +101,11 @@ async function loadVisit(tx: Tx, bookingId: string) {
   });
 }
 
-export async function checkoutVisit(tx: Tx, rec: Rec, a: { bookingId: string; accountId: string; now: Date } & PaymentChoice): Promise<CheckoutSummary> {
+/**
+ * `adjustment`, `byAdmin` and `batchId` come from the combined check-out (lib/money.ts): an adjustment is allowed only on a visit paid in
+ * money, up to the desk's cap unless `byAdmin` (an admin on an MFA-verified session).
+ */
+export async function checkoutVisit(tx: Tx, rec: Rec, a: { bookingId: string; accountId: string; now: Date; adjustment?: AdjustmentInput | null; byAdmin?: boolean; batchId?: string | null } & PaymentChoice): Promise<CheckoutSummary> {
   const locked = await lockedBooking(tx, a.bookingId);                // 1. the Booking row
   const enc = locked.encounter;
   if (!enc || enc.status === 'SCHEDULED' || enc.status === 'NO_SHOW') throw fail(409, 'not_checked_in', 'This patient has not been checked in.');
@@ -100,6 +116,7 @@ export async function checkoutVisit(tx: Tx, rec: Rec, a: { bookingId: string; ac
     return summarise(tx, existing, true);
   }
   if (existing) throw fail(409, 'already_recorded', 'A payment is already recorded for this visit.');
+  if (a.adjustment && a.payment !== 'CASH') throw fail(400, 'adjustment_only_for_money', 'An adjustment applies only to a visit paid in money, not with credits or a perk.');
 
   const b = await loadVisit(tx, a.bookingId);
   const patientId = b.patientId;
@@ -123,6 +140,8 @@ export async function checkoutVisit(tx: Tx, rec: Rec, a: { bookingId: string; ac
   let discountPercent = 0;
   let discountCategory: string | null = null;
   let discountCents = 0;
+  let promotion: { id: string; name: string; cents: number } | null = null;
+  let adjustmentCents = 0;
   let netCents = 0;
   let recordedPrice = price;
   let perk: PerkState | null = null;
@@ -148,16 +167,34 @@ export async function checkoutVisit(tx: Tx, rec: Rec, a: { bookingId: string; ac
       throw fail(400, 'price_mismatch', 'That is not this service\'s price. Prices are changed by an administrator.', { priceCents: price });
     }
     if (recordedPrice == null || !Number.isInteger(recordedPrice) || recordedPrice <= 0) throw fail(400, 'bad_price', 'Enter the amount as a whole number of cents above zero.');
-    // Only an ACTIVE member is discounted (paused and cancelled are not), and only on what they pay
-    // in money: credits and perks are not priced in dollars, so there is nothing to take a percent of.
-    // The percent is the member's TIER's for this service's CATEGORY; a service in no category is not discounted.
+    // Only an ACTIVE member is discounted (paused and cancelled are not), and only on what they pay in money: credits and perks are
+    // not priced in dollars. The tier's percent is for the service's CATEGORY. A promotion for the service, by the VISIT's clinic date
+    // (decision 2), applies instead when it is better for the patient — never both (decision 1).
     const found = membership?.status === 'ACTIVE' ? await categoryDiscount(tx, membership.planId, b.service.discountCategory) : { percent: 0, code: null, name: null };
-    discountPercent = found.percent;
-    discountCategory = found.percent > 0 ? found.code : null;
-    ({ discountCents, netCents } = memberDiscount(recordedPrice, discountPercent));
+    const promos = await promotionsFor(tx, b.serviceId, toLocalDateISO(b.startTime));
+    const red = betterOf(recordedPrice, found.percent, promos);
+    discountPercent = red.discountPercent;
+    discountCents = red.discountCents;
+    discountCategory = red.discountCents > 0 ? found.code : null;
+    if (red.promotionId) promotion = { id: red.promotionId, name: promos.find((p) => p.id === red.promotionId)!.name, cents: red.promotionCents };
+    const afterDiscounts = recordedPrice - discountCents - (promotion?.cents ?? 0);
+    if (a.adjustment) {
+      const why = adjustmentRefusal({ listCents: recordedPrice, afterDiscountsCents: afterDiscounts, cents: a.adjustment.cents, byAdmin: !!a.byAdmin });
+      if (why === 'bad_amount') throw fail(400, 'bad_adjustment', 'An adjustment is a whole number of cents above zero.');
+      if (why === 'adjustment_too_large') throw fail(400, 'adjustment_too_large', 'An adjustment cannot take a visit below zero.', { maxCents: afterDiscounts });
+      if (why === 'adjustment_needs_admin') {
+        throw new CreditError(403 as never, 'adjustment_needs_admin', 'The front desk may adjust a visit by at most 20% of its list price or $25.00, whichever is less. An administrator must make a larger adjustment.', { capCents: deskAdjustmentCap(recordedPrice) });
+      }
+      const note = a.adjustment.note?.trim() || null;
+      if (a.adjustment.reason === 'OTHER' && !note) throw fail(400, 'adjustment_note_required', 'Say why, in a few words, when the reason is "Other".');
+      if (note && note.length > 200) throw fail(400, 'adjustment_note_too_long', 'Keep the note to 200 characters.');
+      if (looksLikeCardNumber(note)) throw fail(400, 'card_number_refused', 'That looks like a card number. Card details are never recorded here.');
+      adjustmentCents = a.adjustment.cents;
+    }
+    netCents = afterDiscounts - adjustmentCents;
     if (a.expectedNetCents != null && a.expectedNetCents !== netCents) {
-      throw fail(409, 'price_changed', 'The price changed since this screen opened (the membership or its discount was edited). Review the new amount and check out again.',
-        { listPriceCents: recordedPrice, discountPercent, discountCents, netPriceCents: netCents });
+      throw fail(409, 'price_changed', 'The price changed since this screen opened (the membership, its discount or a promotion was edited). Review the new amount and check out again.',
+        { listPriceCents: recordedPrice, discountPercent, discountCents, promotionCents: promotion?.cents ?? 0, adjustmentCents, netPriceCents: netCents });
     }
   }
 
@@ -168,15 +205,24 @@ export async function checkoutVisit(tx: Tx, rec: Rec, a: { bookingId: string; ac
       listPriceCents: recordedPrice, paymentType, memberBenefit, creditsRedeemed: credits,
       // The visit's provider (rev 2.1): the covering provider when one saw the patient, else the one it was booked with.
       discountPercent, discountCents, netPriceCents: netCents, discountCategory, staffId: visitProviderId(b),
+      promotionId: promotion?.id ?? null, promotionCents: promotion?.cents ?? 0,
+      adjustmentCents, adjustmentReason: adjustmentCents > 0 ? a.adjustment!.reason : null,
+      adjustmentNote: adjustmentCents > 0 ? (a.adjustment!.note?.trim() || null) : null, adjustedById: adjustmentCents > 0 ? a.accountId : null,
+      batchId: a.batchId ?? null,
       planCode: membership && (paymentType === 'MEMBER' || membership.status === 'ACTIVE') ? membership.plan.code : null,
       occurredAt: a.now, recordedById: a.accountId,
     },
   });
-  await rec({ action: 'CREATE', resourceType: 'revenue_event', resourceId: row.id, meta: { paymentType, memberBenefit, credits, discountPercent, discountCategory, discountCents, netPriceCents: netCents } });
+  // Ids, codes and counts only — no amounts and no note text (rev 2.2 hard rule): the figures are on the row itself.
+  await rec({ action: 'CREATE', resourceType: 'revenue_event', resourceId: row.id, meta: {
+    paymentType, memberBenefit, credits, discountCategory, tierDiscount: discountCents > 0, promotionId: promotion?.id ?? null,
+    adjustmentReason: adjustmentCents > 0 ? a.adjustment!.reason : null, batchId: a.batchId ?? null,
+  } });
 
   await checkOut(tx, rec, { bookingId: a.bookingId, accountId: a.accountId, now: a.now });
 
   return {
+    revenueEventId: row.id, promotion, adjustmentCents, adjustmentReason: adjustmentCents > 0 ? a.adjustment!.reason : null,
     paymentType, memberBenefit, listPriceCents: recordedPrice, discountPercent, discountCents, netPriceCents: netCents, creditsRedeemed: credits,
     balanceBefore, balanceAfter, perkLabel: perk?.label ?? null,
     planName: membership?.plan.name ?? null, recordedAt: a.now.toISOString(), alreadyCheckedOut: false,
@@ -185,7 +231,10 @@ export async function checkoutVisit(tx: Tx, rec: Rec, a: { bookingId: string; ac
 
 async function summarise(tx: Tx, e: Prisma.RevenueEventGetPayload<object>, alreadyCheckedOut: boolean): Promise<CheckoutSummary> {
   const perk = e.memberBenefit === 'PERK' ? await tx.perkUsage.findFirst({ where: { revenueEventId: e.id }, include: { perk: { select: { label: true } } } }) : null;
+  const promo = e.promotionId ? await tx.promotion.findUnique({ where: { id: e.promotionId }, select: { name: true } }) : null;
   return {
+    revenueEventId: e.id, promotion: e.promotionId ? { id: e.promotionId, name: promo?.name ?? '', cents: e.promotionCents } : null,
+    adjustmentCents: e.adjustmentCents, adjustmentReason: e.adjustmentReason,
     // Found by its encounter, so never dues (the RevenueEvent_kind CHECK: dues have no visit).
     paymentType: e.paymentType as 'MEMBER' | 'CASH', memberBenefit: e.memberBenefit, listPriceCents: e.listPriceCents, discountPercent: e.discountPercent,
     discountCents: e.discountCents, netPriceCents: e.netPriceCents, creditsRedeemed: e.creditsRedeemed,
@@ -217,8 +266,16 @@ export interface CheckoutPreview {
     /** Which category it comes from (its name), when one applies. */
     discountCategory: string | null;
     discountCents: number | null;
-    /** What the patient owes after the discount; null while the amount is still to be entered. */
+    /** What the patient owes after the discount or promotion; null while the amount is still to be entered. */
     netPriceCents: number | null;
+    /** Rev 2.2. The member's tier percent for this service before the better-of rule (the applied one is `discountPercent`). */
+    tierPercent: number;
+    /** The promotion that applies instead of the tier discount, when it is better for the patient (never both). */
+    promotion: { id: string; name: string; cents: number } | null;
+    /** Every promotion this visit qualifies for (by its clinic date), so a price typed at the desk is priced the same way. */
+    promotions: Array<{ id: string; name: string; kind: 'PERCENT' | 'FIXED_CENTS'; value: number }>;
+    /** The most the front desk may adjust this visit by (decision 3); an admin may go further. Null while the price is unknown. */
+    adjustmentCapCents: number | null;
   };
 }
 
@@ -255,8 +312,11 @@ export async function checkoutPreview(tx: Tx, bookingId: string, now: Date): Pro
     }
   }
   const found = membership?.status === 'ACTIVE' ? await categoryDiscount(tx, membership.planId, b.service.discountCategory) : { percent: 0, code: null, name: null };
-  const discountPercent = found.percent;
-  const disc = price != null ? memberDiscount(price, discountPercent) : null;
+  const promos = await promotionsFor(tx, b.serviceId, toLocalDateISO(b.startTime));
+  const red = price != null ? betterOf(price, found.percent, promos) : null;
+  const promotion = red?.promotionId ? { id: red.promotionId, name: promos.find((p) => p.id === red.promotionId)!.name, cents: red.promotionCents } : null;
+  // With the price still to be typed, the tier percent is what would apply unless a promotion beats it; the screen prices it the same way.
+  const discountPercent = red ? red.discountPercent : found.percent;
   return {
     alreadyCheckedOut: done,
     service: { id: b.service.id, name: b.service.name, category: b.service.category, subOption: b.subOption },
@@ -266,6 +326,13 @@ export async function checkoutPreview(tx: Tx, bookingId: string, now: Date): Pro
     balance: bal,
     credits: { available: reason === null, cost, balanceAfter: reason === null && bal != null && cost != null ? bal - cost : null, reason },
     perks,
-    cash: { priceCents: price, priceKnown: price != null, discountPercent, discountCategory: found.percent > 0 ? found.name : null, discountCents: disc?.discountCents ?? null, netPriceCents: disc?.netCents ?? null },
+    cash: {
+      priceCents: price, priceKnown: price != null, discountPercent,
+      discountCategory: discountPercent > 0 ? found.name : null,
+      discountCents: red ? red.discountCents : null,
+      netPriceCents: red && price != null ? price - red.discountCents - red.promotionCents : null,
+      tierPercent: found.percent, promotion, promotions: promos.map((p) => ({ id: p.id, name: p.name, kind: p.kind, value: p.value })),
+      adjustmentCapCents: price != null ? deskAdjustmentCap(price) : null,
+    },
   };
 }

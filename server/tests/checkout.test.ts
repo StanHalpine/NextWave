@@ -81,7 +81,7 @@ describe('the check-out screen\'s preview', () => {
     const withOption = await checkedInVisit(clinic, null, { subOption: 'Methyl B12' });
     expect((await preview(fd, withOption.booking.id)).body.preview).toMatchObject({ listPriceCents: 2500, cash: { priceCents: 2500, priceKnown: true } });
     const noPrice = await checkedInVisit(clinic, null);
-    expect((await preview(fd, noPrice.booking.id)).body.preview.cash).toEqual({ priceCents: null, priceKnown: false, discountPercent: 0, discountCategory: null, discountCents: null, netPriceCents: null });
+    expect((await preview(fd, noPrice.booking.id)).body.preview.cash).toEqual({ priceCents: null, priceKnown: false, discountPercent: 0, discountCategory: null, discountCents: null, netPriceCents: null, tierPercent: 0, promotion: null, promotions: [], adjustmentCapCents: null });
 
     expect((await out(fd, withOption.booking.id, { payment: 'CASH' })).status).toBe(200);
     expect((await preview(fd, withOption.booking.id)).body.preview.alreadyCheckedOut).toBe(true);
@@ -484,7 +484,7 @@ describe('paying cash with a member discount (a percentage per tier per service 
     const v = await checkedInVisit(clinic, p.id);
 
     const pv = (await preview(fd, v.booking.id)).body.preview;
-    expect(pv.cash).toEqual({ priceCents: 5500, priceKnown: true, discountPercent: 10, discountCategory: category.name, discountCents: 550, netPriceCents: 4950 });
+    expect(pv.cash).toEqual({ priceCents: 5500, priceKnown: true, discountPercent: 10, discountCategory: category.name, discountCents: 550, netPriceCents: 4950, tierPercent: 10, promotion: null, promotions: [], adjustmentCapCents: 1100 });
 
     const r = await out(fd, v.booking.id, { payment: 'CASH', expectedNetCents: 4950 });
     expect(r.status).toBe(200);
@@ -492,8 +492,11 @@ describe('paying cash with a member discount (a percentage per tier per service 
     expect((await events(v.encounter.id))[0]).toMatchObject({
       paymentType: 'CASH', listPriceCents: 5500, discountPercent: 10, discountCategory: category.code, discountCents: 550, netPriceCents: 4950, planCode: plan.code,
     });
-    const audit = await auditRows({ resourceType: 'revenue_event', action: 'CREATE' });
-    expect(JSON.stringify(audit.find((a) => JSON.stringify(a.meta).includes('"discountCents":550'))?.meta)).toMatch(/"discountCategory":"T/);
+    // The audit row says a tier discount applied and from which category — never the amount (rev 2.2: no amounts in audit meta).
+    const e = (await events(v.encounter.id))[0]!;
+    const [row] = await auditRows({ resourceType: 'revenue_event', resourceId: e.id, action: 'CREATE' });
+    expect(row!.meta).toMatchObject({ paymentType: 'CASH', discountCategory: category.code, tierDiscount: true, promotionId: null, adjustmentReason: null });
+    expect(JSON.stringify(row!.meta)).not.toMatch(/550|4950|5500|Cents/);
   });
 
   it('gives the SAME tier different percents in different categories, and a different tier a different percent in the same one', async () => {
@@ -587,7 +590,7 @@ describe('paying cash with a member discount (a percentage per tier per service 
     const { p, give, category } = await discounted(10);
     await give(clinic.service.id);
     const v = await checkedInVisit(clinic, p.id);
-    expect((await preview(fd, v.booking.id)).body.preview.cash).toEqual({ priceCents: null, priceKnown: false, discountPercent: 10, discountCategory: category.name, discountCents: null, netPriceCents: null });
+    expect((await preview(fd, v.booking.id)).body.preview.cash).toEqual({ priceCents: null, priceKnown: false, discountPercent: 10, discountCategory: category.name, discountCents: null, netPriceCents: null, tierPercent: 10, promotion: null, promotions: [], adjustmentCapCents: null });
     expect((await out(fd, v.booking.id, { payment: 'CASH' })).body.code).toBe('price_required');
     const r = await out(fd, v.booking.id, { payment: 'CASH', priceCents: 7300, expectedNetCents: 6570 });
     expect(r.body.checkout).toMatchObject({ listPriceCents: 7300, discountPercent: 10, discountCents: 730, netPriceCents: 6570 });

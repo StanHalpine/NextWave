@@ -31,6 +31,7 @@ import {
   DUES_TITLE, REVENUE_GROUPS, type DuesTable, type RevenueFilter, type RevenueGroup, type Table,
 } from '../lib/reports.js';
 import { ReportError, resolveRange, toCsv, toCsvSections, type DateRange } from '../lib/reportFormat.js';
+import { collectionsTable, reviewTable } from '../lib/moneyReports.js';
 import { requireRole } from '../middleware/session.js';
 
 export const reportsRouter = Router();
@@ -57,6 +58,8 @@ const custom = z.object({
   group: z.enum(REVENUE_GROUPS as [RevenueGroup, ...RevenueGroup[]]).optional(),
 }).strict();
 type Plain = z.infer<typeof plain>;
+const collections = z.object({ ...dateParams, group: z.enum(['day', 'month']).optional() }).strict();
+type Collections = z.infer<typeof collections>;
 type Custom = z.infer<typeof custom>;
 
 const MONEY_NOTE = 'Service revenue is what the front desk recorded at check-out: net = list price − member discount, and 0 for a visit a membership covered (credits or a perk), shown under "Covered by membership". Membership dues are billed when each month\'s credits are granted and are shown below, separately: they are never added into service revenue. Collecting the payment happens outside this system, so a dues line means "billed", not "paid".';
@@ -92,6 +95,24 @@ const ACCOUNTING: Record<string, ViewDef<any>> = {
     }),
   } satisfies ViewDef<Custom>,
 };
+
+// Phase 2b (rev 2.2): the money layer's two views. Aggregates and a review list — no patient is named.
+ACCOUNTING.collections = {
+  title: 'Billed vs collected', parse: collections,
+  run: async (range, q: Collections) => ({
+    ...(await collectionsTable(range, q.group ?? 'day')),
+    notes: [
+      'Billed is what check-out recorded (net of the tier discount, a promotion — never both — and any adjustment), on the day of check-out. Collected is money in, each on its own day: payments on the day they were collected, less payment reversals and refunds on the day they were made.',
+      'Settled before tracking: charges recorded before payments were tracked count as paid in full; they are not money collected in this range.',
+      'Outstanding and account credit held are across all patients, as of now. Membership dues are billed only and are not in either.',
+    ],
+  }),
+  filters: (q: Collections) => ({ group: q.group ?? 'day' }),
+} satisfies ViewDef<Collections>;
+ACCOUNTING.review = {
+  title: 'Adjustments, reversals and refunds for review', parse: plain,
+  run: async (range) => ({ ...(await reviewTable(range)), notes: ['Every one-off adjustment (front desk or admin), payment reversal and refund in the range. No patient is named; the reference id identifies the charge, payment or refund.'] }),
+} satisfies ViewDef<Plain>;
 
 const REPORTS: Record<string, ViewDef<any>> = {
   signups: {
