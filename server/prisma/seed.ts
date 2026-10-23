@@ -100,7 +100,8 @@ const resources = [
 //
 // requiresNote: false marks a service whose visits need no signed note (rev 2.0, the owner: only what a
 // chiropractor, a nurse practitioner or an IV-lounge nurse delivers needs one; red light, HBOT and similar
-// sessions none). Every service without it needs one (the column default). Mirrored in the rev 2.0 migration.
+// sessions none; rev 2.2: biomarker testing none). Every service without it needs one (the column default). Mirrored in the
+// rev 2.0 and rev 2.2 migrations.
 const services = [
   // Chiropractic
   { id: S(1), slug: 'manual-adjustment', category: 'Chiropractic', name: 'Manual Adjustment', durationMin: 30, bufferMin: 5, requiredRole: StaffRole.CHIROPRACTOR, resourceType: 'ADJUSTING_ROOM' , priceCents: 5500, newPatientSlug: 'spinal-postural-exam' , color: 'chiro_saddle' , documentationType: DocumentationType.SOAP , creditCost: 2 },
@@ -109,7 +110,7 @@ const services = [
 
   // Functional Medicine
   { id: S(4), slug: 'functional-medicine-consult', category: 'Functional Medicine', name: 'Functional Medicine Consult', durationMin: 30, bufferMin: 10, requiredRole: StaffRole.NURSE_PRACTITIONER, resourceType: 'CONSULT_ROOM' , priceCents: 15000, priceNote: '30 minute consult — includes InBody body composition measuring' , color: 'fm_hunter' , documentationType: DocumentationType.SOAP },
-  { id: S(5), slug: 'biomarker-testing', category: 'Functional Medicine', name: 'Biomarker Testing', durationMin: 20, bufferMin: 5, requiredRole: StaffRole.REGISTERED_NURSE, resourceType: 'LAB_DRAW' , priceCents: null, priceNote: 'Price varies by panel' , color: 'fm_jade' , documentationType: DocumentationType.SOAP },
+  { id: S(5), slug: 'biomarker-testing', category: 'Functional Medicine', name: 'Biomarker Testing', durationMin: 20, bufferMin: 5, requiredRole: StaffRole.REGISTERED_NURSE, resourceType: 'LAB_DRAW' , priceCents: null, priceNote: 'Price varies by panel' , color: 'fm_jade' , documentationType: DocumentationType.SOAP , requiresNote: false },
   { id: S(6), slug: 'hormone-optimization', category: 'Functional Medicine', name: 'Hormone Optimization', durationMin: 30, bufferMin: 10, requiredRole: StaffRole.NURSE_PRACTITIONER, resourceType: 'CONSULT_ROOM' , priceCents: 35000, priceNote: 'Walk-in — includes DUTCH testing and 30 minute consult' , color: 'fm_grass' , documentationType: DocumentationType.SOAP },
   { id: S(7), slug: 'body-composition', category: 'Functional Medicine', name: 'Body Composition', durationMin: 15, bufferMin: 5, requiredRole: StaffRole.REGISTERED_NURSE, resourceType: 'INBODY_STATION' , priceCents: 5500, priceNote: 'Walk-in rate' , color: 'fm_forest' , requiresNote: false },
   { id: S(8), slug: 'supplementation', category: 'Functional Medicine', name: 'Supplementation', durationMin: 20, bufferMin: 5, requiredRole: StaffRole.NURSE_PRACTITIONER, resourceType: 'CONSULT_ROOM' , priceCents: null , color: 'fm_lime' , documentationType: DocumentationType.SOAP },

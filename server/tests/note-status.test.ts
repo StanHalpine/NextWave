@@ -188,11 +188,11 @@ describe('a service that needs no note', () => {
     expect(ids((await worklist(prov)).rows)).not.toContain(v.booking.id);
   });
 
-  it('in the seeded catalogue: red light, both hyperbaric sessions and body composition need none; every other service needs one', async () => {
+  it('in the seeded catalogue: red light, both hyperbaric sessions, body composition and biomarker testing (rev 2.2) need none; every other service needs one', async () => {
     const seeded = await basePrisma.service.findMany({ where: { id: { startsWith: '5e401ce0-' } }, select: { slug: true, durationMin: true, requiresNote: true } });
     expect(seeded).toHaveLength(15);
     const none = seeded.filter((s) => !s.requiresNote).map((s) => `${s.slug}${s.slug === 'hyperbaric-oxygen-therapy' ? `-${s.durationMin}` : ''}`).sort();
-    expect(none).toEqual(['body-composition', 'hyperbaric-oxygen-therapy-60', 'hyperbaric-oxygen-therapy-90', 'red-light-therapy']);
+    expect(none).toEqual(['biomarker-testing', 'body-composition', 'hyperbaric-oxygen-therapy-60', 'hyperbaric-oxygen-therapy-90', 'red-light-therapy']);
   });
 });
 
