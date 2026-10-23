@@ -192,10 +192,11 @@ model Service {
 
   bookings         Booking[]
   options          ServiceOption[]
+  promotions       PromotionService[]
   rooms            ServiceRoom[]
   staff            ServiceStaff[]
   planPerkServices PlanPerkService[]
-  discountCategory DiscountCategory? @relation(fields: [discountCategoryId], references: [id], onDelete: SetNull)
+  discountCategory DiscountCategory?  @relation(fields: [discountCategoryId], references: [id], onDelete: SetNull)
 
   @@index([slug])
   @@index([category])
@@ -927,14 +928,244 @@ model RevenueEvent {
   periodStart   DateTime?      @db.Date
   billingStatus BillingStatus?
 
-  encounter  Encounter?  @relation(fields: [encounterId], references: [id], onDelete: Restrict)
-  membership Membership? @relation(fields: [membershipId], references: [id], onDelete: Restrict)
+  /// Phase 2b (rev 2.2), set at check-out only, on a visit paid in money. A promotion and the tier discount are never both applied
+  /// (the better of the two for the patient), so promotionCents > 0 means discountCents = 0. The list price is never edited: every
+  /// reduction is its own column, and net = list − discount − promotion − adjustment (RevenueEvent_consistent).
+  promotionId      String?
+  promotionCents   Int               @default(0)
+  /// The front desk's (or an admin's) one-off reduction, with its reason code; the note is never written to the audit log.
+  adjustmentCents  Int               @default(0)
+  adjustmentReason AdjustmentReason?
+  adjustmentNote   String?
+  adjustedById     String?
+  /// The combined check-out this charge was part of.
+  batchId          String?
+
+  encounter   Encounter?             @relation(fields: [encounterId], references: [id], onDelete: Restrict)
+  membership  Membership?            @relation(fields: [membershipId], references: [id], onDelete: Restrict)
+  promotion   Promotion?             @relation(fields: [promotionId], references: [id], onDelete: Restrict)
+  allocations PaymentAllocation[]
+  preTracking PreTrackingSettlement?
 
   @@unique([membershipId, periodStart])
   @@index([occurredAt])
   @@index([serviceId, occurredAt])
   @@index([patientId])
   @@index([staffId, occurredAt])
+  @@index([batchId])
+  @@index([promotionId])
+}
+
+// =============================================================================
+// Phase 2b (rev 2.2) — the money layer: payments, what they paid, reversals, refunds, account credit, promotions.
+// docs/MONEY_LAYER_DESIGN.md. Money is integer cents. Every table but the two promotion tables is APPEND-ONLY (database triggers);
+// every table has Row Level Security enabled. Nothing derivable is stored: the balance and the account credit are sums of rows.
+// =============================================================================
+
+/// Recorded by hand (decision 5). A card or an HSA/FSA card is run on the clinic's own terminal; the app sees only the amount.
+enum TenderType {
+  CASH
+  CARD
+  CHECK
+  HSA_FSA
+  OTHER
+}
+
+enum AdjustmentReason {
+  SERVICE_RECOVERY
+  PRICE_MATCH
+  COURTESY
+  BILLING_ERROR
+  OTHER
+}
+
+enum PromotionKind {
+  PERCENT
+  FIXED_CENTS
+}
+
+enum ReversalReason {
+  ENTERED_IN_ERROR
+  DECLINED
+  CHECK_RETURNED
+  DUPLICATE
+  OTHER
+}
+
+enum RefundSource {
+  /// The part of a payment above what was due, handed back at the time (decision 4).
+  OVERPAYMENT
+  /// A patient's account credit, refunded later by an admin.
+  ACCOUNT_CREDIT
+}
+
+/// Account credit in DOLLARS — nothing to do with membership credits (CreditLedger), by design (decision 4).
+enum AccountCreditKind {
+  OVERPAYMENT
+  APPLIED
+  REFUNDED
+  REVERSED
+}
+
+/// An admin's promotion (e.g. "20% off red light, Oct 20–26"). CONFIGURATION, not a ledger: it may be edited until a charge uses it;
+/// after that a trigger freezes its kind, value and dates (and its services) — only `name` and `active` may change. Never deleted.
+model Promotion {
+  id          String        @id @default(uuid())
+  name        String
+  kind        PromotionKind
+  /// PERCENT: 1–100. FIXED_CENTS: cents, > 0.
+  value       Int
+  /// Clinic-local dates, both inclusive. A promotion applies by the VISIT's clinic date (decision 2).
+  startsOn    DateTime      @db.Date
+  endsOn      DateTime      @db.Date
+  active      Boolean       @default(true)
+  createdById String
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  services PromotionService[]
+  charges  RevenueEvent[]
+}
+
+model PromotionService {
+  promotionId String
+  serviceId   String
+
+  promotion Promotion @relation(fields: [promotionId], references: [id], onDelete: Restrict)
+  service   Service   @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+
+  @@id([promotionId, serviceId])
+  @@index([serviceId])
+}
+
+/// One combined check-out: groups the charges and the payment it wrote.
+model CheckoutBatch {
+  id          String   @id @default(uuid())
+  patientId   String
+  createdById String
+  createdAt   DateTime @default(now())
+
+  @@index([patientId])
+}
+
+/// A money write's idempotency key and the response it gave, written in the SAME transaction as the money: a retry with the same key
+/// and body gets this response back; the same key with another body is refused.
+model IdempotencyRecord {
+  key            String   @id
+  scope          String
+  patientId      String
+  requestHash    String
+  responseStatus Int
+  response       Json
+  createdById    String
+  createdAt      DateTime @default(now())
+
+  @@index([patientId])
+}
+
+/// Money collected (decision 8: dated the clinic day it was collected).
+model Payment {
+  id           String     @id @default(uuid())
+  patientId    String
+  collectedOn  DateTime   @db.Date
+  receivedAt   DateTime
+  recordedById String
+  tender       TenderType
+  amountCents  Int
+  /// A cheque or terminal receipt number. Never a card number: the server refuses anything shaped like one.
+  reference    String?
+  /// Required for OTHER.
+  note         String?
+  batchId      String?
+  createdAt    DateTime   @default(now())
+
+  allocations PaymentAllocation[]
+  reversal    PaymentReversal?
+  refunds     Refund[]
+
+  @@index([patientId, collectedOn])
+  @@index([collectedOn])
+}
+
+/// What a payment paid: oldest charge first (decision 8).
+model PaymentAllocation {
+  id             BigInt   @id @default(autoincrement())
+  paymentId      String
+  revenueEventId String
+  amountCents    Int
+  createdAt      DateTime @default(now())
+
+  payment      Payment      @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  revenueEvent RevenueEvent @relation(fields: [revenueEventId], references: [id], onDelete: Restrict)
+
+  @@index([revenueEventId])
+  @@index([paymentId])
+}
+
+/// Undoes one payment entirely (decision 6). Never an edit: the payment stays, marked reversed.
+model PaymentReversal {
+  id           String         @id @default(uuid())
+  paymentId    String         @unique
+  reason       ReversalReason
+  note         String?
+  reversedById String
+  reversedAt   DateTime
+  /// The clinic day of the reversal: "collected" counts it negative on this date.
+  reversedOn   DateTime       @db.Date
+
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+
+  @@index([reversedOn])
+}
+
+/// Money paid back (decision 4): the overpaid part of a payment, or a patient's account credit (admin).
+model Refund {
+  id           String       @id @default(uuid())
+  patientId    String
+  source       RefundSource
+  /// OVERPAYMENT: the payment it came from.
+  paymentId    String?
+  tender       TenderType
+  amountCents  Int
+  refundedOn   DateTime     @db.Date
+  refundedAt   DateTime
+  recordedById String
+  note         String?
+  createdAt    DateTime     @default(now())
+
+  payment Payment? @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+
+  @@index([patientId])
+  @@index([refundedOn])
+  @@index([paymentId])
+}
+
+/// ACCOUNT CREDIT ($) — signed rows; the balance is their sum and never below zero (a commit-time guard).
+model AccountCreditEntry {
+  id             BigInt            @id @default(autoincrement())
+  patientId      String
+  kind           AccountCreditKind
+  /// + OVERPAYMENT; − APPLIED, REFUNDED, REVERSED.
+  deltaCents     Int
+  entryOn        DateTime          @db.Date
+  paymentId      String?
+  revenueEventId String?
+  refundId       String?
+  reversalId     String?
+  createdById    String
+  createdAt      DateTime          @default(now())
+
+  @@index([patientId])
+  @@index([paymentId])
+  @@index([revenueEventId])
+}
+
+/// A visit charge that existed when payments started being tracked: settled in full (decision 7). Written only by the migration.
+model PreTrackingSettlement {
+  revenueEventId String   @id
+  settledAt      DateTime @default(now())
+
+  revenueEvent RevenueEvent @relation(fields: [revenueEventId], references: [id], onDelete: Restrict)
 }
 
 // =============================================================================

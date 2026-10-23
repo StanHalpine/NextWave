@@ -269,7 +269,8 @@ describe('the database refuses to let the ledger be edited or overdrawn', () => 
     // (PerkUsage and RevenueEvent hold no rows yet, so a row trigger has nothing to fire on; their
     // UPDATE/DELETE are exercised in checkout.test.ts. TRUNCATE is a statement trigger and fires regardless.)
     await expect(exec(`TRUNCATE "PerkUsage"`)).rejects.toThrow(/append-only/);
-    await expect(exec(`TRUNCATE "RevenueEvent"`)).rejects.toThrow(/append-only/);
+    // CASCADE: since Phase 2b other tables hold foreign keys to RevenueEvent, so a plain TRUNCATE is refused before any trigger runs.
+    await expect(exec(`TRUNCATE "RevenueEvent" CASCADE`)).rejects.toThrow(/append-only/);
     expect(await ledgerSum(p.id)).toBe(3);
   });
 
