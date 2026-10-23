@@ -1,4 +1,5 @@
 import type { NoteStatus } from './notes';
+import type { MoneyView } from './money';
 import type { Appt } from './types';
 
 /**
@@ -24,6 +25,11 @@ export interface VisitCharge {
   priceKnown: boolean;
   paidWith: 'CASH' | 'CREDITS' | 'PERK' | null;
   recordedAt: string | null;
+  /** Rev 2.2: a promotion that applied instead of the tier discount (never both), and a one-off adjustment. */
+  promotionCents: number;
+  promotionName: string | null;
+  adjustmentCents: number;
+  adjustmentReason: string | null;
 }
 
 export interface LedgerVisit {
@@ -64,6 +70,8 @@ export interface PatientLedger {
     redeemedToDate: number;
   };
   dues: Array<{ id: string; periodStart: string | null; description: string; listPriceCents: number | null; billingStatus: string | null; recordedAt: string }>;
+  /** Phase 2b: what has been posted, the balance carried forward, and account credit ($). */
+  money: MoneyView;
 }
 
 /** Any visit the patient is checked in for can be checked out from here. The note never holds it up (rev 2.0). */
@@ -78,9 +86,10 @@ export function stateLabel(v: Pick<LedgerVisit, 'state'>): string {
   }
 }
 
-/** How a recorded visit was paid, in words. */
+/** How a recorded visit was charged, in words. */
 export function paidWithLabel(p: VisitCharge['paidWith']): string {
-  return p === 'CASH' ? 'At the desk' : p === 'CREDITS' ? 'Credits' : p === 'PERK' ? 'Member perk' : '';
+  // Rev 2.2: "CASH" means charged in money — paid or not is the payments' business (the Ledger's posted section), so never "paid".
+  return p === 'CASH' ? 'Money' : p === 'CREDITS' ? 'Membership credits' : p === 'PERK' ? 'Member perk' : '';
 }
 
 /** A word for the desk about today's notes still to be signed — information only, since check-out does not wait for them. */

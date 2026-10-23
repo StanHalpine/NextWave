@@ -7,6 +7,7 @@ import type { Appt, Dashboard, ServiceLite } from '../types';
 import { PatientPicker } from '../patients/PatientPicker';
 import { AppointmentDialog, LinkPatientDialog } from '../schedule/dialogs';
 import { CheckoutDialog } from '../schedule/CheckoutDialog';
+import { CheckoutBatchDialog } from '../patients/CheckoutBatchDialog';
 import { DeskActions } from '../schedule/DeskActions';
 import { deskActions, visitStateLabel, type DeskVerb } from '../frontdesk';
 import FrontDeskNav from './FrontDeskNav';
@@ -121,7 +122,11 @@ export default function FrontDesk() {
 
       {walkIn && today && <WalkInDialog tz={data!.timezone} onClose={() => setWalkIn(false)} onPlaced={() => { setWalkIn(false); void load(); }} />}
       {open && <AppointmentDialog id={open} today={today ?? ''} desk onClose={() => setOpen(null)} onChanged={() => void load()} />}
-      {checkout && <CheckoutDialog appt={checkout} onClose={() => setCheckout(null)} onDone={() => void load()} />}
+      {/* Phase 2b: a patient with a record is checked out with the combined check-out (payment, partial, account credit); a walk-up with no
+          record keeps the single-visit check-out, which records the charge only. */}
+      {checkout && (checkout.patient.id
+        ? <CheckoutBatchDialog patientId={checkout.patient.id} preselect={[checkout.id]} onClose={() => setCheckout(null)} onDone={() => void load()} />
+        : <CheckoutDialog appt={checkout} onClose={() => setCheckout(null)} onDone={() => void load()} />)}
       {link && <LinkPatientDialog appt={link} onClose={() => setLink(null)} onLinked={() => { setLink(null); void load(); }} />}
     </>
   );

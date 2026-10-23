@@ -118,6 +118,12 @@ export interface CheckoutPreview {
     priceCents: number | null; priceKnown: boolean;
     /** The member discount that applies to a cash payment (0 for a non-member, a paused member, or a service in no discounted category). */
     discountPercent: number; discountCategory: string | null; discountCents: number | null; netPriceCents: number | null;
+    /** Rev 2.2: the tier percent before the better-of rule, the promotion that applies instead (never both), every promotion this
+     *  visit qualifies for (so a typed price is priced the same way), and the most the front desk may adjust it by. */
+    tierPercent: number;
+    promotion: { id: string; name: string; cents: number } | null;
+    promotions: Array<{ id: string; name: string; kind: 'PERCENT' | 'FIXED_CENTS'; value: number }>;
+    adjustmentCapCents: number | null;
   };
 }
 export interface CheckoutResult {

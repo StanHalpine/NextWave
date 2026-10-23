@@ -320,3 +320,13 @@ textarea[readonly] { background: #f3f1ec; }
 .ledger-table th.num, .ledger-table td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .ledger-table .small { font-size: 12px; }
 .ledger-note { margin-top: 4px; }
+
+/* Phase 2b: the Ledger's money and the check-out dialog */
+.ledger-table.posted tr.reversed td { text-decoration: line-through; color: var(--ink-soft); }
+.ledger-table.posted tr.reversed td:last-child { text-decoration: none; }
+.ledger-table tfoot tr.carried td { border-top: 2px solid var(--ink); background: var(--sand); }
+.adjust-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; }
+.adjust-row input, .adjust-row select { width: auto; }
+.pay-box { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+.money-due dd input { width: 80px; }
+.check-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 4px 16px; }

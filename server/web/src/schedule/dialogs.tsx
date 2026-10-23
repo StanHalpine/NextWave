@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api, ApiError } from '../api';
 import { useClinicTz, todayIn } from '../clinic';
@@ -7,6 +7,7 @@ import { fmtDayLong, fmtTime12, fmtInstantTime, fmtPhone, nowHHMM, serviceLabel,
 import { CANCEL_REASON_LABEL, type Appt, type PatientSummary, type ServiceLite, type SlotLite } from '../types';
 import { PatientPicker } from '../patients/PatientPicker';
 import { CheckoutDialog } from './CheckoutDialog';
+import { CheckoutBatchDialog } from '../patients/CheckoutBatchDialog';
 import { DeskActions } from './DeskActions';
 import { PatientLedger } from '../patients/Ledger';
 import { visitStateLabel, type DeskVerb } from '../frontdesk';
@@ -356,7 +357,8 @@ export function AppointmentDialog({ id, today, desk = false, onClose, onChanged 
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [sub, setSub] = useState<null | 'move' | 'cancel' | 'link' | 'checkout' | 'ledger' | 'provider'>(null);
-  const [ledgerCheckout, setLedgerCheckout] = useState<Appt | null>(null);
+  // A dialog the Ledger opened (check out, take a payment, reverse, refund) — shown INSTEAD of the Ledger, never on top of it.
+  const [ledgerDialog, setLedgerDialog] = useState<ReactNode | null>(null);
 
   const load = useCallback(() => api<Detail>(`/api/schedule/appointments/${id}`).then((r) => { setD(r); setError(null); }).catch((e) => setError(errorText(e))), [id]);
   useEffect(() => { void load(); }, [load]);
@@ -376,15 +378,21 @@ export function AppointmentDialog({ id, today, desk = false, onClose, onChanged 
   if (sub === 'move' && a) return <MoveDialog appt={a} onClose={() => setSub(null)} onMoved={() => { setSub(null); changed(); }} />;
   if (sub === 'cancel' && a) return <CancelDialog appt={a} onClose={() => setSub(null)} onCancelled={() => { setSub(null); changed(); }} />;
   if (sub === 'link' && a) return <LinkPatientDialog appt={a} onClose={() => setSub(null)} onLinked={() => { setSub(null); changed(); }} />;
-  if (sub === 'checkout' && a) return <CheckoutDialog appt={a} onClose={() => setSub(null)} onDone={changed} />;
+  // Phase 2b: a visit with a patient record is checked out with the combined check-out (payment, partial, account credit); a walk-up
+  // with no record keeps the single-visit check-out, which records the charge only (there is no patient to take a payment against).
+  if (sub === 'checkout' && a) {
+    return a.patient.id
+      ? <CheckoutBatchDialog patientId={a.patient.id} preselect={[a.id]} onClose={() => setSub(null)} onDone={changed} />
+      : <CheckoutDialog appt={a} onClose={() => setSub(null)} onDone={changed} />;
+  }
   if (sub === 'provider' && a) return <ChangeProviderDialog appt={a} onClose={() => setSub(null)} onChanged={changed} onMove={() => setSub('move')} />;
-  // The patient's ledger, from this visit's dialog: the same view as the profile's Ledger tab. A check-out started from it replaces it (never
+  // The patient's ledger, from this visit's dialog: the same view as the profile's Ledger tab. A dialog started from it replaces it (never
   // two dialogs on top of each other) and returns to it when closed, showing what was just recorded.
   if (sub === 'ledger' && a?.patient.id) {
-    if (ledgerCheckout) return <CheckoutDialog appt={ledgerCheckout} onClose={() => setLedgerCheckout(null)} onDone={changed} />;
+    if (ledgerDialog) return <>{ledgerDialog}</>;
     return (
       <Modal title={`Ledger — ${a.patient.name}`} wide onClose={() => setSub(null)}>
-        <PatientLedger patientId={a.patient.id} onCheckout={setLedgerCheckout} onChanged={changed} />
+        <PatientLedger patientId={a.patient.id} onDialog={setLedgerDialog} onChanged={changed} />
       </Modal>
     );
   }

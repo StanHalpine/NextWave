@@ -29,8 +29,8 @@ describe('the ledger screen\'s rules and words', () => {
     expect(notesPendingNote(3)).toMatch(/^3 notes are still to be signed/);
   });
 
-  it('names how a recorded visit was paid', () => {
-    expect([paidWithLabel('CASH'), paidWithLabel('CREDITS'), paidWithLabel('PERK'), paidWithLabel(null)]).toEqual(['At the desk', 'Credits', 'Member perk', '']);
+  it('names how a recorded visit was charged — "Money", never "paid": payments are their own entries (rev 2.2)', () => {
+    expect([paidWithLabel('CASH'), paidWithLabel('CREDITS'), paidWithLabel('PERK'), paidWithLabel(null)]).toEqual(['Money', 'Membership credits', 'Member perk', '']);
   });
 
   it('calls the sum an estimate, says nothing is charged by looking, and never says balance', () => {

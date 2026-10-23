@@ -9,6 +9,8 @@ const VIEWS = [
   { key: 'daily', label: 'Daily' },
   { key: 'members', label: 'Members vs. non-members' },
   { key: 'custom', label: 'Custom' },
+  { key: 'collections', label: 'Billed vs collected' },
+  { key: 'review', label: 'Review: adjustments, reversals, refunds' },
 ];
 const GROUP_LABEL: Record<string, string> = {
   service: 'Service', month: 'Month', day: 'Day', serviceMonth: 'Month and service', paymentType: 'Payment type', bucket: 'Who paid, and how',
@@ -23,6 +25,7 @@ export default function Accounting() {
   const [paymentType, setPaymentType] = useState('');
   const [providerId, setProviderId] = useState('');
   const [group, setGroup] = useState('service');
+  const [by, setBy] = useState<'day' | 'month'>('day');
   useEffect(() => { api<AccountingOptions>('/api/accounting/options').then(setOptions).catch(() => setOptions(null)); }, []);
 
   return (
@@ -43,7 +46,12 @@ export default function Accounting() {
         </div>
       )}
 
-      <ReportPanel endpoint="/api/accounting" view={view} extra={view === 'custom' ? { serviceId, paymentType, providerId, group } : {}} />
+      {view === 'collections' && (
+        <div className="filters">
+          <label>Total by<select value={by} onChange={(e) => setBy(e.target.value as 'day' | 'month')}><option value="day">Day</option><option value="month">Month</option></select></label>
+        </div>
+      )}
+      <ReportPanel endpoint="/api/accounting" view={view} extra={view === 'custom' ? { serviceId, paymentType, providerId, group } : view === 'collections' ? { group: by } : {}} />
     </>
   );
 }

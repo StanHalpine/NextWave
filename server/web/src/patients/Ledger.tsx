@@ -1,33 +1,38 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { api } from '../api';
+import { useAuth } from '../auth';
 import { errorText, NotePill, Notice, useInterval } from '../ui';
 import { credits as creditsLabel, fmtDay, fmtDayLong, fmtInstantTime, fmtMoney, fmtTime12 } from '../lib';
-import { CheckoutDialog } from '../schedule/CheckoutDialog';
+import { CheckoutBatchDialog } from './CheckoutBatchDialog';
+import { RefundAccountCreditDialog, ReversePaymentDialog } from './MoneyDialogs';
+import { ACCOUNT_CREDIT_LABEL, canReverse, MEMBERSHIP_CREDITS_LABEL, postedLabel, reasonLabel, type PostedEntry } from '../money';
 import { canCheckOut, LEDGER_REFRESH_MS, notesPendingNote, paidWithLabel, pendingNote, stateLabel, type LedgerVisit, type PatientLedger } from '../ledger';
-import type { Appt } from '../types';
 
 const STATE_PILL: Record<LedgerVisit['state'], string> = {
   ready_to_check_out: 'warn', checked_out: 'ok', not_arrived: 'off', no_show: 'bad',
 };
 
 /**
- * A patient's ledger: today's visits and what they come to, earlier visits with their amounts, credits, and dues as information.
+ * A patient's ledger: today's visits and what they come to, earlier visits, what has been POSTED (charges, payments, reversals, account
+ * credit applied) with a running balance whose last line is the balance carried forward, account credit ($), membership credits, and
+ * dues as information.
  *
- * READ ONLY and the same wherever it is opened — the profile's Ledger tab, the Checked-in card's dialog — because it asks the server one
- * thing, "the ledger for this patient", and shows the answer. It re-reads every 10 seconds while open (and when the window regains focus),
- * so a check-out made on another desk screen appears here without a reload. Nothing here is charged or recorded by looking, and there is no
- * balance: payments are not tracked yet. The only action is to start the existing Check out flow, for any visit the patient is checked in
- * for — whether or not its note is signed (rev 2.0). Each visit shows its note status beside where it is.
+ * The same wherever it is opened — the profile's Ledger tab, the Checked-in card's dialog — because it asks the server one thing, "the
+ * ledger for this patient". It re-reads every 10 seconds while open (and when the window regains focus), so a payment taken on another
+ * desk screen appears here without a reload. Looking charges nothing. The actions — check out, take a payment, reverse a payment, an
+ * admin's refund of account credit — each open their own dialog, and each is checked by the server against the Ledger it was opened on.
  *
- * `onCheckout`: a parent that shows this inside a dialog takes over the check-out (so two dialogs never stack); without it the
- * check-out opens here.
+ * `onDialog`: a parent that shows this inside a dialog takes over the dialogs it opens (so two dialogs never stack); without it they
+ * open here.
  */
-export function PatientLedger({ patientId, onCheckout, onChanged, onOpenCredits }: {
-  patientId: string; onCheckout?: (appt: Appt) => void; onChanged?: () => void; onOpenCredits?: () => void;
+export function PatientLedger({ patientId, onDialog, onChanged, onOpenCredits }: {
+  patientId: string; onDialog?: (dialog: ReactNode | null) => void; onChanged?: () => void; onOpenCredits?: () => void;
 }) {
+  const { hasRole } = useAuth();
+  const isAdmin = hasRole('ADMIN');
   const [data, setData] = useState<PatientLedger | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [checkout, setCheckout] = useState<Appt | null>(null);
+  const [dialog, setDialog] = useState<ReactNode | null>(null);
   const seq = useRef(0);
 
   const load = useCallback(async () => {
@@ -46,7 +51,11 @@ export function PatientLedger({ patientId, onCheckout, onChanged, onOpenCredits 
     return () => { window.removeEventListener('focus', again); document.removeEventListener('visibilitychange', again); };
   }, [load]);
 
-  const start = (v: LedgerVisit) => (onCheckout ? onCheckout(v.appointment) : setCheckout(v.appointment));
+  const show = (d: ReactNode | null) => (onDialog ? onDialog(d) : setDialog(d));
+  const close = () => show(null);
+  const changed = () => { void load(); onChanged?.(); };
+  const checkOut = (preselect: string[]) => show(<CheckoutBatchDialog patientId={patientId} preselect={preselect} onClose={close} onDone={changed} />);
+  const start = (v: LedgerVisit) => checkOut([v.id]);
 
   if (!data) return error ? <Notice kind="error">{error}</Notice> : <p className="muted">Loading…</p>;
   const t = data.todayTotals;
@@ -59,8 +68,8 @@ export function PatientLedger({ patientId, onCheckout, onChanged, onOpenCredits 
     <div className="stack ledger">
       {error && <Notice kind="warn">Could not refresh just now ({error}). Showing what was last loaded; it will try again.</Notice>}
       <p className="hint">
-        A view of {data.patient.name}’s visits and what they come to. <strong>Nothing is charged or recorded by looking.</strong> A visit is
-        recorded when it is checked out, and payments are not tracked here yet.
+        {data.patient.name}’s visits, what they come to, and what has been paid. <strong>Nothing is charged or recorded by looking.</strong> A
+        visit is charged when it is checked out; a payment is recorded when the front desk takes it.
         <span className="muted"> · Updated {fmtInstantTime(data.asOf, data.timezone)}, refreshes every 10 seconds</span>
       </p>
 
@@ -89,7 +98,13 @@ export function PatientLedger({ patientId, onCheckout, onChanged, onOpenCredits 
       {data.priorVisits.length === 0 ? <p className="muted">No earlier visits.</p> : <VisitTable visits={data.priorVisits} onCheckout={start} creditsInPlay={creditsInPlay} showDate />}
       {data.priorVisitsMore && <p className="hint">Showing the latest {data.priorVisits.length}.</p>}
 
-      <h3>Credits</h3>
+      <MoneySection data={data} isAdmin={isAdmin}
+        onCheckOut={() => checkOut(data.todayVisits.filter((v) => v.state === 'ready_to_check_out').map((v) => v.id))}
+        onPay={() => show(<CheckoutBatchDialog patientId={patientId} mode="payment" onClose={close} onDone={changed} />)}
+        onReverse={(e) => show(<ReversePaymentDialog patientId={patientId} payment={e} version={data.money.version} onClose={close} onDone={changed} />)}
+        onRefund={() => show(<RefundAccountCreditDialog patientId={patientId} ledger={data} onClose={close} onDone={changed} />)} />
+
+      <h3>{MEMBERSHIP_CREDITS_LABEL}</h3>
       <p>
         {data.credits.membership ? <>{data.credits.membership.planName} membership ({data.credits.membership.status.toLowerCase()}) · </> : 'No membership · '}
         <strong>{creditsLabel(data.credits.balance)}</strong> available
@@ -113,16 +128,87 @@ export function PatientLedger({ patientId, onCheckout, onChanged, onOpenCredits 
         </>
       )}
 
-      {checkout && <CheckoutDialog appt={checkout} onClose={() => setCheckout(null)} onDone={() => { void load(); onChanged?.(); }} />}
+      {!onDialog && dialog}
     </div>
   );
+}
+
+/**
+ * The money: the posted list with its running balance — charges, payments on the day they were collected, reversals on theirs, account
+ * credit applied — and, as its last line, the balance carried forward. Account credit ($) beneath, apart from it.
+ */
+function MoneySection({ data, isAdmin, onCheckOut, onPay, onReverse, onRefund }: {
+  data: PatientLedger; isAdmin: boolean; onCheckOut: () => void; onPay: () => void;
+  onReverse: (e: { id: string; tender: string; totalCents: number; date: string }) => void; onRefund: () => void;
+}) {
+  const m = data.money;
+  const waiting = data.todayVisits.some((v) => v.state === 'ready_to_check_out');
+  return (
+    <>
+      <h3>Charges and payments</h3>
+      {m.posted.length === 0 ? <p className="muted">Nothing has been charged yet.</p> : (
+        <table className="table ledger-table posted">
+          <thead><tr><th>Date</th><th>Entry</th><th className="num">Charge</th><th className="num">Paid</th><th className="num">Balance</th><th /></tr></thead>
+          <tbody>
+            {m.posted.map((e) => (
+              <tr key={`${e.kind}:${e.id}`} className={e.kind === 'payment' && e.reversed ? 'reversed' : ''}>
+                <td>{fmtDay(e.date)}</td>
+                <td>{postedLabel(e)}<PostedDetail e={e} /></td>
+                <td className="num">{e.amountCents > 0 ? fmtMoney(e.amountCents) : ''}</td>
+                <td className="num">{e.amountCents < 0 ? `−${fmtMoney(-e.amountCents)}` : e.kind === 'payment' ? fmtMoney(0) : ''}</td>
+                <td className="num">{fmtMoney(e.balanceAfterCents)}</td>
+                <td>{e.kind === 'payment' && canReverse(e, isAdmin) && <button className="btn small ghost" onClick={() => onReverse({ id: e.id, tender: e.tender, totalCents: e.totalCents, date: e.date })}>Reverse…</button>}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr className="carried"><td colSpan={4}><strong>Balance carried forward</strong></td>
+              <td className="num"><strong>{fmtMoney(m.balanceCents)}</strong></td><td className="muted small">{m.balanceCents > 0 ? 'owed by the patient' : 'nothing owed'}</td></tr>
+          </tfoot>
+        </table>
+      )}
+      <div className="sheet-actions">
+        {waiting && <button className="btn primary" onClick={onCheckOut}>Check out today’s visits…</button>}
+        <button className="btn" onClick={onPay}>Take a payment…</button>
+        {isAdmin && m.accountCreditCents > 0 && <button className="btn ghost" onClick={onRefund}>Refund account credit…</button>}
+      </div>
+      <p>
+        <strong>{ACCOUNT_CREDIT_LABEL}:</strong> {fmtMoney(m.accountCreditCents)}
+        <span className="muted"> — money held for the patient from an overpayment; applied at check-out when the desk chooses. Not membership credits.</span>
+      </p>
+      {m.accountCredit.length > 0 && (
+        <details className="note-history"><summary>{ACCOUNT_CREDIT_LABEL} history</summary>
+          <ul className="plain">{m.accountCredit.map((c) => (
+            <li key={c.id}>{fmtDay(c.date)} · {c.kind === 'OVERPAYMENT' ? 'kept from an overpayment' : c.kind === 'APPLIED' ? 'applied to a visit' : c.kind === 'REFUNDED' ? `refunded${c.refundTender ? ` (${c.refundTender.toLowerCase()})` : ''}` : 'taken back — its payment was reversed'}
+              {' '}{c.deltaCents > 0 ? '+' : '−'}{fmtMoney(Math.abs(c.deltaCents))} → {fmtMoney(c.balanceAfterCents)}</li>
+          ))}</ul>
+        </details>
+      )}
+    </>
+  );
+}
+
+function PostedDetail({ e }: { e: PostedEntry }) {
+  if (e.kind === 'charge') {
+    const parts = [
+      e.listPriceCents != null && (e.discountCents || e.promotionCents || e.adjustmentCents) ? `list ${fmtMoney(e.listPriceCents)}` : '',
+      e.discountCents ? `tier −${fmtMoney(e.discountCents)}` : '',
+      e.promotionCents ? `${e.promotionName ?? 'promotion'} −${fmtMoney(e.promotionCents)}` : '',
+      e.adjustmentCents ? `adjustment (${reasonLabel(e.adjustmentReason).toLowerCase()}) −${fmtMoney(e.adjustmentCents)}` : '',
+    ].filter(Boolean);
+    return parts.length ? <div className="muted small">{parts.join(' · ')}</div> : null;
+  }
+  if (e.kind === 'payment' && (e.toAccountCreditCents || e.refundedCents || e.totalCents !== -e.amountCents)) {
+    return <div className="muted small">{fmtMoney(e.totalCents)} received{e.toAccountCreditCents ? ` · ${fmtMoney(e.toAccountCreditCents)} kept as account credit` : ''}{e.refundedCents ? ` · ${fmtMoney(e.refundedCents)} refunded` : ''}</div>;
+  }
+  return null;
 }
 
 function VisitTable({ visits, onCheckout, showDate, creditsInPlay }: { visits: LedgerVisit[]; onCheckout: (v: LedgerVisit) => void; showDate?: boolean; creditsInPlay: boolean }) {
   return (
     <table className="table ledger-table">
       <thead>
-        <tr><th>{showDate ? 'When' : 'Time'}</th><th>Service</th><th>Where it is</th><th className="num">List</th><th className="num">Tier discount</th><th className="num">Credits</th><th className="num">Net</th><th /></tr>
+        <tr><th>{showDate ? 'When' : 'Time'}</th><th>Service</th><th>Where it is</th><th className="num">List</th><th className="num">Off</th><th className="num">Credits</th><th className="num">Net</th><th /></tr>
       </thead>
       <tbody>
         {visits.map((v) => {
@@ -139,7 +225,12 @@ function VisitTable({ visits, onCheckout, showDate, creditsInPlay }: { visits: L
               ) : (
                 <>
                   <td className="num">{c.priceKnown ? fmtMoney(c.listPriceCents) : <span className="muted">set at check-out</span>}</td>
-                  <td className="num">{c.discountCents > 0 ? <>−{fmtMoney(c.discountCents)} <span className="muted">({c.discountPercent}%)</span></> : <span className="muted">—</span>}</td>
+                  <td className="num">
+                    {c.discountCents > 0 && <div>−{fmtMoney(c.discountCents)} <span className="muted small">tier {c.discountPercent}%</span></div>}
+                    {c.promotionCents > 0 && <div>−{fmtMoney(c.promotionCents)} <span className="muted small">{c.promotionName ?? 'promotion'}</span></div>}
+                    {c.adjustmentCents > 0 && <div>−{fmtMoney(c.adjustmentCents)} <span className="muted small">adjustment</span></div>}
+                    {!c.discountCents && !c.promotionCents && !c.adjustmentCents && <span className="muted">—</span>}
+                  </td>
                   <td className="num">
                     {c.creditsApplied ? creditsLabel(c.creditsApplied) : <span className="muted">—</span>}
                     {projected && creditsInPlay && c.creditCost != null && <div className="muted small">{c.creditsAvailable ? `or ${creditsLabel(c.creditCost)}` : `${creditsLabel(c.creditCost)} (not enough)`}</div>}

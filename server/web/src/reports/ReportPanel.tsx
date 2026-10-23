@@ -105,10 +105,17 @@ export default function ReportPanel({ endpoint, view, extra, children }: {
               <tfoot><tr className="report-total">{data.columns.map((c) => cell(c, data.totals))}</tr></tfoot>
             </table>
           </div>
+          {data.summary && 'outstandingNowCents' in data.summary && (
+            <p className="report-summary">
+              <strong>Owed by patients now:</strong> {fmtMoney(data.summary.outstandingNowCents)}
+              {' · '}<strong>Account credit ($) held:</strong> {fmtMoney(data.summary.accountCreditHeldCents ?? 0)}
+              <span className="muted"> — across all patients, as of now; not limited to the range above.</span>
+            </p>
+          )}
           {data.dues && (
             <div className="report-dues">
               <h2>Membership dues (billed)</h2>
-              <p className="hint">Billed when each month's credits are granted, and kept apart from the service revenue above. Collecting the payment happens outside this system, so this means billed, not paid.</p>
+              <p className="hint">Billed when each month's credits are granted, and kept apart from the service revenue above. Dues are collected outside this system, so this means billed, not paid.</p>
               {data.dues.note && <p className="notice">{data.dues.note}</p>}
               <div className="table-scroll">
                 <table className="table dense report-table">
