@@ -8,6 +8,7 @@ import { CANCEL_REASON_LABEL, type Appt, type PatientSummary, type ServiceLite, 
 import { PatientPicker } from '../patients/PatientPicker';
 import { CheckoutDialog } from './CheckoutDialog';
 import { CheckoutBatchDialog } from '../patients/CheckoutBatchDialog';
+import { ChargesDialog } from '../patients/Charges';
 import { DeskActions } from './DeskActions';
 import { PatientLedger } from '../patients/Ledger';
 import { visitStateLabel, type DeskVerb } from '../frontdesk';
@@ -356,7 +357,7 @@ export function AppointmentDialog({ id, today, desk = false, onClose, onChanged 
   const [d, setD] = useState<Detail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [sub, setSub] = useState<null | 'move' | 'cancel' | 'link' | 'checkout' | 'ledger' | 'provider'>(null);
+  const [sub, setSub] = useState<null | 'move' | 'cancel' | 'link' | 'checkout' | 'ledger' | 'provider' | 'charges'>(null);
   // A dialog the Ledger opened (check out, take a payment, reverse, refund) — shown INSTEAD of the Ledger, never on top of it.
   const [ledgerDialog, setLedgerDialog] = useState<ReactNode | null>(null);
 
@@ -385,6 +386,7 @@ export function AppointmentDialog({ id, today, desk = false, onClose, onChanged 
       ? <CheckoutBatchDialog patientId={a.patient.id} preselect={[a.id]} onClose={() => setSub(null)} onDone={changed} />
       : <CheckoutDialog appt={a} onClose={() => setSub(null)} onDone={changed} />;
   }
+  if (sub === 'charges' && a?.patient.id) return <ChargesDialog target={{ kind: 'desk', patientId: a.patient.id }} title={`Charges — ${a.patient.name}`} onClose={() => { setSub(null); changed(); }} />;
   if (sub === 'provider' && a) return <ChangeProviderDialog appt={a} onClose={() => setSub(null)} onChanged={changed} onMove={() => setSub('move')} />;
   // The patient's ledger, from this visit's dialog: the same view as the profile's Ledger tab. A dialog started from it replaces it (never
   // two dialogs on top of each other) and returns to it when closed, showing what was just recorded.
@@ -445,7 +447,7 @@ export function AppointmentDialog({ id, today, desk = false, onClose, onChanged 
             </>)}
             {desk && (
               <DeskActions a={a} ctx={{ isToday, nowMin: isToday ? toMinutes(nowHHMM(tz)) : null }} busy={busy}
-                onVerb={(v: DeskVerb) => void run(`/api/fd/appointments/${a.id}/${v}`)} onCheckout={() => setSub('checkout')} onLink={() => setSub('link')} />
+                onVerb={(v: DeskVerb) => void run(`/api/fd/appointments/${a.id}/${v}`)} onCheckout={() => setSub('checkout')} onLink={() => setSub('link')} onCharges={() => setSub('charges')} />
             )}
             {!desk && a.status === 'CONFIRMED' && isToday && !a.encounter?.status.match(/CHECKED|SEEN|PROGRESS/) && (
               <button className="btn primary" disabled={busy || !a.patient.linked} title={a.patient.linked ? '' : 'Link a patient record first'} onClick={() => void run(`/api/fd/appointments/${a.id}/check-in`)}>Check in</button>

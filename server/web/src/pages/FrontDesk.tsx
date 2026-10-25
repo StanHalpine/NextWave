@@ -8,6 +8,7 @@ import { PatientPicker } from '../patients/PatientPicker';
 import { AppointmentDialog, LinkPatientDialog } from '../schedule/dialogs';
 import { CheckoutDialog } from '../schedule/CheckoutDialog';
 import { CheckoutBatchDialog } from '../patients/CheckoutBatchDialog';
+import { ChargesDialog } from '../patients/Charges';
 import { DeskActions } from '../schedule/DeskActions';
 import { deskActions, visitStateLabel, type DeskVerb } from '../frontdesk';
 import FrontDeskNav from './FrontDeskNav';
@@ -23,6 +24,7 @@ export default function FrontDesk() {
   const [open, setOpen] = useState<string | null>(null);
   const [link, setLink] = useState<Appt | null>(null);
   const [checkout, setCheckout] = useState<Appt | null>(null);
+  const [charges, setCharges] = useState<Appt | null>(null);
   const [updatedAt, setUpdatedAt] = useState<string>('');
 
   const load = useCallback(async () => {
@@ -50,7 +52,7 @@ export default function FrontDesk() {
   const ctx = { isToday: !!data?.isToday, nowMin };
   /** The buttons for a card — nothing at all (no empty strip) once the visit is checked out. */
   const actions = (a: Appt) => deskActions(a, ctx).length === 0 ? undefined : (
-    <DeskActions a={a} ctx={ctx} busy={busyId === a.id} onVerb={(v) => void act(a, v)} onCheckout={() => setCheckout(a)} onLink={() => setLink(a)} />
+    <DeskActions a={a} ctx={ctx} busy={busyId === a.id} onVerb={(v) => void act(a, v)} onCheckout={() => setCheckout(a)} onLink={() => setLink(a)} onCharges={() => setCharges(a)} />
   );
 
   return (
@@ -127,6 +129,7 @@ export default function FrontDesk() {
       {checkout && (checkout.patient.id
         ? <CheckoutBatchDialog patientId={checkout.patient.id} preselect={[checkout.id]} onClose={() => setCheckout(null)} onDone={() => void load()} />
         : <CheckoutDialog appt={checkout} onClose={() => setCheckout(null)} onDone={() => void load()} />)}
+      {charges?.patient.id && <ChargesDialog target={{ kind: 'desk', patientId: charges.patient.id }} title={`Charges — ${charges.patient.name}`} onClose={() => { setCharges(null); void load(); }} />}
       {link && <LinkPatientDialog appt={link} onClose={() => setLink(null)} onLinked={() => { setLink(null); void load(); }} />}
     </>
   );

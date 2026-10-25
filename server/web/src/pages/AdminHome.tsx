@@ -17,7 +17,8 @@ export default function AdminHome() {
         <Link className="tile" to="/admin/accounts"><h2>Accounts</h2><p>Create logins, assign roles, reset passwords and authenticators.</p></Link>
         <Link className="tile" to="/admin/audit"><h2>Audit log</h2><p>Who accessed or changed what, and when. Append-only.</p></Link>
         <Link className="tile" to="/admin/membership"><h2>Memberships</h2><p>Tiers, monthly credits, rollover, and the perks each tier includes.</p></Link>
-        <Link className="tile" to="/admin/promotions"><h2>Promotions</h2><p>Percent or amount off chosen services for a range of days; applied at check-out when better than the membership discount.</p></Link>
+        <Link className="tile" to="/admin/promotions"><h2>Promotions</h2><p>Percent or amount off chosen services or products for a range of days; applied at check-out when better than the membership discount.</p></Link>
+        <Link className="tile" to="/admin/catalog"><h2>Product catalog</h2><p>Products and service add-ons for the Charges window, their prices, the sales tax on products, and the member discount on products.</p></Link>
         <Link className="tile" to="/admin/macros"><h2>Macro sets</h2><p>Shared text blocks providers insert into their notes, by section and role.</p></Link>
         <Link className="tile" to="/admin/note-signers"><h2>Notes signed by another provider</h2><p>Signed before only the visit’s own provider could sign. Confirm the signer as covering, or leave it flagged.</p></Link>
         <a className="tile" href="/admin.html"><h2>Catalogue &amp; staff</h2><p>Services, prices and credit costs, rooms, bookable staff and their shifts.</p></a>

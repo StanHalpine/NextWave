@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ACCOUNT_CREDIT_LABEL, betterOf, canReverse, deskAdjustmentCap, MEMBERSHIP_CREDITS_LABEL, paymentShape, percentOf, postedLabel, type PostedEntry } from './money';
+import { ACCOUNT_CREDIT_LABEL, betterOf, canReverse, deskAdjustmentCap, lineFigure, MEMBERSHIP_CREDITS_LABEL, paymentShape, percentOf, postedLabel, ratePercent, taxOf, type PostedEntry } from './money';
 
 /** The screen's copies of the money rules must give the server's answers (server tests: tests/money-math.test.ts). */
 
@@ -54,5 +54,26 @@ describe('posted lines and who may reverse', () => {
     expect(canReverse(payment({ reversibleByDesk: false }), false)).toBe(false);
     expect(canReverse(payment({ reversibleByDesk: false }), true)).toBe(true);
     expect(canReverse(payment({ reversibleByDesk: false, reversibleByAdmin: false }), true)).toBe(false);
+  });
+});
+
+describe('rev 2.3: tax and the price of an added line, as the server works them out', () => {
+  it('taxOf: per line, halves up, the rate in thousandths of a percent (server tests: money-math)', () => {
+    expect([taxOf(3500, 5500), taxOf(3499, 5500), taxOf(10, 5500), taxOf(9, 5500), taxOf(2000, 8025), taxOf(1234, 0)]).toEqual([193, 192, 1, 0, 161, 0]);
+  });
+  it('a rate as people write it', () => {
+    expect([ratePercent(5500), ratePercent(8025), ratePercent(7000), ratePercent(0), ratePercent(100_000)]).toEqual(['5.5%', '8.025%', '7%', '0%', '100%']);
+  });
+  it('a line: better of tier and promotion, then an adjustment (negative raises it), then tax on what is left', () => {
+    const base = { unitPriceCents: 3500, tierPercent: 20, promotions: [], taxRateMilli: 5500 };
+    expect(lineFigure(base)).toMatchObject({ discountCents: 700, netCents: 2800, taxCents: 154 });
+    expect(lineFigure(base, 300)).toMatchObject({ netCents: 2500, taxCents: 138 });
+    expect(lineFigure(base, -500)).toMatchObject({ netCents: 3300, taxCents: 182 });
+    expect(lineFigure({ ...base, promotions: [{ id: 'p', name: 'p', kind: 'PERCENT', value: 25 }] })).toMatchObject({ discountCents: 0, promotion: { cents: 875 }, netCents: 2625, taxCents: 144 });
+    expect(lineFigure({ ...base, taxRateMilli: 0 })).toMatchObject({ taxCents: 0 });
+  });
+  it('a product\'s tax line names the product and its rate', () => {
+    const e: PostedEntry = { kind: 'tax', id: 'x:tax', revenueEventId: 'x', date: '2026-10-13', at: '', serviceName: 'Magnesium glycinate', rateMilli: 5500, amountCents: 193, balanceAfterCents: 0 };
+    expect(postedLabel(e)).toBe('Sales tax 5.5% — Magnesium glycinate');
   });
 });

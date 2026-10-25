@@ -6,9 +6,10 @@ import { fmtDay, fmtMoney, parseDollars } from '../lib';
 
 interface Promotion {
   id: string; name: string; kind: 'PERCENT' | 'FIXED_CENTS'; value: number; startsOn: string; endsOn: string; active: boolean;
-  services: Array<{ id: string; name: string }>; used: boolean;
+  services: Array<{ id: string; name: string }>; products: Array<{ id: string; name: string }>; used: boolean;
 }
 interface ServiceLite { id: string; name: string }
+interface ProductLite { id: string; name: string; active: boolean }
 
 const describe = (p: Pick<Promotion, 'kind' | 'value'>) => (p.kind === 'PERCENT' ? `${p.value}% off` : `${fmtMoney(p.value)} off`);
 
@@ -21,11 +22,12 @@ const describe = (p: Pick<Promotion, 'kind' | 'value'>) => (p.kind === 'PERCENT'
 export default function AdminPromotions() {
   const [rows, setRows] = useState<Promotion[] | null>(null);
   const [services, setServices] = useState<ServiceLite[]>([]);
+  const [products, setProducts] = useState<ProductLite[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<Promotion | null>(null);
 
-  const load = useCallback(() => api<{ promotions: Promotion[]; services: ServiceLite[] }>('/api/admin/promotions')
-    .then((r) => { setRows(r.promotions); setServices(r.services); setError(null); }).catch((e) => setError(errorText(e))), []);
+  const load = useCallback(() => api<{ promotions: Promotion[]; services: ServiceLite[]; products: ProductLite[] }>('/api/admin/promotions')
+    .then((r) => { setRows(r.promotions); setServices(r.services); setProducts(r.products); setError(null); }).catch((e) => setError(errorText(e))), []);
   useEffect(() => { void load(); }, [load]);
 
   async function toggle(p: Promotion) {
@@ -36,18 +38,18 @@ export default function AdminPromotions() {
     <>
       <p className="crumb"><Link to="/admin">← Admin</Link></p>
       <h1>Promotions</h1>
-      <p className="lede">A promotion takes a percent or an amount off chosen services, for visits on the days you choose. At check-out it applies by itself
+      <p className="lede">A promotion takes a percent or an amount off chosen services or products, for visits (or items added) on the days you choose. At check-out it applies by itself
         when it is better for the patient than their membership discount — never both, and only the best one. Once used, it can be switched off but not changed.</p>
       {error && <Notice kind="error">{error}</Notice>}
       <table className="table">
-        <thead><tr><th>Promotion</th><th>Off</th><th>Visits on</th><th>Services</th><th>Status</th><th /></tr></thead>
+        <thead><tr><th>Promotion</th><th>Off</th><th>Visits on</th><th>Services and products</th><th>Status</th><th /></tr></thead>
         <tbody>
           {(rows ?? []).map((p) => (
             <tr key={p.id} className={p.active ? '' : 'off'}>
               <td><strong>{p.name}</strong></td>
               <td>{describe(p)}</td>
               <td className="nowrap">{fmtDay(p.startsOn)} – {fmtDay(p.endsOn)}</td>
-              <td>{p.services.map((s) => s.name).join(', ')}</td>
+              <td>{[...p.services, ...p.products].map((s) => s.name).join(', ')}</td>
               <td>{p.active ? <span className="pill ok">On</span> : <span className="pill off">Off</span>}{p.used && <> <span className="pill">Used</span></>}</td>
               <td className="actions">
                 <button className="btn small" onClick={() => setEditing(p)}>{p.used ? 'Rename' : 'Edit'}</button>{' '}
@@ -61,12 +63,12 @@ export default function AdminPromotions() {
       </table>
 
       <h2 className="section">{editing ? `Change “${editing.name}”` : 'New promotion'}</h2>
-      <PromotionForm key={editing?.id ?? 'new'} services={services} existing={editing} onSaved={() => { setEditing(null); void load(); }} onCancel={editing ? () => setEditing(null) : undefined} />
+      <PromotionForm key={editing?.id ?? 'new'} services={services} products={products} existing={editing} onSaved={() => { setEditing(null); void load(); }} onCancel={editing ? () => setEditing(null) : undefined} />
     </>
   );
 }
 
-function PromotionForm({ services, existing, onSaved, onCancel }: { services: ServiceLite[]; existing: Promotion | null; onSaved: () => void; onCancel?: () => void }) {
+function PromotionForm({ services, products, existing, onSaved, onCancel }: { services: ServiceLite[]; products: ProductLite[]; existing: Promotion | null; onSaved: () => void; onCancel?: () => void }) {
   const frozen = !!existing?.used;
   const [name, setName] = useState(existing?.name ?? '');
   const [kind, setKind] = useState<'PERCENT' | 'FIXED_CENTS'>(existing?.kind ?? 'PERCENT');
@@ -74,17 +76,18 @@ function PromotionForm({ services, existing, onSaved, onCancel }: { services: Se
   const [startsOn, setStartsOn] = useState(existing?.startsOn ?? '');
   const [endsOn, setEndsOn] = useState(existing?.endsOn ?? '');
   const [picked, setPicked] = useState<string[]>(existing?.services.map((s) => s.id) ?? []);
+  const [pickedProducts, setPickedProducts] = useState<string[]>(existing?.products.map((s) => s.id) ?? []);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const amount = kind === 'PERCENT' ? (/^\d{1,3}$/.test(value.trim()) ? Number(value) : null) : parseDollars(value);
-  const ok = name.trim() !== '' && (frozen || (amount != null && amount > 0 && (kind !== 'PERCENT' || amount <= 100) && startsOn !== '' && endsOn !== '' && endsOn >= startsOn && picked.length > 0));
+  const ok = name.trim() !== '' && (frozen || (amount != null && amount > 0 && (kind !== 'PERCENT' || amount <= 100) && startsOn !== '' && endsOn !== '' && endsOn >= startsOn && picked.length + pickedProducts.length > 0));
 
   async function submit(e: FormEvent) {
     e.preventDefault();
     if (!ok) return;
     setBusy(true); setError(null);
-    const body = frozen ? { name: name.trim() } : { name: name.trim(), kind, value: amount, startsOn, endsOn, serviceIds: picked };
+    const body = frozen ? { name: name.trim() } : { name: name.trim(), kind, value: amount, startsOn, endsOn, serviceIds: picked, productIds: pickedProducts };
     try {
       await api(existing ? `/api/admin/promotions/${existing.id}` : '/api/admin/promotions', { method: existing ? 'PATCH' : 'POST', body });
       onSaved();
@@ -110,7 +113,17 @@ function PromotionForm({ services, existing, onSaved, onCancel }: { services: Se
           ))}
         </div>
       </fieldset>
-      <p className="hint">Dates are the clinic’s calendar days and go by the day of the VISIT: a visit on the last day keeps the price even if it is checked out the next morning.</p>
+      {products.length > 0 && (
+        <fieldset disabled={frozen}>
+          <legend>Products</legend>
+          <div className="check-grid">
+            {products.map((s) => (
+              <label key={s.id} className="check"><input type="checkbox" checked={pickedProducts.includes(s.id)} onChange={(e) => setPickedProducts((p) => (e.target.checked ? [...p, s.id] : p.filter((x) => x !== s.id)))} /> {s.name}{!s.active && <span className="muted small"> (off the menu)</span>}</label>
+            ))}
+          </div>
+        </fieldset>
+      )}
+      <p className="hint">Dates are the clinic’s calendar days and go by the day of the VISIT: a visit on the last day keeps the price even if it is checked out the next morning. For a product or add-on, the day it was added.</p>
       {error && <p className="error" role="alert">{error}</p>}
       <div className="sheet-actions">
         <button className="btn primary" disabled={!ok || busy}>{busy ? 'Saving…' : existing ? 'Save' : 'Create promotion'}</button>

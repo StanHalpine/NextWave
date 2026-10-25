@@ -1,5 +1,5 @@
 import type { NoteStatus } from './notes';
-import type { MoneyView } from './money';
+import type { MoneyView, OpenLines } from './money';
 import type { Appt } from './types';
 
 /**
@@ -72,6 +72,8 @@ export interface PatientLedger {
   dues: Array<{ id: string; periodStart: string | null; description: string; listPriceCents: number | null; billingStatus: string | null; recordedAt: string }>;
   /** Phase 2b: what has been posted, the balance carried forward, and account credit ($). */
   money: MoneyView;
+  /** Rev 2.3: add-on services and products added but not yet checked out — not in the balance until they are. */
+  openCharges: OpenLines;
 }
 
 /** Any visit the patient is checked in for can be checked out from here. The note never holds it up (rev 2.0). */

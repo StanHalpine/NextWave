@@ -15,6 +15,7 @@
  */
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
+import { config } from '../config.js';
 import { now } from '../lib/clock.js';
 import { addOpenCharge, chargeCatalog, openLinesView, removeOpenCharge, type ChargeItem } from '../lib/charges.js';
 import { basePrisma } from '../lib/prismaBase.js';
@@ -71,7 +72,7 @@ chargesRouter.get('/fd/patients/:id/charges', requireFrontDesk, async (req, res)
   const p = UUID.test(patientId) ? await basePrisma.patient.findFirst({ where: { id: patientId, deletedAt: null }, select: { id: true } }) : null;
   if (!p) return res.status(404).json({ error: 'Unknown patient.', code: 'unknown_patient' });
   const open = await basePrisma.$transaction((tx) => openLinesView(tx, patientId, now()), { isolationLevel: 'RepeatableRead' });
-  res.json({ ...open, catalog: await chargeCatalog(basePrisma) });
+  res.json({ ...open, catalog: await chargeCatalog(basePrisma), timezone: config.clinicTimezone });
 });
 
 chargesRouter.post('/fd/patients/:id/charges', requireFrontDesk, async (req, res) => {
@@ -133,7 +134,7 @@ chargesRouter.get('/provider/visits/:id/charges', ...requireClinicalWrite, async
   if (!patientId) return;
   const open = await basePrisma.$transaction((tx) => openLinesView(tx, patientId, now()), { isolationLevel: 'RepeatableRead' });
   // A provider sees what was added and what it comes to — not the patient's credits or perks.
-  res.json({ lines: open.lines.map(({ credits: _c, perks: _p, ...l }) => l), totals: open.totals, catalog: await chargeCatalog(basePrisma) });
+  res.json({ lines: open.lines.map(({ credits: _c, perks: _p, ...l }) => l), totals: open.totals, catalog: await chargeCatalog(basePrisma), timezone: config.clinicTimezone });
 });
 
 chargesRouter.post('/provider/visits/:id/charges', ...requireClinicalWrite, async (req, res) => {

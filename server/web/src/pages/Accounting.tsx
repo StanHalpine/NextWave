@@ -14,7 +14,7 @@ const VIEWS = [
 ];
 const GROUP_LABEL: Record<string, string> = {
   service: 'Service', month: 'Month', day: 'Day', serviceMonth: 'Month and service', paymentType: 'Payment type', bucket: 'Who paid, and how',
-  provider: 'Provider', category: 'Discipline', discountCategory: 'Discount category', tier: 'Membership tier',
+  provider: 'Provider', category: 'Discipline', discountCategory: 'Discount category', tier: 'Membership tier', lineKind: 'Visits, add-ons and products',
 };
 
 /** Accounting (administrators only): revenue from the check-out records, as totals — never as visits or people. */

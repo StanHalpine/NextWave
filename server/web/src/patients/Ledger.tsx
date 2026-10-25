@@ -4,8 +4,9 @@ import { useAuth } from '../auth';
 import { errorText, NotePill, Notice, useInterval } from '../ui';
 import { credits as creditsLabel, fmtDay, fmtDayLong, fmtInstantTime, fmtMoney, fmtTime12 } from '../lib';
 import { CheckoutBatchDialog } from './CheckoutBatchDialog';
+import { ChargesDialog } from './Charges';
 import { RefundAccountCreditDialog, ReversePaymentDialog } from './MoneyDialogs';
-import { ACCOUNT_CREDIT_LABEL, canReverse, MEMBERSHIP_CREDITS_LABEL, postedLabel, reasonLabel, type PostedEntry } from '../money';
+import { ACCOUNT_CREDIT_LABEL, canReverse, MEMBERSHIP_CREDITS_LABEL, postedLabel, ratePercent, reasonLabel, type PostedEntry } from '../money';
 import { canCheckOut, LEDGER_REFRESH_MS, notesPendingNote, paidWithLabel, pendingNote, stateLabel, type LedgerVisit, type PatientLedger } from '../ledger';
 
 const STATE_PILL: Record<LedgerVisit['state'], string> = {
@@ -23,10 +24,10 @@ const STATE_PILL: Record<LedgerVisit['state'], string> = {
  * admin's refund of account credit — each open their own dialog, and each is checked by the server against the Ledger it was opened on.
  *
  * `onDialog`: a parent that shows this inside a dialog takes over the dialogs it opens (so two dialogs never stack); without it they
- * open here.
+ * open here. `readOnly`: shown from inside the check-out window — the same Ledger, without its own actions.
  */
-export function PatientLedger({ patientId, onDialog, onChanged, onOpenCredits }: {
-  patientId: string; onDialog?: (dialog: ReactNode | null) => void; onChanged?: () => void; onOpenCredits?: () => void;
+export function PatientLedger({ patientId, onDialog, onChanged, onOpenCredits, readOnly }: {
+  patientId: string; onDialog?: (dialog: ReactNode | null) => void; onChanged?: () => void; onOpenCredits?: () => void; readOnly?: boolean;
 }) {
   const { hasRole } = useAuth();
   const isAdmin = hasRole('ADMIN');
@@ -55,7 +56,8 @@ export function PatientLedger({ patientId, onDialog, onChanged, onOpenCredits }:
   const close = () => show(null);
   const changed = () => { void load(); onChanged?.(); };
   const checkOut = (preselect: string[]) => show(<CheckoutBatchDialog patientId={patientId} preselect={preselect} onClose={close} onDone={changed} />);
-  const start = (v: LedgerVisit) => checkOut([v.id]);
+  const start = readOnly ? undefined : (v: LedgerVisit) => checkOut([v.id]);
+  const charges = () => show(<ChargesDialog target={{ kind: 'desk', patientId }} title={`Charges — ${data?.patient.name ?? ''}`} onClose={() => { close(); changed(); }} onChanged={() => void load()} />);
 
   if (!data) return error ? <Notice kind="error">{error}</Notice> : <p className="muted">Loading…</p>;
   const t = data.todayTotals;
@@ -94,11 +96,13 @@ export function PatientLedger({ patientId, onDialog, onChanged, onOpenCredits }:
         </>
       )}
 
+      <OpenCharges data={data} />
+
       <h3>Earlier visits</h3>
       {data.priorVisits.length === 0 ? <p className="muted">No earlier visits.</p> : <VisitTable visits={data.priorVisits} onCheckout={start} creditsInPlay={creditsInPlay} showDate />}
       {data.priorVisitsMore && <p className="hint">Showing the latest {data.priorVisits.length}.</p>}
 
-      <MoneySection data={data} isAdmin={isAdmin}
+      <MoneySection data={data} isAdmin={isAdmin} readOnly={!!readOnly} onCharges={charges}
         onCheckOut={() => checkOut(data.todayVisits.filter((v) => v.state === 'ready_to_check_out').map((v) => v.id))}
         onPay={() => show(<CheckoutBatchDialog patientId={patientId} mode="payment" onClose={close} onDone={changed} />)}
         onReverse={(e) => show(<ReversePaymentDialog patientId={patientId} payment={e} version={data.money.version} onClose={close} onDone={changed} />)}
@@ -137,12 +141,12 @@ export function PatientLedger({ patientId, onDialog, onChanged, onOpenCredits }:
  * The money: the posted list with its running balance — charges, payments on the day they were collected, reversals on theirs, account
  * credit applied — and, as its last line, the balance carried forward. Account credit ($) beneath, apart from it.
  */
-function MoneySection({ data, isAdmin, onCheckOut, onPay, onReverse, onRefund }: {
-  data: PatientLedger; isAdmin: boolean; onCheckOut: () => void; onPay: () => void;
+function MoneySection({ data, isAdmin, readOnly, onCharges, onCheckOut, onPay, onReverse, onRefund }: {
+  data: PatientLedger; isAdmin: boolean; readOnly: boolean; onCharges: () => void; onCheckOut: () => void; onPay: () => void;
   onReverse: (e: { id: string; tender: string; totalCents: number; date: string }) => void; onRefund: () => void;
 }) {
   const m = data.money;
-  const waiting = data.todayVisits.some((v) => v.state === 'ready_to_check_out');
+  const waiting = data.todayVisits.some((v) => v.state === 'ready_to_check_out') || data.openCharges.lines.length > 0;
   return (
     <>
       <h3>Charges and payments</h3>
@@ -157,7 +161,7 @@ function MoneySection({ data, isAdmin, onCheckOut, onPay, onReverse, onRefund }:
                 <td className="num">{e.amountCents > 0 ? fmtMoney(e.amountCents) : ''}</td>
                 <td className="num">{e.amountCents < 0 ? `−${fmtMoney(-e.amountCents)}` : e.kind === 'payment' ? fmtMoney(0) : ''}</td>
                 <td className="num">{fmtMoney(e.balanceAfterCents)}</td>
-                <td>{e.kind === 'payment' && canReverse(e, isAdmin) && <button className="btn small ghost" onClick={() => onReverse({ id: e.id, tender: e.tender, totalCents: e.totalCents, date: e.date })}>Reverse…</button>}</td>
+                <td>{!readOnly && e.kind === 'payment' && canReverse(e, isAdmin) && <button className="btn small ghost" onClick={() => onReverse({ id: e.id, tender: e.tender, totalCents: e.totalCents, date: e.date })}>Reverse…</button>}</td>
               </tr>
             ))}
           </tbody>
@@ -167,11 +171,14 @@ function MoneySection({ data, isAdmin, onCheckOut, onPay, onReverse, onRefund }:
           </tfoot>
         </table>
       )}
-      <div className="sheet-actions">
-        {waiting && <button className="btn primary" onClick={onCheckOut}>Check out today’s visits…</button>}
-        <button className="btn" onClick={onPay}>Take a payment…</button>
-        {isAdmin && m.accountCreditCents > 0 && <button className="btn ghost" onClick={onRefund}>Refund account credit…</button>}
-      </div>
+      {!readOnly && (
+        <div className="sheet-actions">
+          <button className="btn" onClick={onCharges}>Charges…</button>
+          {waiting && <button className="btn primary" onClick={onCheckOut}>Check out today’s visits…</button>}
+          <button className="btn" onClick={onPay}>Take a payment…</button>
+          {isAdmin && m.accountCreditCents > 0 && <button className="btn ghost" onClick={onRefund}>Refund account credit…</button>}
+        </div>
+      )}
       <p>
         <strong>{ACCOUNT_CREDIT_LABEL}:</strong> {fmtMoney(m.accountCreditCents)}
         <span className="muted"> — money held for the patient from an overpayment; applied at check-out when the desk chooses. Not membership credits.</span>
@@ -191,10 +198,12 @@ function MoneySection({ data, isAdmin, onCheckOut, onPay, onReverse, onRefund }:
 function PostedDetail({ e }: { e: PostedEntry }) {
   if (e.kind === 'charge') {
     const parts = [
+      e.lineKind === 'PRODUCT' ? 'product' : e.lineKind === 'ADDON_SERVICE' ? 'service add-on' : '',
       e.listPriceCents != null && (e.discountCents || e.promotionCents || e.adjustmentCents) ? `list ${fmtMoney(e.listPriceCents)}` : '',
       e.discountCents ? `tier −${fmtMoney(e.discountCents)}` : '',
       e.promotionCents ? `${e.promotionName ?? 'promotion'} −${fmtMoney(e.promotionCents)}` : '',
-      e.adjustmentCents ? `adjustment (${reasonLabel(e.adjustmentReason).toLowerCase()}) −${fmtMoney(e.adjustmentCents)}` : '',
+      e.adjustmentCents > 0 ? `adjustment (${reasonLabel(e.adjustmentReason).toLowerCase()}) −${fmtMoney(e.adjustmentCents)}` : '',
+      e.adjustmentCents < 0 ? `price raised (${reasonLabel(e.adjustmentReason).toLowerCase()}) +${fmtMoney(-e.adjustmentCents)}` : '',
     ].filter(Boolean);
     return parts.length ? <div className="muted small">{parts.join(' · ')}</div> : null;
   }
@@ -204,7 +213,36 @@ function PostedDetail({ e }: { e: PostedEntry }) {
   return null;
 }
 
-function VisitTable({ visits, onCheckout, showDate, creditsInPlay }: { visits: LedgerVisit[]; onCheckout: (v: LedgerVisit) => void; showDate?: boolean; creditsInPlay: boolean }) {
+/**
+ * Rev 2.3: add-on services and products added today and not yet checked out — priced as check-out would price them in money, tax on
+ * its own column. Not part of the balance until checked out; the same lines the check-out and Charges windows show.
+ */
+function OpenCharges({ data }: { data: PatientLedger }) {
+  const o = data.openCharges;
+  if (o.lines.length === 0) return null;
+  return (
+    <>
+      <h3>Added, not yet checked out</h3>
+      <table className="table ledger-table">
+        <thead><tr><th>Item</th><th className="num">Price</th><th className="num">Off</th><th className="num">Net</th><th className="num">Tax</th></tr></thead>
+        <tbody>
+          {o.lines.map((l) => (
+            <tr key={l.id}>
+              <td>{l.name} <span className="muted small">· {l.kind === 'PRODUCT' ? 'product' : 'service add-on'}</span>{l.addedOn !== data.today && <div className="muted small">added {fmtDay(l.addedOn)}</div>}</td>
+              <td className="num">{fmtMoney(l.unitPriceCents)}</td>
+              <td className="num">{l.discountCents + (l.promotion?.cents ?? 0) > 0 ? `−${fmtMoney(l.discountCents + (l.promotion?.cents ?? 0))}` : <span className="muted">—</span>}</td>
+              <td className="num">{fmtMoney(l.netCents)}</td>
+              <td className="num">{l.taxRateMilli > 0 ? <>{fmtMoney(l.taxCents)}<div className="muted small">{ratePercent(l.taxRateMilli)}</div></> : <span className="muted">—</span>}</td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot><tr className="carried"><td colSpan={4}><strong>If checked out and paid in money</strong></td><td className="num"><strong>{fmtMoney(o.totals.totalCents)}</strong></td></tr></tfoot>
+      </table>
+    </>
+  );
+}
+
+function VisitTable({ visits, onCheckout, showDate, creditsInPlay }: { visits: LedgerVisit[]; onCheckout?: (v: LedgerVisit) => void; showDate?: boolean; creditsInPlay: boolean }) {
   return (
     <table className="table ledger-table">
       <thead>
@@ -240,7 +278,7 @@ function VisitTable({ visits, onCheckout, showDate, creditsInPlay }: { visits: L
                   </td>
                 </>
               )}
-              <td>{canCheckOut(v) && <button className="btn small primary" onClick={() => onCheckout(v)}>Check out…</button>}</td>
+              <td>{onCheckout && canCheckOut(v) && <button className="btn small primary" onClick={() => onCheckout(v)}>Check out…</button>}</td>
             </tr>
           );
         })}

@@ -14,6 +14,7 @@ import AuditLog from './pages/AuditLog';
 import AdminMemberships from './pages/AdminMemberships';
 import AdminMacros from './pages/AdminMacros';
 import AdminPromotions from './pages/AdminPromotions';
+import AdminCatalog from './pages/AdminCatalog';
 import Provider from './pages/Provider';
 import Documentation from './pages/Documentation';
 import UnsignedNotes from './pages/UnsignedNotes';
@@ -62,6 +63,7 @@ export default function App() {
           <Route path="/admin/membership" element={<Protected roles={['ADMIN']}><AdminMemberships /></Protected>} />
           <Route path="/admin/macros" element={<Protected roles={['ADMIN']}><AdminMacros /></Protected>} />
           <Route path="/admin/promotions" element={<Protected roles={['ADMIN']}><AdminPromotions /></Protected>} />
+          <Route path="/admin/catalog" element={<Protected roles={['ADMIN']}><AdminCatalog /></Protected>} />
           <Route path="/admin/audit" element={<Protected roles={['ADMIN']}><AuditLog /></Protected>} />
           <Route path="/admin/note-signers" element={<Protected roles={['ADMIN']}><SignatureReview /></Protected>} />
 

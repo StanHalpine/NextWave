@@ -330,3 +330,17 @@ textarea[readonly] { background: #f3f1ec; }
 .pay-box { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
 .money-due dd input { width: 80px; }
 .check-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 4px 16px; }
+
+/* Rev 2.3: the Charges window — a grid of quick-add buttons, then the open lines. */
+.charge-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
+.charge-button { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-height: 72px; padding: 12px 14px; text-align: left;
+  font: 600 14px var(--font); background: #fff; color: var(--ink); border: 1px solid var(--line); border-left: 4px solid var(--sage); border-radius: 0 10px 10px 0; cursor: pointer; }
+.charge-button:hover:not(:disabled) { box-shadow: 0 2px 8px rgba(28, 43, 46, 0.12); }
+.charge-button:disabled { opacity: .55; cursor: progress; }
+.charge-button .charge-price { font-weight: 400; }
+/* Charges sits immediately to the LEFT of Check out… on the Front Desk card and dialog. */
+.btn-pair { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+/* Charges · Ledger · Checkout · Card on File · Cancel — wraps on a phone rather than shrinking the buttons. */
+.checkout-actions { flex-wrap: wrap; }
+.checkout-actions .btn[disabled][title] { cursor: not-allowed; }
+.receipt tr.muted td { color: var(--muted, #6b7476); font-size: 13px; }

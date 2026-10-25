@@ -10,6 +10,7 @@ import { MacroEditor, type MacroOps } from '../provider/MacroEditor';
 import { ScribePanel } from '../provider/ScribePanel';
 import { Recordings } from '../provider/Recordings';
 import { SignedNotes } from '../provider/SignedNotes';
+import { ChargesDialog } from '../patients/Charges';
 import type { MacroLibrary, MacroLite, ProviderRole, Section, Workspace } from '../types';
 
 type Save =
@@ -42,6 +43,7 @@ export default function Documentation() {
   const [save, setSave] = useState<Save>({ state: 'idle' });
   const [signing, setSigning] = useState(false);
   const [macrosOpen, setMacrosOpen] = useState(false);
+  const [chargesOpen, setChargesOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [confirmError, setConfirmError] = useState<string | null>(null);
 
@@ -206,6 +208,10 @@ export default function Documentation() {
           <span className={`pill ${STATUS_PILL[status]}`}>{STATUS_LABEL[status]}</span>
           {b.patient.id && <Link className="btn small" to={`/front-desk/patients/${b.patient.id}`} target="_blank" rel="noopener">Patient record</Link>}
           {editable && <button className="btn small" onClick={() => setMacrosOpen(true)}>My macros</button>}
+          {/* Rev 2.3 (decision 4): the visit's provider adds charges — InBody, supplements — for the desk to check out. */}
+          {ws.access.canWrite && b.patient.id && ['CHECKED_IN', 'IN_PROGRESS', 'SEEN'].includes(ws.encounter?.status ?? '') && (
+            <button className="btn small" onClick={() => setChargesOpen(true)}>Charges</button>
+          )}
         </div>
       </div>
 
@@ -320,6 +326,9 @@ export default function Documentation() {
           }} />
       )}
 
+      {chargesOpen && (
+        <ChargesDialog target={{ kind: 'provider', bookingId: id, role: ws.access.role }} title={`Charges — ${b.patient.name}`} onClose={() => setChargesOpen(false)} />
+      )}
       {macrosOpen && (
         <Modal title="My macros" wide onClose={() => setMacrosOpen(false)}>
           <p className="hint">Saved text you can insert into a note with one click. Shared sets from an administrator appear in the note itself; these are yours alone.</p>
