@@ -1,8 +1,8 @@
 # Phase 2c — charges (add-on services and products) and card on file
 
-Status: **PROPOSED, not approved. Design only — nothing here is built.** It builds on Phase 2b (the money layer, SPEC rev 2.2,
-`docs/MONEY_LAYER_DESIGN.md`) and rev 2.1 (note ownership). The eight decisions in §11 are open; each has a recommended default,
-for Chase (and, on tax, the accountant) to confirm before 2c-A starts.
+Status: **2c-A APPROVED (SPEC rev 2.3), with the owner's decisions in §12 — they override anything below that disagrees. 2c-B
+(card on file) and 2c-C (returns of paid items) are NOT approved.** It builds on Phase 2b (the money layer, SPEC rev 2.2,
+`docs/MONEY_LAYER_DESIGN.md`) and rev 2.1 (note ownership).
 
 Ground rules carried over from 2b: **integer cents**; **append-only** history tables (the `nw_reject_ledger_mutation()` triggers);
 **Row Level Security enabled on every new table**; **one database transaction per money or state change**; **idempotency keys**
@@ -53,12 +53,14 @@ keeps its price, member credits, discount category, perk and promotions in one p
   InBody scan does not reserve the InBody Station; if the station must be reserved, book it as a visit instead.
 
 **Retail products get a new `Product` table**: name, button group (Supplements, Other…), price in cents, active, sort order;
-`taxRateId` (nullable = not taxable); `discountCategoryId` (nullable = no tier discount); `creditCost` (nullable = credits cannot
-pay for it); `promotionEligible` (default false). Admins edit it on a catalog screen; every change is audited as before → after
+`taxable`; `tierDiscount` (eligible for the member product discount). *As approved (rev 2.3):* credits never pay for a product, so
+there is no credit cost; a promotion targets a product through `PromotionProduct`, like a service through `PromotionService`; the
+tier percentages for products are one admin-editable setting per tier (`PlanProductDiscount`), not a service discount category. Admins edit it on a catalog screen; every change is audited as before → after
 field names. A price change never rewrites past sales: each charge keeps a snapshot of its price.
 
 **Clicked items wait as "open charges" until check-out.** New table `OpenCharge`: patient, service or product, quantity, the
-clinic day it was added, who added it, who performed it (optional). Removing one adds an `OpenChargeRemoval` row; open charges are
+clinic day it was added, who added it, who performed it (optional), and — *as approved* — **snapshots of the name, unit price and
+tax rate taken when it is added**, which the posted charge carries unchanged. Removing one adds an `OpenChargeRemoval` row; open charges are
 never edited or deleted. At check-out each open line becomes a normal charge (`RevenueEvent`), which is permanent.
 
 - Why not post charges at once: a mis-click would then need a void. Most mistakes happen before check-out, and an open line can
@@ -112,8 +114,9 @@ assumes no tax.
 
 ## 4. Sales tax
 
-- **Rates live in a `TaxRate` table** (name, rate in thousandths of a percent — 8.025% = 8025 — active). No rate is written into
-  the code. Changing a rate means a new row; old charges keep the rate they were sold at.
+- **The rate lives in a `TaxRate` row** (code `SALES`, rate in thousandths of a percent — 5.5% = 5500). No rate is written into
+  the code; an admin edits it on the catalog screen, audited. Each open line and charge keeps the rate it was added at, so an
+  edit never changes a past charge. *As approved: 5.5%, products only; services are never taxed.*
 - **Per line, in whole cents**: `tax = floor((taxable × rate + 50 000) / 100 000)`, where taxable = the line's net after
   discounts and adjustment. Halves round up, like the rest of the money math. A database check enforces the formula.
 - **For the accountant to confirm**: per-line versus per-receipt rounding, and whether the clinic's own discounts reduce the
@@ -125,13 +128,15 @@ assumes no tax.
 
 Each is configurable per item. Proposed defaults:
 
-| | Add-on service (e.g. InBody) | Product |
+| | Add-on service (e.g. InBody) | Product *(as approved, rev 2.3)* |
 |---|---|---|
-| Member tier discount | Inherits the service's discount category | None, unless an admin puts it in a category (e.g. "Supplements") |
-| Promotions | Yes, via the existing promotion–service link | Off; enabling it needs a promotion–product link table (small; 2c-A or later) |
-| Membership credits | The service's credit cost (InBody: as today) | None |
+| Member tier discount | Inherits the service's discount category | **Yes** when the product is marked eligible: the tier's product percentage (seeded 10 / 15 / 20) |
+| Promotions | Yes, via the existing promotion–service link | **Yes**, via `PromotionProduct`; the better of tier and promotion, never both |
+| Membership credits | The service's credit cost (InBody: as today) | **Never** (the database refuses it) |
 | Perks | Yes (quarterly body composition) | No |
 | Desk adjustment | Yes, same cap | Yes, same cap |
+| Price above list | Admin (MFA) only, with a reason | Admin (MFA) only, with a reason |
+| Sales tax | Never | 5.5% when the product is marked taxable |
 
 ## 6. Inventory
 
@@ -152,7 +157,8 @@ product in Accounting. The data model leaves room for stock tracking without mig
 
 | Action | Who |
 |---|---|
-| Add or remove open charges; check them out | Front desk, admin (providers: decision 4) |
+| Add or remove open charges | Front desk, admin, and providers (for the patient of a visit they may document, before it is checked out) |
+| Check charges out | Front desk, admin |
 | Void a posted unpaid add-on | Desk on the same clinic day; MFA admin after |
 | Return a paid product (2c-C) | Desk on the same clinic day; MFA admin after |
 | Catalog, tax rates, add-on switch | Admin (MFA for price and tax changes), audited |
@@ -269,29 +275,24 @@ new assumptions for the defaults in §5.
 | 2c-C | ≈ 800–1,000 lines |
 | Processor integration | Not sized until a processor is chosen |
 
-## 12. Open decisions
+## 12. Decisions (Chase, rev 2.3)
 
-For Chase (and the accountant where noted). Each has a recommended default; nothing in 2c-A starts until they are answered.
+Each was an open question with a recommended default; the owner's answers are recorded in SPEC rev 2.3 and below.
 
-1. **The product list, prices and button groups, and which services are offered as add-ons.**
-   *Recommended default:* InBody (Body Composition, at its current $55) as the one add-on service; Magnesium glycinate and
-   Vitamin D3 as the first products under "Supplements". Products stay inactive (no button) until Chase sets a price.
-2. **Sales tax: which items are taxable, at what rate(s), rounding, and billed versus cash basis** (accountant).
-   *Recommended default:* services not taxable; products taxable at one clinic rate an admin enters; per-line rounding, halves up;
-   tax reported as billed. Nothing is taxed until a rate is entered.
-3. **Tier discounts, promotions and member credits on products.**
-   *Recommended default:* as §5 — add-on services inherit their service's rules; products get no tier discount, no promotions and
-   no credits unless an admin turns each on for that product.
-4. **Who may add charges, and whether the performer is required on add-on services.**
-   *Recommended default:* front desk and admins only (not providers); performer optional.
-5. **May the desk raise a fee above the list price?**
-   *Recommended default:* no. The fee edit only reduces (the 2b adjustment); a higher price is an admin catalog change.
-6. **Returns and voids: who, and when 2c-C ships.**
-   *Recommended default:* desk on the same clinic day, MFA admin after; 2c-A ships with voids of unpaid lines only, and 2c-C
-   (paid returns) follows as its own phase.
-7. **Card on file: which terminal or processor, whether it can save cards, and the consent wording.**
-   *Recommended default:* the feature stays off until the clinic names its terminal and confirms it saves cards; consent by a
-   signed form, recorded with its date.
-8. **HSA/FSA as a tender for supplements** (accountant).
-   *Recommended default:* allow it, with a hint on product lines that supplements usually need a letter of medical necessity; the
-   desk decides with the patient.
+1. **The product list, prices and button groups; add-on services.** *Decided:* placeholder products, clearly marked, until the
+   real ones are chosen; an admin edits name, price, active, taxable and tier-discount eligibility on a catalog screen, audited.
+   Every line snapshots its name and price when it is added. InBody is the body-composition service, offered as an add-on.
+2. **Sales tax.** *Decided:* services never taxed; products at 5.5%, an admin-editable rate; on the line's net after discounts and
+   promotions; per line in integer cents, halves up; shown separately on the Ledger, the receipt and in Accounting; not revenue.
+3. **Tier discounts, promotions and member credits on products.** *Decided:* credits never on products; tier discount on products
+   yes, a percentage per tier (Prevent 10 · Restore 15 · Optimize 20, from `membership.html`), admin-editable; promotions may target
+   products, the better of tier and promotion, never both. InBody behaves exactly as a booked body-composition visit.
+4. **Who may add charges, and the performer.** *Decided:* front desk, admins and providers (providers from their visit workspace);
+   open charges removable by the same roles before check-out, audited; a charge added by anyone shows at the desk at once.
+   Performer optional.
+5. **Raising a fee above list.** *Decided:* admin only, with a required reason. The desk stays down-only within the cap.
+6. **Returns and voids; when 2c-C ships.** *Decided:* 2c-C is not approved. In 2c-A an open line is removed before check-out; a
+   posted charge is not voided.
+7. **Card on file.** *Decided:* not approved (2c-B). The check-out window shows "Card on File" disabled, with a hint that it
+   activates once a card processor is chosen.
+8. **HSA/FSA for supplements.** *Decided:* allowed, no warning. Receipts and the Ledger itemize every product by name, with its tax.

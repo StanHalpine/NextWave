@@ -1,6 +1,6 @@
 # NextWave Wellness — Clinic System Specification
 
-Version 2.2 · 2026-10-23 · Status: **Phases 1–5, L1, 2a and rev 2.1 approved and built. Phase 2b (the money layer: payments, the derived balance, combined check-out with partial payment, account credit, refunds, reversals, promotions, desk adjustments, billed vs collected) APPROVED with the owner's decisions in revision 2.2 below — design `docs/MONEY_LAYER_DESIGN.md`. L4 (kiosk) is NOT approved.** Member discounts are enabled (Prevent 10% · Restore 15% · Optimize 20%; rev 1.8); perks stay off. `docs/STAGING_CHECKLIST.md` lists everything that needs a real environment. Nothing is merged to `main` or deployed from this branch.
+Version 2.3 · 2026-10-25 · Status: **Phases 1–5, L1, 2a, rev 2.1 and Phase 2b (the money layer, revision 2.2) approved and built. Phase 2c-A (charges: a catalog of retail products, add-on services, the Charges window, sales tax) APPROVED with the owner's decisions in revision 2.3 below — design `docs/CHARGES_DESIGN.md`. Phases 2c-B (card on file) and 2c-C (returns of paid items) and L4 (kiosk) are NOT approved.** Member discounts are enabled (Prevent 10% · Restore 15% · Optimize 20%; rev 1.8); perks stay off. `docs/STAGING_CHECKLIST.md` lists everything that needs a real environment. Nothing is merged to `main` or deployed from this branch.
 
 > **Revision 1.1 — decisions recorded after approval** (the body below is otherwise
 > unchanged from the approved v1; sections touched are marked *[rev 1.1]*):
@@ -101,6 +101,23 @@ Version 2.2 · 2026-10-23 · Status: **Phases 1–5, L1, 2a and rev 2.1 approved
 > | **Time zones and raw SQL** | Every `DateTime` column is a UTC `timestamp`. **Raw SQL must bind an instant with `utcTimestamp()`** (`lib/sqlTime.ts`): a bare `Date` is compared in the *database session's* zone, which is wrong by the offset on any non-UTC database. Three queries from Phases 2–3 had it and are fixed. The test database now runs in `Asia/Kolkata` unless `NW_TEST_TZ` says otherwise |
 > | Revenue basis | *[superseded by rev 1.7: dues are now a separate line in every Accounting view]* **Membership dues are not in Accounting**: nothing records them (A-13 assumed they would be). Revenue is what was recorded at check-out |
 > | Not built | *[rev 1.7: the Twilio adapter and dues are built]* A **Twilio sending adapter** (texts still go to the stub; only the inbound webhook, its signature check and the wording are real), the **AWS adapters**, a dues record, void/refund, print/PDF, a free-form analytics builder |
+
+> **Revision 2.3 — Phase 2c-A (charges: add-on services, products, sales tax) approved, with the owner's decisions (Chase).** The
+> design is `docs/CHARGES_DESIGN.md`, updated to match; where it and this table differ, this table wins. 2c-B (card on file) and
+> 2c-C (returns of paid items) are not approved.
+>
+> | # | Decision |
+> |---|---|
+> | 1 | **Products: a catalog of clearly-marked placeholder products** until the real ones are chosen ("Supplement A (placeholder)", …). An admin edits each product's **name, price, active, taxable and tier-discount eligibility** on a catalog screen, audited. **Every charge line snapshots its name and price when it is ADDED**, so a later rename or re-price never changes a past charge, receipt or Ledger line |
+> | 2 | **Sales tax: services are never taxed. Products are taxed at 5.5%**, an admin-editable rate (not in the code), on the line's net after discounts, promotions and any adjustment, **per line in integer cents, halves up**. Tax is shown separately on the Ledger, the receipt and in Accounting, and is **not revenue** |
+> | 3a | **Membership credits pay for services only, never products** (the database refuses a product line paid with credits or a perk) |
+> | 3b | **Member tier discount on products: yes, a percentage per tier**, an admin-editable setting — seeded **Prevent 10% · Restore 15% · Optimize 20%** from `membership.html` ("10% / 15% / 20% off supplements"); applied only to a product marked discount-eligible, only for an ACTIVE member |
+> | 3c | **Promotions may target products.** Tier discount vs promotion on a product: **the better of the two, never both** (as for services) |
+> | 3d | **InBody = body composition.** The InBody quick-add adds the **existing body-composition service** — not a product — so membership inclusions (perks), tier discounts, credits and no-tax behave exactly as for a booked body-composition visit. Who performed it may be recorded (optional) |
+> | 4 | **Front desk, admins and providers may add charges** (providers from their visit workspace, for that visit's patient). **Open (unpaid, not yet checked out) charges may be removed by the same roles before check-out**, audited. A charge added by anyone shows at the desk's check-out at once |
+> | 5 | **Raising a price above list: admin (MFA) only, with a required reason.** The desk's adjustment stays down-only, capped at min(20% of list, $25.00) |
+> | 6 | **HSA/FSA may pay for supplements; no warning.** Receipts and the Ledger **itemize every product by name, with its tax**, so a patient can substantiate an HSA purchase |
+> | Not in 2c-A | **Card on file (2c-B)** — the check-out window shows a disabled "Card on File" button until a processor is chosen. **Returns and voids of paid items (2c-C).** **Stock tracking.** A charge is never deleted: before check-out an open line is removed by an append-only removal row; after check-out it is a charge like any other |
 
 > **Revision 2.2 — Phase 2b (the money layer) approved, with the owner's decisions (Chase).** The design is
 > `docs/MONEY_LAYER_DESIGN.md`, updated to match; where it and this table differ, this table wins.
@@ -1046,6 +1063,14 @@ Each has a default; say "defaults OK" or override.
 | A-26 | *[rev 2.2]* Overpayment and account credit | **Decided:** refund (tender recorded) or account credit in dollars, the patient's choice; account credit never mixes with membership credits |
 | A-27 | *[rev 2.2]* Payment reversal | **Decided:** front desk the same clinic day; admin (MFA) after |
 | A-28 | *[rev 2.2]* Charges before 2b | **Decided:** paid in full — settled by the migration |
+| A-29 | *[rev 2.3]* What a charge is | **Decided:** a visit (an encounter), an add-on service (an existing service, no booking) or a product; each is one `RevenueEvent`, the kind derived from its columns, never stored |
+| A-30 | *[rev 2.3]* Snapshots | **Decided:** name, unit price and tax rate are snapshotted when a line is ADDED; discounts and promotions are worked out at check-out, a promotion by the day the line was added |
+| A-31 | *[rev 2.3]* Sales tax | **Decided:** products only, at the clinic's one admin-editable rate (5.5%); `floor((net × rate + 50 000) / 100 000)` with the rate in thousandths of a percent; not revenue |
+| A-32 | *[rev 2.3]* Product tier discount | **Decided:** one percentage per tier for discount-eligible products, admin-editable, seeded 10 / 15 / 20 |
+| A-33 | *[rev 2.3]* Who adds charges | **Decided:** front desk, admins, and providers — a provider for the patient of a visit they may document (the rev 2.1 rule), before it is checked out |
+| A-34 | *[rev 2.3]* Price increases | **Decided:** admin (MFA) only, with a reason (billing error, extended service, other + note); stored as a negative adjustment so the list price is never edited |
+| A-35 | *[assumption, rev 2.3]* One unit per line | Each click on a quick-add button adds one line of one unit; two bottles are two lines. A quantity field can come later |
+| A-36 | *[assumption, rev 2.3]* Add-on services | Only a service that needs no signed note may be offered as an add-on (an add-on has no encounter to write one against). Body composition is the one switched on |
 
 ---
 
