@@ -58,6 +58,12 @@ there is no credit cost; a promotion targets a product through `PromotionProduct
 tier percentages for products are one admin-editable setting per tier (`PlanProductDiscount`), not a service discount category. Admins edit it on a catalog screen; every change is audited as before → after
 field names. A price change never rewrites past sales: each charge keeps a snapshot of its price.
 
+**Quantity (decided at review).** A line carries a quantity, 1 to 99. A click on an item already open today — same price snapshot, same
+performer — adds one to that line rather than a second line; a quantity can also be typed. The list price is unit price × quantity, and
+every discount, adjustment and tax is worked out on that line total, rounded per line (so a fixed-amount promotion comes off once per
+line). A change is an append-only `OpenChargeQuantity` row; the charge must carry the quantity as it stood (`nw_open_charge_guard`).
+Credits pay the service's cost for each unit; a perk covers one unit.
+
 **Clicked items wait as "open charges" until check-out.** New table `OpenCharge`: patient, service or product, quantity, the
 clinic day it was added, who added it, who performed it (optional), and — *as approved* — **snapshots of the name, unit price and
 tax rate taken when it is added**, which the posted charge carries unchanged. Removing one adds an `OpenChargeRemoval` row; open charges are
@@ -130,7 +136,7 @@ Each is configurable per item. Proposed defaults:
 
 | | Add-on service (e.g. InBody) | Product *(as approved, rev 2.3)* |
 |---|---|---|
-| Member tier discount | Inherits the service's discount category | **Yes** when the product is marked eligible: the tier's product percentage (seeded 10 / 15 / 20) |
+| Member tier discount | Inherits the service's discount category | **Yes** when the product is marked eligible: the tier's product percentage (seeded 10 / 15 / 20) — the ONE supplements setting, which the *Supplements* service category also reads |
 | Promotions | Yes, via the existing promotion–service link | **Yes**, via `PromotionProduct`; the better of tier and promotion, never both |
 | Membership credits | The service's credit cost (InBody: as today) | **Never** (the database refuses it) |
 | Perks | Yes (quarterly body composition) | No |

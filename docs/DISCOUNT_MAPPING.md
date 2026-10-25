@@ -13,7 +13,7 @@
 | Category | Services in it | Prevent | Restore | Optimize |
 |---|---|---|---|---|
 | **Spinal X-rays** | Spinal X-Rays ($250.00) | **10%** | **15%** | **20%** |
-| **Supplements** | Supplementation (no set price: the desk types the list price) | **10%** | **15%** | **20%** |
+| **Supplements** | Supplementation (no set price: the desk types the list price) — *and, since rev 2.3, every retail product marked eligible* | **10%** | **15%** | **20%** |
 | **Special services** | *none yet* — no such service exists; the category is ready, and discounts nothing today | **10%** | **15%** | **20%** |
 
 Nothing else is discounted: no other service is in a category. **Perks are off** (every perk counter is switched off and nothing offers or counts them).
@@ -25,6 +25,12 @@ Nothing else is discounted: no other service is in a category. **Perks are off**
 - Every check-out records the list price, the percent, the category, the discount and the net (Accounting shows them).
 
 **Worked examples** (a spinal X-ray, $250.00, paid in cash): Prevent **$25.00** off → **$225.00** · Restore **$37.50** off → **$212.50** · Optimize **$50.00** off → **$200.00**. Supplementation at a typed $19.99: Prevent $2.00 off · Restore $3.00 off · Optimize $4.00 off.
+
+**Supplements: one setting (rev 2.3).** Retail products are discounted per tier too, and the supplements percentages live in **one
+place: Admin → Product catalog → *Member discount on products*** (`PlanProductDiscount`, seeded Prevent 10 · Restore 15 · Optimize 20 from
+`membership.html` lines 178, 209, 241 and 301–302). The *Supplements* service category reads that setting — its own per-tier rows were
+retired by migration `20261025110000_quantity_and_supplements` and cannot be set on the category screen, which shows the shared values
+read-only — so the Supplementation service and supplement products always get the same rate. The other categories are unchanged.
 
 **Where it is entered.** In **your dev database** — the only database that exists — through the same operations Admin → Memberships → *Member discounts by service category*
 uses (audited: 8 rows, actor `system:apply-discount-table`). **A new database starts with no discounts**: on staging and production run
@@ -43,7 +49,7 @@ Line numbers are in `membership.html` as it stands (the cards, the three "Learn 
 | D2 | **"10% off special services"** — all three dialogs (**178, 209, 241**) and the *Special Services* tile, "At every membership level" (line **291**) | Category exists at 10 / 15 / 20% but **has no services, so nothing is discounted today** | **Yes — the promised 10% is not delivered at all today.** If a service is later put in the category: Prevent 10% agrees; **Restore 15% and Optimize 20% are more than published**; "at every membership level" is false |
 | D3 | **"10% off off-menu package pricing"** — all three dialogs and the *Packages* tile, "At every membership level" (line **296**) | **Not enforced.** There is no discount; packages are priced by hand and are not in the system's catalogue | **Yes — published, not delivered** |
 | D4 | **"20% off additional Wellness Credits"** — all three dialogs, the *Credits* tile "Go beyond your monthly balance without paying full price" (line **286**), and the credit-table footnote "Additional Wellness Credits are available to members at 20% off" (line **268**) | **Not enforced.** The system has no way to *sell* extra credits (no price, no purchase, no ledger entry for one) | **Yes — published, not delivered** |
-| D5 | **"10% / 15% / 20% off supplements — Prevent 10%, Restore 15%, Optimize 20%"** — dialogs (lines **178, 209, 241**: 10% / 15% / 20%) and the *Supplements* tile (lines **301–302**) | **Prevent 10%, Restore 15%, Optimize 20%** on the *Supplementation* service | **No — agrees.** *Limit worth knowing:* it covers the Supplementation **service** only; there is no product catalogue, so a retail product sold at the desk is not discounted unless it is entered as a priced service in this category |
+| D5 | **"10% / 15% / 20% off supplements — Prevent 10%, Restore 15%, Optimize 20%"** — dialogs (lines **178, 209, 241**: 10% / 15% / 20%) and the *Supplements* tile (lines **301–302**) | **Prevent 10%, Restore 15%, Optimize 20%** on the *Supplementation* service **and on retail products** marked eligible (rev 2.3), from one setting: Admin → Product catalog → *Member discount on products* | **No — agrees.** Retail supplements sold at the desk (the Charges window) are discounted per tier for an active member paying in money; a promotion on the product applies instead when it is better — never both. Membership credits never pay for a product |
 | D6 | Every "Member-exclusive savings" line states the discount **without conditions** | It applies **only when an active member pays cash**; credit-paid and perk visits, paused members and non-members get none | **Unstated limit** (not a contradiction, but the copy over-promises). Worth a footnote: "applies to services paid in cash by active members" |
 
 *What the page would say if it matched:* X-rays — "10% / 15% / 20% off spinal X-rays (Prevent / Restore / Optimize)"; supplements as now; special services, packages and additional credits removed until they exist.
@@ -90,7 +96,8 @@ These claims are on the service pages and in the seeded booking text. **None is 
 ## 4. What the model cannot do
 
 1. **One percentage per tier per category**, off the list price: no "25% but 10% if …", no quantity breaks, no time-of-day rates.
-2. **Retail supplements** — only the Supplementation *service* (D5).
+2. ~~**Retail supplements** — only the Supplementation *service* (D5).~~ *Done in rev 2.3:* retail products are discounted per tier (the one setting
+   above); see `docs/CHARGES_DESIGN.md`.
 3. **Off-menu packages** (D3) and **additional Wellness Credits** (D4): no catalogue item to put in a category, and no way to sell a credit.
 4. A member who pays by **credits** gets no cash discount; a cheaper credit cost for members would be a different rule.
 

@@ -117,6 +117,9 @@ Version 2.3 · 2026-10-25 · Status: **Phases 1–5, L1, 2a, rev 2.1 and Phase 2
 > | 4 | **Front desk, admins and providers may add charges** (providers from their visit workspace, for that visit's patient). **Open (unpaid, not yet checked out) charges may be removed by the same roles before check-out**, audited. A charge added by anyone shows at the desk's check-out at once |
 > | 5 | **Raising a price above list: admin (MFA) only, with a required reason.** The desk's adjustment stays down-only, capped at min(20% of list, $25.00) |
 > | 6 | **HSA/FSA may pay for supplements; no warning.** Receipts and the Ledger **itemize every product by name, with its tax**, so a patient can substantiate an HSA purchase |
+> | Review 1 | **One place for the supplements discount:** the member discount on products is the single setting; the *Supplements* service category (Supplementation) reads it, and its own per-tier rows are retired |
+> | Review 3 | **Quantity on add-on lines** (1 to 99, default 1). Price, discount, any adjustment and tax on the line total, rounded per line; a click on an item already open today (same price, same performer) adds to that line; removal still possible. Snapshots and the post-match rule cover quantity. Credits pay the service's cost per unit; a perk covers one unit |
+> | Review 2, 4–6 | On an unassigned visit any provider may add charges; the performer is recorded only when a provider adds it; a posted add-on is not voided before 2c-C (an admin refunds meanwhile); the add-on rule (no-note services only) stays in the app |
 > | Not in 2c-A | **Card on file (2c-B)** — the check-out window shows a disabled "Card on File" button until a processor is chosen. **Returns and voids of paid items (2c-C).** **Stock tracking.** A charge is never deleted: before check-out an open line is removed by an append-only removal row; after check-out it is a charge like any other |
 
 > **Revision 2.2 — Phase 2b (the money layer) approved, with the owner's decisions (Chase).** The design is
@@ -1069,7 +1072,7 @@ Each has a default; say "defaults OK" or override.
 | A-32 | *[rev 2.3]* Product tier discount | **Decided:** one percentage per tier for discount-eligible products, admin-editable, seeded 10 / 15 / 20 |
 | A-33 | *[rev 2.3]* Who adds charges | **Decided:** front desk, admins, and providers — a provider for the patient of a visit they may document (the rev 2.1 rule), before it is checked out |
 | A-34 | *[rev 2.3]* Price increases | **Decided:** admin (MFA) only, with a reason (billing error, extended service, other + note); stored as a negative adjustment so the list price is never edited |
-| A-35 | *[assumption, rev 2.3]* One unit per line | Each click on a quick-add button adds one line of one unit; two bottles are two lines. A quantity field can come later |
+| A-35 | *[rev 2.3, decided at review]* Quantity | A line carries a quantity (1 to 99); a click adds one to the item's open line from today at the same price and performer, else a new line. Everything is priced on the line total; a fixed-amount promotion comes off the line once |
 | A-36 | *[assumption, rev 2.3]* Add-on services | Only a service that needs no signed note may be offered as an add-on (an add-on has no encounter to write one against). Body composition is the one switched on |
 
 ---
