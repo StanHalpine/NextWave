@@ -209,6 +209,19 @@ services were seeded long ago and the seed skips them — that is the point. No 
 - [ ] **No card numbers.** Type a test card number (4242 4242 4242 4242) into a payment's reference: refused.
 - [ ] **Accounting → Billed vs collected** and **Review**: the day's billed and collected agree with what you did above (collected less reversals and refunds);
       Review lists each adjustment, reversal and refund with who recorded it and **no patient name**, ending in a **subtotal per kind and no grand total**; the CSV exports likewise.
+- [ ] **Charges (Phase 2c-A, rev 2.3).** Admin → **Product catalog** shows three products marked *(placeholder)*, sales tax **5.5%**, and the member
+      discount on products Prevent 10 · Restore 15 · Optimize 20; Body Composition is offered as a service add-on. Rename a placeholder and set its
+      price: the change is audited (Admin → Audit log shows field names, no values).
+- [ ] **Ben's example.** Check Ben in for a manual adjustment and a red light. On his card, **Charges** sits to the left of **Check out…**; add InBody
+      and two supplements. **Check out…** lists both visits and the three items; with the placeholder prices the total is **$235.00 before tax**, plus
+      5.5% on each supplement (at $35.00: $1.93 each). The bottom row reads **Charges · Ledger · Checkout · Card on File · Cancel**, and Card on File
+      is greyed out. Pay by **HSA/FSA**: the receipt lists every item by name, each supplement's tax under it; the Ledger reads $0.00 from the
+      card, the patient search and the profile alike.
+- [ ] **A provider adds a charge.** As the visit's provider, open the visit in the Provider workspace → **Charges** → InBody. On the desk, the
+      check-out window that was already open shows it within ten seconds. Remove a line from the desk before check-out; it disappears everywhere.
+- [ ] **Never on products:** membership credits and perks are not offered for a product line. **Price above list:** only an admin (MFA) sees
+      *Raise by* under *Edit fee…*, and it needs a reason. **Accounting** → Custom → *Visits, add-ons and products*: products and add-ons are their
+      own rows and the sales tax is its own column, outside revenue; Billed vs collected shows *Sales tax billed*.
 - [ ] A signed note: only the provider who signed it is offered **Amend**; another provider is offered **Add addendum**; an admin is offered neither.
 - [ ] Reports are quick on the real host: the current month appears at once; a three-year range in a second or two. (The timings
       in `docs/PHASE5_NOTES.md` §4 are from a laptop; `npm run perf:reports` repeats them against any database you can create a schema in.)
