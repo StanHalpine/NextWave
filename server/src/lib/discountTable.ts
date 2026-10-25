@@ -11,10 +11,13 @@
  * place to change anything.
  *
  * Perks are untouched (off). A discount applies only when an ACTIVE member pays CASH; credits and perks are never discounted.
+ *
+ * Rev 2.3 review: "Supplements" is created and given its service as before, but no percentages of its own — it reads the member discount
+ * on products (Admin → Product catalog), the one setting for supplements.
  */
 
 import type { Prisma } from '@prisma/client';
-import { createCategory, setCategoryDiscounts, updateCategory, codeFromName } from './discountConfig.js';
+import { createCategory, setCategoryDiscounts, updateCategory, codeFromName, SUPPLEMENTS_CATEGORY_CODE } from './discountConfig.js';
 import type { Rec } from './staffTx.js';
 
 type Tx = Prisma.TransactionClient;
@@ -54,6 +57,13 @@ export async function applyApprovedTable(tx: Tx, rec: Rec): Promise<AppliedCateg
     const free = found.filter((s) => s.discountCategoryId === null);
     const skipped = [...spec.serviceSlugs.filter((slug) => !found.some((s) => s.slug === slug)), ...found.filter((s) => s.discountCategoryId !== null).map((s) => s.slug)];
     if (free.length) await updateCategory(tx, rec, made.id, { serviceIds: free.map((s) => s.id) });
+    if (made.code === SUPPLEMENTS_CATEGORY_CODE) {
+      // Supplements reads the member discount on products (rev 2.3 review), so nothing is written here; report what it reads.
+      const shared = await tx.planProductDiscount.findMany({ where: { planId: { in: plans.map((p) => p.id) } } });
+      const from = Object.fromEntries(plans.map((p) => [p.code, shared.find((d) => d.planId === p.id)?.percent ?? 0]));
+      out.push({ name: spec.name, code: made.code, outcome: 'created', services: free.map((s) => s.slug), skipped, percents: from });
+      continue;
+    }
     await setCategoryDiscounts(tx, rec, made.id, percents);
     out.push({ name: spec.name, code: made.code, outcome: 'created', services: free.map((s) => s.slug), skipped, percents: byCode });
   }

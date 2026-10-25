@@ -19,6 +19,8 @@ export type PostedEntry =
   | { kind: 'charge'; id: string; date: string; at: string; bookingId: string | null; serviceName: string; subOption: string | null;
       /** Rev 2.3: a visit, an add-on service (no visit), or a product — each itemized by name (decision 6). */
       lineKind: 'VISIT' | 'ADDON_SERVICE' | 'PRODUCT';
+      /** Units on an add-on line (1 for a visit); listPriceCents is their total. */
+      quantity: number;
       paymentType: 'CASH' | 'MEMBER'; listPriceCents: number | null; discountCents: number; promotionCents: number; promotionName: string | null;
       adjustmentCents: number; adjustmentReason: string | null; taxCents: number; amountCents: number; balanceAfterCents: number }
   /** Rev 2.3: a product's sales tax, on its own line under it, named — so a receipt substantiates an HSA purchase (decision 6). */
@@ -73,7 +75,7 @@ export async function moneyView(tx: Tx, patientId: string, today: string): Promi
     const date = toLocalDateISO(c.occurredAt);
     drafts.push({
       kind: 'charge', id: c.id, date, at: c.occurredAt.toISOString(), bookingId: c.bookingId, serviceName: c.serviceName, subOption: c.subOption,
-      lineKind: c.productId ? 'PRODUCT' : c.openChargeId ? 'ADDON_SERVICE' : 'VISIT',
+      lineKind: c.productId ? 'PRODUCT' : c.openChargeId ? 'ADDON_SERVICE' : 'VISIT', quantity: c.quantity,
       paymentType: c.paymentType as 'CASH' | 'MEMBER', listPriceCents: c.listPriceCents, discountCents: c.discountCents, promotionCents: c.promotionCents,
       promotionName: c.promotion?.name ?? null, adjustmentCents: c.adjustmentCents, adjustmentReason: c.adjustmentReason, taxCents: c.taxCents,
       amountCents: c.netPriceCents, sort: c.occurredAt.getTime(),

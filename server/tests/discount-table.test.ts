@@ -9,7 +9,8 @@ import { setCategoryDiscounts } from '../src/lib/discountConfig.js';
 import { APPROVED_CATEGORIES, TIER_RATES, applyApprovedTable } from '../src/lib/discountTable.js';
 import { auditRows, blob, makeAccount, signInFully } from './helpers.js';
 import { makePatient } from './phase2.js';
-import { makeCategory, makeMembership } from './phase3.js';
+import { makeCategory, makeMembership, makePlan } from './phase3.js';
+import { addOpenCharge, openLinesView } from '../src/lib/charges.js';
 
 /**
  * The approved table: Prevent 10% · Restore 15% · Optimize 20%, on Spinal X-rays, Supplements and Special services — entered by
@@ -40,7 +41,10 @@ describe('the approved table', () => {
     await withTable(async () => {
       const out = await apply();
       expect(out.map((c) => [c.name, c.outcome])).toEqual([['Spinal X-rays', 'created'], ['Supplements', 'created'], ['Special services', 'created']]);
-      for (const code of CODES) expect(await percentsOf(code), code).toEqual({ PREVENT: 10, RESTORE: 15, OPTIMIZE: 20 });   // not a separate 20% for X-rays
+      for (const code of ['SPINAL_X_RAYS', 'SPECIAL_SERVICES']) expect(await percentsOf(code), code).toEqual({ PREVENT: 10, RESTORE: 15, OPTIMIZE: 20 });   // not a separate 20% for X-rays
+      // Rev 2.3 review: Supplements has no percentages of its own — it reads the member discount on products, which is 10 / 15 / 20.
+      expect(await percentsOf('SUPPLEMENTS')).toEqual({});
+      expect(out.find((c) => c.code === 'SUPPLEMENTS')!.percents).toEqual({ PREVENT: 10, RESTORE: 15, OPTIMIZE: 20 });
       const members = async (code: string) => (await prisma.service.findMany({ where: { discountCategory: { code } }, select: { slug: true } })).map((s) => s.slug);
       expect(await members('SPINAL_X_RAYS')).toEqual(['spinal-xrays']);
       expect(await members('SUPPLEMENTS')).toEqual(['supplementation']);
@@ -78,7 +82,7 @@ describe('the approved table', () => {
       const rows = (await Promise.all(cats.map((c) => auditRows({ resourceType: 'discount_category', resourceId: c.id })))).flat();
       expect(rows.filter((r) => r.action === 'CREATE')).toHaveLength(3);
       const discounts = rows.filter((r) => (r.meta as { fields?: string[] } | null)?.fields?.includes('discounts'));
-      expect(discounts).toHaveLength(3);
+      expect(discounts).toHaveLength(2);                                                  // not Supplements: it reads the product setting
       for (const r of discounts) expect(Object.values((r.meta as { changes: Record<string, { from: number; to: number }> }).changes).map((c) => [c.from, c.to]).sort()).toEqual([[0, 10], [0, 15], [0, 20]]);
       expect(new Set(rows.map((r) => r.actorRoles))).toEqual(new Set(['system:apply-discount-table']));
       expect(blob(rows)).not.toMatch(/@|firstName|phone/i);
@@ -233,6 +237,40 @@ describe('what a member is charged at check-out, through the entered table', () 
       await expect(staffTransaction((tx, rec) => checkoutVisit(tx, rec, { bookingId: booking.id, accountId: account.id, now: CDT('2037-02-10T11:00:00'), payment: 'CASH', expectedNetCents: 20000 }))).rejects.toMatchObject({ code: 'price_changed' });
       const ok = await staffTransaction((tx, rec) => checkoutVisit(tx, rec, { bookingId: booking.id, accountId: account.id, now: CDT('2037-02-10T11:00:00'), payment: 'CASH', expectedNetCents: 21250 }));
       expect(ok).toMatchObject({ listPriceCents: 25000, discountCents: 3750, netPriceCents: 21250 });
+    });
+  });
+
+  it('rev 2.3 review: supplements read ONE setting — the member discount on products; the Supplements category cannot be set on its own', async () => {
+    await withTable(async () => {
+      await apply();
+      const admin = await signInFully((await makeAccount({ roles: ['ADMIN'] })).email);
+      const { plan } = await makePlan();                                                      // a private tier: editing it disturbs no other test
+      const p = await makePatient();
+      await makeMembership(p.id, plan.code, '2037-01-05');
+      const setShared = (percent: number) => admin.agent.put('/api/admin/catalog/product-discounts').set('x-csrf-token', admin.csrf).send({ discounts: [{ planId: plan.id, percent }] });
+      const product = await basePrisma.product.create({ data: { name: `Shared-discount product ${Date.now()}`, category: 'Supplements', priceCents: 2000 } });
+      const account = await makeAccount({ roles: ['FRONT_DESK'] });
+      const now = CDT('2037-02-10T11:00:00');
+      await staffTransaction((tx, rec) => addOpenCharge(tx, rec, { patientId: p.id, item: { productId: product.id }, accountId: account.id, now }));
+      const booking = await visit('supplementation', p.id, 50);
+      const both = async () => [
+        (await checkoutPreview(basePrisma as never, booking.id, now))!.cash.tierPercent,
+        (await basePrisma.$transaction((tx) => openLinesView(tx, p.id, now))).lines[0]!.tierPercent,
+      ];
+      expect((await setShared(30)).status).toBe(200);
+      expect(await both()).toEqual([30, 30]);                                                 // the service and the product, from the one setting
+      expect((await setShared(12)).status).toBe(200);
+      expect(await both()).toEqual([12, 12]);
+      const supplements = await prisma.discountCategory.findUniqueOrThrow({ where: { code: 'SUPPLEMENTS' } });
+      const put = await admin.agent.put(`/api/admin/discount-categories/${supplements.id}/discounts`).set('x-csrf-token', admin.csrf).send({ percents: { [plan.id]: 50 } });
+      expect([put.status, put.body.code]).toEqual([409, 'set_on_products']);
+      expect(await prisma.planCategoryDiscount.count({ where: { categoryId: supplements.id } })).toBe(0);
+      const view = (await admin.agent.get('/api/admin/discount-categories')).body;
+      expect(view.categories.find((c: { code: string }) => c.code === 'SUPPLEMENTS')).toMatchObject({ percentsFrom: 'products', percents: expect.objectContaining({ [plan.id]: 12 }) });
+      expect(view.categories.find((c: { code: string }) => c.code === 'SPINAL_X_RAYS')).toMatchObject({ percentsFrom: 'category' });
+      // and the migration that retired its rows is in place
+      const sql = (await import('node:fs')).readFileSync('prisma/migrations/20261025110000_quantity_and_supplements/migration.sql', 'utf8');
+      expect(sql).toMatch(/DELETE FROM "PlanCategoryDiscount" WHERE "categoryId" IN \(SELECT "id" FROM "DiscountCategory" WHERE "code" = 'SUPPLEMENTS'\)/);
     });
   });
 

@@ -23,6 +23,7 @@ import { openMembership } from './membership.js';
 import { adjustmentRefusal, betterOf, deskAdjustmentCap, looksLikeCardNumber } from './moneyMath.js';
 import { promotionsFor } from './promotions.js';
 import type { Rec } from './staffTx.js';
+import { SUPPLEMENTS_CATEGORY_CODE } from './discountConfig.js';
 import { visitProviderId } from './visitProvider.js';
 
 type Tx = Prisma.TransactionClient;
@@ -110,6 +111,11 @@ export async function categoryDiscount(
   category: { id: string; code: string; name: string; active: boolean } | null,
 ): Promise<{ percent: number; code: string | null; name: string | null }> {
   if (!category || !category.active) return { percent: 0, code: null, name: null };
+  // One place for supplements (rev 2.3 review): this category reads the member discount on products.
+  if (category.code === SUPPLEMENTS_CATEGORY_CODE) {
+    const shared = await tx.planProductDiscount.findUnique({ where: { planId } });
+    return { percent: shared?.percent ?? 0, code: category.code, name: category.name };
+  }
   const row = await tx.planCategoryDiscount.findUnique({ where: { planId_categoryId: { planId, categoryId: category.id } } });
   return { percent: row?.percent ?? 0, code: category.code, name: category.name };
 }

@@ -9,7 +9,9 @@
  *                      on products when it is marked eligible (PlanProductDiscount); promotions that name it; sales tax when taxable.
  *
  * An open line SNAPSHOTS its name, unit price and tax rate when it is added (decision 1): a catalog edit afterwards never changes it,
- * nor the charge it becomes. Discounts and promotions are worked out at check-out, as for a visit — a promotion by the clinic day the
+ * nor the charge it becomes. It has a QUANTITY (1 to 99, rev 2.3 review): a click on an item already open today, at the same price and
+ * for the same performer, raises it rather than adding a second line; the price, any discount, adjustment and tax are worked out on the
+ * line total (unit price × quantity), still rounded per line. A quantity change is an append-only OpenChargeQuantity row. Discounts and promotions are worked out at check-out, as for a visit — a promotion by the clinic day the
  * line was ADDED (the add-on's "visit date", rev 2.2 decision 2).
  *
  * Open lines are append-only: removing one adds a removal row; checking one out writes the RevenueEvent that names it (once — the
@@ -35,7 +37,14 @@ export const PRODUCT_DISCOUNT_CODE = 'PRODUCTS';
 export const ADD_ON_GROUP = 'Service add-ons';
 
 type Membership = Awaited<ReturnType<typeof openMembership>>;
-type OpenLine = Prisma.OpenChargeGetPayload<object>;
+/** An open line with its newest quantity change, if any (WITH_QUANTITY). */
+type OpenLine = Prisma.OpenChargeGetPayload<{ include: { quantities: true } }>;
+
+/** The most units one line may carry. */
+export const MAX_QUANTITY = 99;
+/** Read an open line with its newest quantity change: its quantity is that, else the quantity it was added with. */
+export const WITH_QUANTITY = { quantities: { orderBy: { id: 'desc' as const }, take: 1 } } as const;
+export const quantityOf = (l: { quantity: number; quantities: Array<{ quantity: number }> }): number => l.quantities[0]?.quantity ?? l.quantity;
 
 /** The clinic's sales-tax rate in thousandths of a percent (5.5% = 5500); 0 when none is set. */
 export async function salesTaxRate(db: Pick<Tx, 'taxRate'>): Promise<number> {
@@ -87,7 +96,7 @@ async function assertLivePatient(tx: Tx, patientId: string): Promise<void> {
  */
 export async function addOpenCharge(tx: Tx, rec: Rec, a: {
   patientId: string; item: ChargeItem; accountId: string; now: Date; performedByStaffId?: string | null; bookingId?: string | null;
-}): Promise<{ id: string }> {
+}): Promise<{ id: string; quantity: number }> {
   await lockPatient(tx, a.patientId);
   await assertLivePatient(tx, a.patientId);
   let snap: { serviceId: string | null; productId: string | null; name: string; category: string; unitPriceCents: number; taxRateMilli: number };
@@ -113,17 +122,48 @@ export async function addOpenCharge(tx: Tx, rec: Rec, a: {
     const b = await tx.booking.findFirst({ where: { id: a.bookingId, patientId: a.patientId }, select: { id: true } });
     if (!b) throw fail(404, 'unknown_visit', 'That visit does not belong to this patient.');
   }
+  // The same item already open today, at the same snapshots and for the same performer: one more unit on that line, not a second line.
+  const addedOn = toDateOnly(clinicDay(a.now));
+  const same = (await tx.openCharge.findMany({
+    where: {
+      patientId: a.patientId, serviceId: snap.serviceId, productId: snap.productId, name: snap.name, unitPriceCents: snap.unitPriceCents,
+      taxRateMilli: snap.taxRateMilli, addedOn, performedByStaffId: a.performedByStaffId ?? null, removal: { is: null }, charge: { is: null },
+    },
+    include: WITH_QUANTITY, orderBy: [{ addedAt: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+  }))[0];
+  if (same) {
+    const quantity = quantityOf(same) + 1;
+    if (quantity > MAX_QUANTITY) throw fail(409, 'quantity_max', `A line holds at most ${MAX_QUANTITY}.`);
+    await tx.openChargeQuantity.create({ data: { openChargeId: same.id, quantity, changedById: a.accountId, changedAt: a.now } });
+    await rec({ action: 'UPDATE', resourceType: 'open_charge', resourceId: same.id, meta: { fields: ['quantity'], quantity, fromVisit: !!a.bookingId } });
+    return { id: same.id, quantity };
+  }
   const id = randomUUID();
   await tx.openCharge.create({
     data: {
-      id, patientId: a.patientId, ...snap, addedOn: toDateOnly(clinicDay(a.now)), addedAt: a.now, addedById: a.accountId,
+      id, patientId: a.patientId, ...snap, addedOn, addedAt: a.now, addedById: a.accountId,
       performedByStaffId: a.performedByStaffId ?? null, bookingId: a.bookingId ?? null,
     },
   });
   await rec({ action: 'CREATE', resourceType: 'open_charge', resourceId: id, meta: {
     kind: snap.productId ? 'PRODUCT' : 'SERVICE', itemId: snap.productId ?? snap.serviceId, fromVisit: !!a.bookingId, performer: !!a.performedByStaffId,
   } });
-  return { id };
+  return { id, quantity: 1 };
+}
+
+/** Set an open line's quantity (1 to 99) before check-out: an append-only change row. To take a line off entirely, remove it. */
+export async function setOpenChargeQuantity(tx: Tx, rec: Rec, a: { patientId: string; openChargeId: string; quantity: number; accountId: string; now: Date; bookingId?: string | null }): Promise<{ id: string; quantity: number }> {
+  if (!Number.isInteger(a.quantity) || a.quantity < 1 || a.quantity > MAX_QUANTITY) throw fail(400, 'bad_quantity', `A quantity is a whole number from 1 to ${MAX_QUANTITY}. To take the item off, remove it.`);
+  await lockPatient(tx, a.patientId);
+  await assertLivePatient(tx, a.patientId);
+  const oc = await tx.openCharge.findFirst({ where: { id: a.openChargeId, patientId: a.patientId }, include: { removal: true, charge: { select: { id: true } }, ...WITH_QUANTITY } });
+  if (!oc) throw fail(404, 'unknown_charge', 'Unknown charge.');
+  if (oc.removal) throw fail(409, 'already_removed', 'That item was removed.');
+  if (oc.charge) throw fail(409, 'already_checked_out', 'That item has been checked out; it is a charge now.');
+  if (quantityOf(oc) === a.quantity) return { id: oc.id, quantity: a.quantity };
+  await tx.openChargeQuantity.create({ data: { openChargeId: oc.id, quantity: a.quantity, changedById: a.accountId, changedAt: a.now } });
+  await rec({ action: 'UPDATE', resourceType: 'open_charge', resourceId: oc.id, meta: { fields: ['quantity'], quantity: a.quantity, fromVisit: !!a.bookingId } });
+  return { id: oc.id, quantity: a.quantity };
 }
 
 /** Remove an open line before check-out (decision 4): a removal row, never a delete. Refused once it has been checked out. */
@@ -141,7 +181,7 @@ export async function removeOpenCharge(tx: Tx, rec: Rec, a: { patientId: string;
 
 /** The patient's open lines (not removed, not checked out), oldest first — by when added, then when written (two in one instant). */
 export function openChargesOf(db: Pick<Tx, 'openCharge'>, patientId: string): Promise<OpenLine[]> {
-  return db.openCharge.findMany({ where: { patientId, removal: { is: null }, charge: { is: null } }, orderBy: [{ addedAt: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }] });
+  return db.openCharge.findMany({ where: { patientId, removal: { is: null }, charge: { is: null } }, include: WITH_QUANTITY, orderBy: [{ addedAt: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }] });
 }
 
 // ---- pricing a line ------------------------------------------------------------------------------------------------------------
@@ -170,6 +210,9 @@ export interface OpenLineView {
   name: string;
   category: string;
   unitPriceCents: number;
+  /** Units on the line, and their total — the figure every discount, adjustment and tax below is worked out on. */
+  quantity: number;
+  listCents: number;
   taxRateMilli: number;
   addedOn: string;
   addedAt: string;
@@ -204,30 +247,33 @@ export async function openLinesView(tx: Tx, patientId: string, now: Date): Promi
   for (const l of open) {
     const tier = await tierFor(tx, l, membership);
     const promos = await promotionsOf(tx, l);
-    const red = betterOf(l.unitPriceCents, tier.percent, promos);
-    const netCents = l.unitPriceCents - red.discountCents - red.promotionCents;
+    const quantity = quantityOf(l);
+    const listCents = l.unitPriceCents * quantity;
+    const red = betterOf(listCents, tier.percent, promos);
+    const netCents = listCents - red.discountCents - red.promotionCents;
     let credits: OpenLineView['credits'] = null;
     let perks: OpenLineView['perks'] = [];
     if (l.serviceId) {
       const s = await tx.service.findUnique({ where: { id: l.serviceId }, select: { name: true, creditCost: true } });
-      const cost = s?.creditCost ?? null;
+      // Credits: the service's cost for each unit. A perk covers one unit, so it is offered only for a line of one.
+      const cost = s?.creditCost != null ? s.creditCost * quantity : null;
       const reason = cost == null ? `${s?.name ?? 'This service'} is not credit-eligible.` : bal < cost ? `Needs ${cost} credits; ${bal} available.` : null;
       credits = { cost, available: reason === null, reason };
-      perks = perkList.filter((p) => p.serviceIds.includes(l.serviceId!) && p.remaining > 0).map((p) => ({ perkId: p.perkId, label: p.label, remaining: p.remaining, period: p.period }));
+      perks = quantity === 1 ? perkList.filter((p) => p.serviceIds.includes(l.serviceId!) && p.remaining > 0).map((p) => ({ perkId: p.perkId, label: p.label, remaining: p.remaining, period: p.period })) : [];
     }
     lines.push({
       id: l.id, kind: l.productId ? 'PRODUCT' : 'SERVICE', serviceId: l.serviceId, productId: l.productId, name: l.name, category: l.category,
-      unitPriceCents: l.unitPriceCents, taxRateMilli: l.taxRateMilli, addedOn: fromDateOnly(l.addedOn), addedAt: l.addedAt.toISOString(),
+      unitPriceCents: l.unitPriceCents, quantity, listCents, taxRateMilli: l.taxRateMilli, addedOn: fromDateOnly(l.addedOn), addedAt: l.addedAt.toISOString(),
       addedBy: accounts.get(l.addedById) ?? null, performedBy: l.performedByStaffId ? { id: l.performedByStaffId, name: staff.get(l.performedByStaffId) ?? '' } : null,
       bookingId: l.bookingId, tierPercent: tier.percent, discountPercent: red.discountPercent, discountCents: red.discountCents,
       promotion: red.promotionId ? { id: red.promotionId, name: promos.find((p) => p.id === red.promotionId)!.name, cents: red.promotionCents } : null,
       promotions: promos.map((p) => ({ id: p.id, name: p.name, kind: p.kind, value: p.value })),
-      netCents, taxCents: taxOf(netCents, l.taxRateMilli), adjustmentCapCents: deskAdjustmentCap(l.unitPriceCents), credits, perks,
+      netCents, taxCents: taxOf(netCents, l.taxRateMilli), adjustmentCapCents: deskAdjustmentCap(listCents), credits, perks,
     });
   }
   const sum = (f: (l: OpenLineView) => number) => lines.reduce((n, l) => n + f(l), 0);
   const totals = {
-    listCents: sum((l) => l.unitPriceCents), discountCents: sum((l) => l.discountCents), promotionCents: sum((l) => l.promotion?.cents ?? 0),
+    listCents: sum((l) => l.listCents), discountCents: sum((l) => l.discountCents), promotionCents: sum((l) => l.promotion?.cents ?? 0),
     netCents: sum((l) => l.netCents), taxCents: sum((l) => l.taxCents), totalCents: 0,
   };
   totals.totalCents = totals.netCents + totals.taxCents;
@@ -241,6 +287,8 @@ export interface ChargeSummary {
   revenueEventId: string;
   kind: 'SERVICE' | 'PRODUCT';
   name: string;
+  quantity: number;
+  unitPriceCents: number;
   paymentType: 'CASH' | 'MEMBER';
   memberBenefit: 'CREDITS' | 'PERK' | null;
   listPriceCents: number;
@@ -268,6 +316,8 @@ export async function checkoutCharge(tx: Tx, rec: Rec, a: {
   const l = a.line;
   const today = clinicDay(a.now);
   const eventId = randomUUID();
+  const quantity = quantityOf(l);
+  const listCents = l.unitPriceCents * quantity;
   let paymentType: 'MEMBER' | 'CASH' = 'CASH';
   let memberBenefit: 'CREDITS' | 'PERK' | null = null;
   let credits = 0;
@@ -286,9 +336,11 @@ export async function checkoutCharge(tx: Tx, rec: Rec, a: {
     const s = await tx.service.findUniqueOrThrow({ where: { id: l.serviceId! }, select: { name: true, creditCost: true } });
     if (a.pay === 'CREDITS') {
       if (s.creditCost == null) throw fail(409, 'not_credit_eligible', `${s.name} cannot be paid with Wellness Credits.`);
-      await takeCredits(tx, rec, { patientId: l.patientId, amount: s.creditCost, reason: 'REDEMPTION', today, now: a.now, actorAccountId: a.accountId, revenueEventId: eventId });
-      paymentType = 'MEMBER'; memberBenefit = 'CREDITS'; credits = s.creditCost;
+      // The service's credit cost for each unit on the line.
+      await takeCredits(tx, rec, { patientId: l.patientId, amount: s.creditCost * quantity, reason: 'REDEMPTION', today, now: a.now, actorAccountId: a.accountId, revenueEventId: eventId });
+      paymentType = 'MEMBER'; memberBenefit = 'CREDITS'; credits = s.creditCost * quantity;
     } else {
+      if (quantity > 1) throw fail(409, 'perk_one_unit', 'A perk covers one. Set the quantity to 1, or pay for the line in money or credits.');
       const m = a.membership;
       if (!m || m.status !== 'ACTIVE') throw fail(409, 'membership_not_active', 'Perks are available only to a patient with an active membership.');
       const covers = await tx.planPerkService.findFirst({ where: { perkId: a.perkId ?? '', serviceId: l.serviceId!, perk: { planId: m.planId, active: true } } });
@@ -299,18 +351,18 @@ export async function checkoutCharge(tx: Tx, rec: Rec, a: {
   } else {
     const tier = await tierFor(tx, l, a.membership);
     const promos = await promotionsOf(tx, l);
-    const red = betterOf(l.unitPriceCents, tier.percent, promos);
+    const red = betterOf(listCents, tier.percent, promos);
     discountPercent = red.discountPercent;
     discountCents = red.discountCents;
     discountCategory = red.discountCents > 0 ? tier.code : null;
     if (red.promotionId) promotion = { id: red.promotionId, name: promos.find((p) => p.id === red.promotionId)!.name, cents: red.promotionCents };
-    const afterDiscounts = l.unitPriceCents - discountCents - (promotion?.cents ?? 0);
-    if (a.adjustment) adjustment = checkAdjustment(a.adjustment, { listCents: l.unitPriceCents, afterDiscountsCents: afterDiscounts, byAdmin: a.byAdmin });
+    const afterDiscounts = listCents - discountCents - (promotion?.cents ?? 0);
+    if (a.adjustment) adjustment = checkAdjustment(a.adjustment, { listCents, afterDiscountsCents: afterDiscounts, byAdmin: a.byAdmin });
     netCents = afterDiscounts - (adjustment?.cents ?? 0);
     taxCents = taxOf(netCents, l.taxRateMilli);
     if (a.expectedNetCents != null && a.expectedNetCents !== netCents) {
       throw fail(409, 'price_changed', `The price of ${l.name} changed since this screen opened (the membership, its discount or a promotion was edited). Review the new amount and check out again.`,
-        { openChargeId: l.id, listPriceCents: l.unitPriceCents, discountPercent, discountCents, promotionCents: promotion?.cents ?? 0, adjustmentCents: adjustment?.cents ?? 0, netPriceCents: netCents, taxCents });
+        { openChargeId: l.id, quantity, listPriceCents: listCents, discountPercent, discountCents, promotionCents: promotion?.cents ?? 0, adjustmentCents: adjustment?.cents ?? 0, netPriceCents: netCents, taxCents });
     }
   }
 
@@ -319,7 +371,7 @@ export async function checkoutCharge(tx: Tx, rec: Rec, a: {
     data: {
       id: eventId, patientId: l.patientId, serviceId: l.serviceId, productId: l.productId, openChargeId: l.id,
       // The snapshots taken when the line was added (decision 1) — never the catalog as it is now.
-      serviceName: l.name, serviceCategory: l.category, listPriceCents: l.unitPriceCents, taxRateMilli: l.taxRateMilli, taxCents,
+      serviceName: l.name, serviceCategory: l.category, quantity, listPriceCents: listCents, taxRateMilli: l.taxRateMilli, taxCents,
       paymentType, memberBenefit, creditsRedeemed: credits, discountPercent, discountCents, netPriceCents: netCents, discountCategory,
       staffId: l.performedByStaffId, promotionId: promotion?.id ?? null, promotionCents: promotion?.cents ?? 0,
       adjustmentCents: adjustment?.cents ?? 0, adjustmentReason: adjustment?.reason ?? null, adjustmentNote: adjustment?.note ?? null,
@@ -331,11 +383,11 @@ export async function checkoutCharge(tx: Tx, rec: Rec, a: {
   // Ids, codes and flags only — no amounts, names or note text (rev 2.2 hard rule).
   await rec({ action: 'CREATE', resourceType: 'revenue_event', resourceId: eventId, meta: {
     lineKind: l.productId ? 'PRODUCT' : 'ADDON_SERVICE', openChargeId: l.id, paymentType, memberBenefit, credits, discountCategory,
-    tierDiscount: discountCents > 0, promotionId: promotion?.id ?? null, adjustmentReason: adjustment?.reason ?? null, taxed: taxCents > 0, batchId: a.batchId,
+    tierDiscount: discountCents > 0, promotionId: promotion?.id ?? null, adjustmentReason: adjustment?.reason ?? null, taxed: taxCents > 0, quantity, batchId: a.batchId,
   } });
   return {
-    openChargeId: l.id, revenueEventId: eventId, kind: l.productId ? 'PRODUCT' : 'SERVICE', name: l.name, paymentType, memberBenefit,
-    listPriceCents: l.unitPriceCents, discountPercent, discountCents, promotion, adjustmentCents: adjustment?.cents ?? 0, adjustmentReason: adjustment?.reason ?? null,
+    openChargeId: l.id, revenueEventId: eventId, kind: l.productId ? 'PRODUCT' : 'SERVICE', name: l.name, quantity, unitPriceCents: l.unitPriceCents,
+    paymentType, memberBenefit, listPriceCents: listCents, discountPercent, discountCents, promotion, adjustmentCents: adjustment?.cents ?? 0, adjustmentReason: adjustment?.reason ?? null,
     netPriceCents: netCents, taxRateMilli: l.taxRateMilli, taxCents, creditsRedeemed: credits, perkLabel,
   };
 }

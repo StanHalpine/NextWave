@@ -18,7 +18,7 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { audit } from '../lib/audit.js';
 import { staffTransaction } from '../lib/staffTx.js';
-import { createCategory, setCategoryDiscounts, updateCategory } from '../lib/discountConfig.js';
+import { SUPPLEMENTS_CATEGORY_CODE, createCategory, setCategoryDiscounts, updateCategory } from '../lib/discountConfig.js';
 import { requireRole } from '../middleware/session.js';
 
 export const discountAdminRouter = Router();
@@ -32,11 +32,14 @@ async function view() {
     prisma.membershipPlan.findMany({ orderBy: { sortOrder: 'asc' }, select: { id: true, code: true, name: true } }),
     prisma.service.findMany({ orderBy: [{ category: 'asc' }, { name: 'asc' }], select: { id: true, name: true, category: true, durationMin: true, discountCategoryId: true, priceCents: true } }),
   ]);
+  const shared = new Map((await prisma.planProductDiscount.findMany()).map((d) => [d.planId, d.percent]));
   return {
     categories: categories.map((c) => ({
       id: c.id, code: c.code, name: c.name, active: c.active, sortOrder: c.sortOrder,
       serviceIds: c.services.map((s) => s.id),
-      percents: Object.fromEntries(plans.map((p) => [p.id, c.discounts.find((d) => d.planId === p.id)?.percent ?? 0])),
+      // Supplements reads the member discount on products (rev 2.3 review): shown here, edited on Admin → Product catalog.
+      percents: Object.fromEntries(plans.map((p) => [p.id, (c.code === SUPPLEMENTS_CATEGORY_CODE ? shared.get(p.id) : c.discounts.find((d) => d.planId === p.id)?.percent) ?? 0])),
+      percentsFrom: c.code === SUPPLEMENTS_CATEGORY_CODE ? 'products' : 'category',
     })),
     plans, services,
   };
@@ -82,6 +85,7 @@ discountAdminRouter.put('/admin/discount-categories/:id/discounts', requireRole(
   const out = await staffTransaction((tx, rec) => setCategoryDiscounts(tx, rec, req.params.id ?? '', parsed.data.percents));
   if (out === 'not_found') return res.status(404).json({ error: 'Unknown category.', code: 'not_found' });
   if (out === 'unknown_tier') return res.status(400).json({ error: 'Unknown tier.', code: 'bad_request' });
+  if (out === 'set_on_products') return res.status(409).json({ error: 'Supplement discounts are set in one place: Admin → Product catalog, "Member discount on products". This category reads them from there.', code: 'set_on_products' });
   res.json(await view());
 });
 

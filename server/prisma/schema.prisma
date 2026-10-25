@@ -953,6 +953,9 @@ model RevenueEvent {
   /// and listPriceCents its price, both SNAPSHOTTED when the line was added (OpenCharge), so a catalog edit never changes them.
   productId    String?
   openChargeId String? @unique
+  /// Rev 2.3: units on an add-on line (1 for a visit or dues). listPriceCents is unit price × quantity; discounts, any adjustment and
+  /// tax are worked out on that line total.
+  quantity     Int     @default(1)
   /// Sales tax: the rate in thousandths of a percent (5.5% = 5500), snapshotted when the line was added, and the tax on the net,
   /// floor((net × rate + 50 000) / 100 000) — products only; a service is never taxed. The line owes net + tax. Tax is not revenue.
   taxRateMilli Int     @default(0)
@@ -1478,6 +1481,8 @@ model OpenCharge {
   /// The service's discipline, or the product's button group (snapshot).
   category           String
   unitPriceCents     Int
+  /// The quantity it was added with (1). A later change is an OpenChargeQuantity row; the line's quantity is the latest of those.
+  quantity           Int      @default(1)
   /// 0 for a service (never taxed); the clinic rate for a taxable product.
   taxRateMilli       Int      @default(0)
   /// The clinic day it was added: a promotion applies by this date (rev 2.2 decision 2, applied to add-ons).
@@ -1490,10 +1495,11 @@ model OpenCharge {
   bookingId          String?
   createdAt          DateTime @default(now())
 
-  service Service?           @relation(fields: [serviceId], references: [id], onDelete: Restrict)
-  product Product?           @relation(fields: [productId], references: [id], onDelete: Restrict)
-  removal OpenChargeRemoval?
-  charge  RevenueEvent?
+  service    Service?             @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  product    Product?             @relation(fields: [productId], references: [id], onDelete: Restrict)
+  removal    OpenChargeRemoval?
+  charge     RevenueEvent?
+  quantities OpenChargeQuantity[]
 
   @@index([patientId])
 }
@@ -1505,4 +1511,19 @@ model OpenChargeRemoval {
   createdAt    DateTime @default(now())
 
   openCharge OpenCharge @relation(fields: [openChargeId], references: [id], onDelete: Restrict)
+}
+
+/// A change of an open line's quantity (rev 2.3): APPEND-ONLY. The line's quantity is the newest of these, else its own (1). Refused
+/// once the line is removed or checked out.
+model OpenChargeQuantity {
+  id           BigInt   @id @default(autoincrement())
+  openChargeId String
+  quantity     Int
+  changedById  String
+  changedAt    DateTime
+  createdAt    DateTime @default(now())
+
+  openCharge OpenCharge @relation(fields: [openChargeId], references: [id], onDelete: Restrict)
+
+  @@index([openChargeId])
 }

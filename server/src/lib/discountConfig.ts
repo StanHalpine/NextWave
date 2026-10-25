@@ -14,6 +14,13 @@ import type { Rec } from './staffTx.js';
 type Tx = Prisma.TransactionClient;
 
 /** A readable, stable key from a name: "Spinal X-rays" → SPINAL_X_RAYS. */
+/**
+ * The "Supplements" category's percentages are not its own (owner's decision at the rev 2.3 review): it reads the member discount on
+ * products (PlanProductDiscount, Admin → Product catalog), so supplements — sold as products or as the Supplementation service — are
+ * discounted from ONE setting. Its own per-tier rows are retired (migration 20261025110000) and cannot be set here.
+ */
+export const SUPPLEMENTS_CATEGORY_CODE = 'SUPPLEMENTS';
+
 export function codeFromName(name: string): string {
   const base = name.toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 36);
   return /^[A-Z]/.test(base) ? base : `C_${base}`.slice(0, 40);
@@ -60,9 +67,10 @@ export async function updateCategory(tx: Tx, rec: Rec, id: string, patch: Catego
 }
 
 /** Set the percentage each named tier (by plan id) gets in this category. Only changes are written and audited. */
-export async function setCategoryDiscounts(tx: Tx, rec: Rec, id: string, percents: Record<string, number>): Promise<'ok' | 'not_found' | 'unknown_tier'> {
+export async function setCategoryDiscounts(tx: Tx, rec: Rec, id: string, percents: Record<string, number>): Promise<'ok' | 'not_found' | 'unknown_tier' | 'set_on_products'> {
   const cat = await tx.discountCategory.findUnique({ where: { id }, include: { discounts: true } });
   if (!cat) return 'not_found';
+  if (cat.code === SUPPLEMENTS_CATEGORY_CODE) return 'set_on_products';
   const planIds = Object.keys(percents);
   if (await tx.membershipPlan.count({ where: { id: { in: planIds } } }) !== planIds.length) return 'unknown_tier';
   const changes: Record<string, { from: number; to: number }> = {};

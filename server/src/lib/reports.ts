@@ -131,7 +131,8 @@ const sumMetrics = (rows: Array<Record<string, string | number>>): Record<string
 
 export const revenueSql = (f: RevenueFilter, d: Dimension): Prisma.Sql => Prisma.sql`
     SELECT ${d.select},
-           COUNT(*)::int AS "visits",
+           -- visits, and units on add-on and product lines (rev 2.3: a line may carry a quantity)
+           COALESCE(SUM(e."quantity"), 0)::int AS "visits",
            COALESCE(SUM(e."listPriceCents"), 0)::bigint AS "listCents",
            COALESCE(SUM(e."discountCents"), 0)::bigint AS "discountCents",
            COALESCE(SUM(e."promotionCents"), 0)::bigint AS "promotionCents",

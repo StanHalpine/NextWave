@@ -606,3 +606,118 @@ describe('the database', () => {
     expect(triggers.map((t) => t.tgname).sort()).toEqual(['OpenChargeRemoval_guard', 'OpenChargeRemoval_no_truncate', 'OpenChargeRemoval_no_update_delete', 'OpenCharge_no_truncate', 'OpenCharge_no_update_delete']);
   });
 });
+
+describe('quantity (rev 2.3 review)', () => {
+  const setQty = (s: S, patientId: string, id: string, quantity: number) => post(s, `/api/fd/patients/${patientId}/charges/${id}/quantity`, { idempotencyKey: key(), quantity });
+
+  it('a click on an item already open adds one to its line, not a second line; price, tier discount and tax on the line total, rounded per line', async () => {
+    const fd = await frontDeskLogin();
+    const p = await makePatient();
+    await makeMembership(p.id, 'RESTORE', '2026-10-01');                                              // 15% on products
+    const pr = await product({ price: 3333 });
+    const first = await add(fd, p.id, { productId: pr.id });
+    const again = await add(fd, p.id, { productId: pr.id });
+    expect([first.body.quantity, again.body.id, again.body.quantity]).toEqual([1, first.body.id, 2]);
+    expect((await setQty(fd, p.id, first.body.id, 3)).body).toEqual({ id: first.body.id, quantity: 3 });
+    const [line] = (await openLines(fd, p.id)).lines;
+    // 3 × $33.33 = $99.99; 15% of that, halves up = $15.00; net $84.99; 5.5% of the net = $4.67 (4.674…)
+    const list = 9999; const off = Math.floor((list * 15 + 50) / 100); const net = list - off;
+    expect([line.quantity, line.unitPriceCents, line.listCents, line.discountCents, line.netCents, line.taxCents]).toEqual([3, 3333, list, off, net, tax55(net)]);
+    expect([off, net, tax55(net)]).toEqual([1500, 8499, 467]);
+    const r = await checkout(fd, p.id, { charges: await allMoney(fd, p.id), payment: { tender: 'CASH', amountCents: net + tax55(net) } });
+    expect(r.status).toBe(200);
+    expect(r.body.charges[0]).toMatchObject({ quantity: 3, unitPriceCents: 3333, listPriceCents: list, discountCents: off, netPriceCents: net, taxCents: tax55(net) });
+    const ev = await basePrisma.revenueEvent.findUniqueOrThrow({ where: { id: r.body.charges[0].revenueEventId } });
+    expect([ev.quantity, ev.listPriceCents, ev.netPriceCents, ev.taxCents]).toEqual([3, list, net, tax55(net)]);
+    const l = await ledger(fd, p.id);
+    expect(l.money.posted.find((e: any) => e.kind === 'charge')).toMatchObject({ quantity: 3, listPriceCents: list, amountCents: net });
+    expect(l.money.balanceCents).toBe(0);
+    expect((await auditRows({ resourceType: 'open_charge', resourceId: first.body.id, action: 'UPDATE' }, 2)).map((x: any) => x.meta.quantity).sort()).toEqual([2, 3]);
+  });
+
+  it('a new price (a catalog edit), another performer or another day starts a new line; a line holds 1 to 99; it can still be removed', async () => {
+    const fd = await frontDeskLogin();
+    const p = await makePatient();
+    const pr = await product({ price: 1000 });
+    const a = (await add(fd, p.id, { productId: pr.id })).body.id;
+    await basePrisma.product.update({ where: { id: pr.id }, data: { priceCents: 1200 } });
+    const b = (await add(fd, p.id, { productId: pr.id })).body.id;
+    expect(b).not.toBe(a);                                                                           // the snapshot price differs
+    const staff = await prisma.staff.findFirstOrThrow({ where: { role: 'REGISTERED_NURSE' } });
+    const bc = (await bodyComp()).id;
+    const s1 = (await add(fd, p.id, { serviceId: bc })).body.id;
+    const s2 = (await add(fd, p.id, { serviceId: bc, performedByStaffId: staff.id })).body.id;
+    expect(s2).not.toBe(s1);                                                                         // another performer
+    setClockForTests(new Date('2026-10-14T15:00:00Z'));
+    expect((await add(fd, p.id, { productId: pr.id })).body.id).not.toBe(b);                        // another day
+    setClockForTests(TUESDAY_1007);
+    for (const q of [0, 100, 1.5]) expect((await setQty(fd, p.id, a, q)).body.code, `${q}`).toBe('bad_quantity');
+    expect((await setQty(fd, p.id, a, 99)).status).toBe(200);
+    expect((await add(fd, p.id, { productId: pr.id, }, {})).body.id).not.toBe(a);                  // the 1200 line takes the click, not the 1000 one
+    await basePrisma.product.update({ where: { id: pr.id }, data: { priceCents: 1000 } });
+    expect((await add(fd, p.id, { productId: pr.id })).body.code).toBe('quantity_max');             // the 1000 line is full at 99
+    expect((await remove(fd, p.id, a)).status).toBe(200);
+    expect((await setQty(fd, p.id, a, 2)).body.code).toBe('already_removed');
+    await expect(basePrisma.openChargeQuantity.create({ data: { openChargeId: a, quantity: 2, changedById: 'test', changedAt: new Date() } })).rejects.toThrow(/no longer open/);
+    await expect(basePrisma.$executeRawUnsafe(`UPDATE "OpenChargeQuantity" SET "quantity" = 5 WHERE "openChargeId" = '${a}'`)).rejects.toThrow(/append-only/);
+  });
+
+  it('the database: a charge carries its line\'s quantity as it stood, and list = unit price × quantity; a visit is always one', async () => {
+    const fd = await frontDeskLogin();
+    const p = await makePatient();
+    const pr = await product({ price: 500 });
+    const id = (await add(fd, p.id, { productId: pr.id })).body.id;
+    await setQty(fd, p.id, id, 4);
+    const insert = (quantity: number, list: number) => basePrisma.$transaction(async (tx) => {
+      const oc = await tx.openCharge.findUniqueOrThrow({ where: { id } });
+      await tx.revenueEvent.create({ data: { patientId: p.id, productId: pr.id, openChargeId: id, serviceName: oc.name, serviceCategory: oc.category, quantity, listPriceCents: list, netPriceCents: list, taxRateMilli: oc.taxRateMilli, taxCents: Math.floor((list * oc.taxRateMilli + 50_000) / 100_000), paymentType: 'CASH', occurredAt: new Date(), recordedById: 'test' } });
+    });
+    await expect(insert(1, 500)).rejects.toThrow(/does not match the open line/);                  // the quantity as first added, not as it stands
+    await expect(insert(4, 500)).rejects.toThrow(/does not match the open line/);                  // list must be 4 × 500
+    await expect(insert(100, 50_000)).rejects.toThrow(/RevenueEvent_consistent/);
+    const v = await priced({ patientId: p.id, start: at('09:00') });
+    await expect(basePrisma.$executeRawUnsafe(`INSERT INTO "RevenueEvent" ("id","encounterId","bookingId","patientId","serviceId","serviceName","serviceCategory","listPriceCents","paymentType","netPriceCents","quantity","occurredAt","recordedById")
+      VALUES ('${randomUUID()}','${v.encounter!.id}','${v.booking.id}','${p.id}','${v.service.id}','x','x',5500,'CASH',5500,2,now(),'test')`)).rejects.toThrow(/RevenueEvent_consistent/);
+    const ok = await checkout(fd, p.id, { charges: await allMoney(fd, p.id) });
+    expect(ok.body.charges[0]).toMatchObject({ quantity: 4, listPriceCents: 2000 });
+  });
+
+  it('a service line: credits for each unit; a perk covers one; a fixed-amount promotion comes off the line once', async () => {
+    const fd = await frontDeskLogin();
+    const s = await visit({ encounter: null, requiresNote: false });
+    await basePrisma.service.update({ where: { id: s.service.id }, data: { offerAsAddOn: true, priceCents: 4000, creditCost: 2 } });
+    const p = await makePatient();
+    const m = await makeMembership(p.id, 'PREVENT', '2026-10-01');
+    await grantLot({ patientId: p.id, membershipId: m.id, credits: 6, periodStart: '2026-10-01', now: TUESDAY_1007 });
+    const id = (await add(fd, p.id, { serviceId: s.service.id })).body.id;
+    await setQty(fd, p.id, id, 2);
+    const [line] = (await openLines(fd, p.id)).lines;
+    expect(line.credits).toMatchObject({ cost: 4, available: true });
+    expect((await checkout(fd, p.id, { charges: [{ openChargeId: id, pay: 'PERK', perkId: 'x' }] })).body.code).toBe('perk_one_unit');
+    const r = await checkout(fd, p.id, { charges: [{ openChargeId: id, pay: 'CREDITS' }] });
+    expect(r.body.charges[0]).toMatchObject({ quantity: 2, creditsRedeemed: 4, paymentType: 'MEMBER' });
+    expect(await ledgerSum(p.id)).toBe(2);
+    // a fixed $5.00 promotion on a product: once on the line, whatever the quantity
+    const pr = await product({ price: 2000, tierDiscount: false });
+    await basePrisma.promotion.create({ data: { name: 'Five off', kind: 'FIXED_CENTS', value: 500, startsOn: new Date('2026-10-01T00:00:00Z'), endsOn: new Date('2026-10-31T00:00:00Z'), createdById: 'test', products: { create: [{ productId: pr.id }] } } });
+    const q = await makePatient();
+    const pid = (await add(fd, q.id, { productId: pr.id })).body.id;
+    await setQty(fd, q.id, pid, 3);
+    expect((await openLines(fd, q.id)).lines[0]).toMatchObject({ listCents: 6000, promotion: { cents: 500 }, netCents: 5500, taxCents: tax55(5500) });
+  });
+
+  it('Accounting counts units, and a provider can set the quantity from their visit', async () => {
+    const fd = await frontDeskLogin();
+    const admin = await adminLogin();
+    const prov = await providerLogin('PROVIDER_CHIRO');
+    setClockForTests(new Date('2034-07-08T15:00:00Z'));
+    const p = await makePatient();
+    const v = await priced({ patientId: p.id, staffId: prov.staff.id, start: new Date('2034-07-08T14:00:00Z') });
+    const pr = await product({ price: 1000, name: `Counted product ${n}` });
+    const id = (await post(prov, `/api/provider/visits/${v.booking.id}/charges`, { idempotencyKey: key(), productId: pr.id })).body.id;
+    expect((await post(prov, `/api/provider/visits/${v.booking.id}/charges/${id}/quantity`, { idempotencyKey: key(), quantity: 3 })).body).toEqual({ id, quantity: 3 });
+    expect((await checkout(fd, p.id, { charges: await allMoney(fd, p.id) })).status).toBe(200);
+    const r = await admin.agent.get('/api/accounting/monthly?from=2034-07-08&to=2034-07-08');
+    expect(r.body.rows.find((x: any) => x.service === pr.name)).toMatchObject({ visits: 3, listCents: 3000, netCents: 3000, taxCents: tax55(3000) });
+  });
+});

@@ -5,9 +5,13 @@
  *   GET  /api/fd/patients/:id/charges                        the patient's open lines, priced as check-out would price them (desk, admin)
  *   POST /api/fd/patients/:id/charges                        add one line: { serviceId | productId, performedByStaffId?, bookingId?, idempotencyKey }
  *   POST /api/fd/patients/:id/charges/:chargeId/remove       remove an open line before check-out: { idempotencyKey }
+ *   POST /api/fd/patients/:id/charges/:chargeId/quantity     set its quantity, 1 to 99: { quantity, idempotencyKey }
  *   GET  /api/provider/visits/:id/charges                    the same, for the patient of a visit the provider may document
  *   POST /api/provider/visits/:id/charges                    add one line from the visit workspace
  *   POST /api/provider/visits/:id/charges/:chargeId/remove   remove an open line
+ *   POST /api/provider/visits/:id/charges/:chargeId/quantity set its quantity
+ *
+ * A click on an item already open today (same price, same performer) adds one to that line's quantity instead of a second line.
  *
  * Decision 4: front desk, admins and providers may add charges, and remove open ones before check-out; a provider through a visit
  * they may document (the rev 2.1 rule: the visit's provider), before it is checked out. Every write is idempotent (a double click adds
@@ -17,7 +21,7 @@ import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { config } from '../config.js';
 import { now } from '../lib/clock.js';
-import { addOpenCharge, chargeCatalog, openLinesView, removeOpenCharge, type ChargeItem } from '../lib/charges.js';
+import { addOpenCharge, chargeCatalog, MAX_QUANTITY, openLinesView, removeOpenCharge, setOpenChargeQuantity, type ChargeItem } from '../lib/charges.js';
 import { basePrisma } from '../lib/prismaBase.js';
 import { idempotent, isUniqueViolation, priorAnswer, requestHash } from '../lib/money.js';
 import { PROVIDER_ROLES } from '../lib/sessions.js';
@@ -43,6 +47,7 @@ const addBody = z.object({
   role: z.string().max(40).optional(),
 }).strict().refine((b) => !!b.serviceId !== !!b.productId, 'Choose one service or one product.');
 const removeBody = z.object({ idempotencyKey: key, role: z.string().max(40).optional() }).strict();
+const quantityBody = z.object({ quantity: z.number().int().min(1, 'At least 1 — to take it off, remove it.').max(MAX_QUANTITY, `At most ${MAX_QUANTITY}.`), idempotencyKey: key, role: z.string().max(40).optional() }).strict();
 
 const itemOf = (b: { serviceId?: string | undefined; productId?: string | undefined }): ChargeItem => (b.serviceId ? { serviceId: b.serviceId } : { productId: b.productId! });
 
@@ -96,6 +101,18 @@ chargesRouter.post('/fd/patients/:id/charges/:chargeId/remove', requireFrontDesk
   const accountId = req.auth!.account.id;
   return chargeWrite(res, `charge-remove:${chargeId}`, patientId, parsed.data.idempotencyKey, parsed.data, accountId, (tx, rec) => removeOpenCharge(tx, rec, {
     patientId, openChargeId: chargeId, accountId, now: now(),
+  }));
+});
+
+chargesRouter.post('/fd/patients/:id/charges/:chargeId/quantity', requireFrontDesk, async (req, res) => {
+  const parsed = quantityBody.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Invalid request.', code: 'bad_quantity' });
+  const patientId = req.params.id ?? '';
+  const chargeId = req.params.chargeId ?? '';
+  if (!UUID.test(patientId) || !UUID.test(chargeId)) return res.status(404).json({ error: 'Unknown charge.', code: 'unknown_charge' });
+  const accountId = req.auth!.account.id;
+  return chargeWrite(res, `charge-quantity:${chargeId}`, patientId, parsed.data.idempotencyKey, parsed.data, accountId, (tx, rec) => setOpenChargeQuantity(tx, rec, {
+    patientId, openChargeId: chargeId, quantity: parsed.data.quantity, accountId, now: now(),
   }));
 });
 
@@ -159,5 +176,18 @@ chargesRouter.post('/provider/visits/:id/charges/:chargeId/remove', ...requireCl
   const accountId = req.auth!.account.id;
   return chargeWrite(res, `charge-remove:${chargeId}`, patientId, parsed.data.idempotencyKey, parsed.data, accountId, (tx, rec) => removeOpenCharge(tx, rec, {
     patientId, openChargeId: chargeId, accountId, now: now(), bookingId: req.params.id ?? null,
+  }));
+});
+
+chargesRouter.post('/provider/visits/:id/charges/:chargeId/quantity', ...requireClinicalWrite, async (req, res) => {
+  const parsed = quantityBody.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Invalid request.', code: 'bad_quantity' });
+  const patientId = await visitPatient(req, res, parsed.data.role);
+  if (!patientId) return;
+  const chargeId = req.params.chargeId ?? '';
+  if (!UUID.test(chargeId)) return res.status(404).json({ error: 'Unknown charge.', code: 'unknown_charge' });
+  const accountId = req.auth!.account.id;
+  return chargeWrite(res, `charge-quantity:${chargeId}`, patientId, parsed.data.idempotencyKey, parsed.data, accountId, (tx, rec) => setOpenChargeQuantity(tx, rec, {
+    patientId, openChargeId: chargeId, quantity: parsed.data.quantity, accountId, now: now(), bookingId: req.params.id ?? null,
   }));
 });

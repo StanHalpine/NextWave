@@ -17,7 +17,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { checkoutVisit, type AdjustmentInput, type CheckoutSummary } from './checkout.js';
-import { checkoutCharge, type ChargeSummary } from './charges.js';
+import { checkoutCharge, WITH_QUANTITY, type ChargeSummary } from './charges.js';
 import { openMembership } from './membership.js';
 import { clinicDay, CreditError, lockPatient, toDateOnly } from './credits.js';
 import { lockedBooking } from './encounters.js';
@@ -101,6 +101,7 @@ export async function ledgerVersion(db: Pick<Tx, '$queryRaw'>, patientId: string
       -- Rev 2.3: the open lines, and whether each was removed — a charge added by anyone changes what the desk is checking out.
       (SELECT string_agg(o."id" || ':' || CASE WHEN r."openChargeId" IS NULL THEN 'o' ELSE 'r' END, ',' ORDER BY o."id")
          FROM "OpenCharge" o LEFT JOIN "OpenChargeRemoval" r ON r."openChargeId" = o."id" WHERE o."patientId" = ${patientId}),
+      (SELECT string_agg(q."id"::text, ',' ORDER BY q."id") FROM "OpenChargeQuantity" q JOIN "OpenCharge" o ON o."id" = q."openChargeId" WHERE o."patientId" = ${patientId}),
       (SELECT string_agg(b."id" || ':' || COALESCE(n."status"::text, '-'), ',' ORDER BY b."id")
          FROM "Booking" b LEFT JOIN "Encounter" n ON n."bookingId" = b."id"
         WHERE b."patientId" = ${patientId} AND b."status" = 'CONFIRMED'
@@ -270,7 +271,7 @@ export async function settle(tx: Tx, rec: Rec, actor: Actor, now: Date, a: Settl
   if (chargeLines.length) {
     const lines = [];
     for (const c of chargeLines) {
-      const oc = await tx.openCharge.findFirst({ where: { id: c.openChargeId, patientId: a.patientId }, include: { removal: true, charge: { select: { id: true } } } });
+      const oc = await tx.openCharge.findFirst({ where: { id: c.openChargeId, patientId: a.patientId }, include: { removal: true, charge: { select: { id: true } }, ...WITH_QUANTITY } });
       if (!oc) throw fail(404, 'unknown_charge', 'One of these items does not belong to this patient.');
       if (oc.removal) throw fail(409, 'charge_removed', `${oc.name} was removed from the charges.`);
       if (oc.charge) throw fail(409, 'already_checked_out', `${oc.name} is already checked out.`);
