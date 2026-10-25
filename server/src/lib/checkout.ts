@@ -39,8 +39,36 @@ export type PaymentChoice =
    */
   | { payment: 'CASH'; priceCents?: number; expectedNetCents?: number };
 
-/** A one-off reduction at check-out (rev 2.2, decision 3): a reason code always; a note required for OTHER; never in the audit log. */
-export interface AdjustmentInput { cents: number; reason: 'SERVICE_RECOVERY' | 'PRICE_MATCH' | 'COURTESY' | 'BILLING_ERROR' | 'OTHER'; note?: string | null }
+/**
+ * A one-off adjustment at check-out (rev 2.2, decision 3): a reason code always; a note required for OTHER; never in the audit log.
+ * Positive `cents` takes money off (the desk within its cap). Negative raises the price above list — an admin only (rev 2.3, decision 5).
+ */
+export interface AdjustmentInput { cents: number; reason: AdjustmentReasonCode; note?: string | null }
+export type AdjustmentReasonCode = 'SERVICE_RECOVERY' | 'PRICE_MATCH' | 'COURTESY' | 'BILLING_ERROR' | 'OTHER' | 'EXTENDED_SERVICE';
+/** The reasons for taking money off, and for raising a price above list. */
+export const REDUCTION_REASONS: readonly AdjustmentReasonCode[] = ['SERVICE_RECOVERY', 'PRICE_MATCH', 'COURTESY', 'BILLING_ERROR', 'OTHER'];
+export const INCREASE_REASONS: readonly AdjustmentReasonCode[] = ['BILLING_ERROR', 'EXTENDED_SERVICE', 'OTHER'];
+
+/**
+ * The adjustment rules, for a visit and for an add-on line alike: returns what to record, or refuses. `listCents` is the line's list
+ * price; `afterDiscountsCents` what is left after the tier discount or promotion.
+ */
+export function checkAdjustment(adj: AdjustmentInput, a: { listCents: number; afterDiscountsCents: number; byAdmin: boolean }): { cents: number; reason: AdjustmentReasonCode; note: string | null } {
+  const why = adjustmentRefusal({ listCents: a.listCents, afterDiscountsCents: a.afterDiscountsCents, cents: adj.cents, byAdmin: a.byAdmin });
+  if (why === 'bad_amount') throw fail(400, 'bad_adjustment', 'An adjustment is a whole number of cents, not zero.');
+  if (why === 'adjustment_too_large') throw fail(400, 'adjustment_too_large', 'An adjustment cannot take a visit below zero.', { maxCents: a.afterDiscountsCents });
+  if (why === 'adjustment_needs_admin') {
+    throw new CreditError(403 as never, 'adjustment_needs_admin', 'The front desk may adjust a visit by at most 20% of its list price or $25.00, whichever is less. An administrator must make a larger adjustment.', { capCents: deskAdjustmentCap(a.listCents) });
+  }
+  if (why === 'increase_needs_admin') throw new CreditError(403 as never, 'increase_needs_admin', 'Only an administrator can raise a price above its list price.');
+  if (adj.cents < 0 && !INCREASE_REASONS.includes(adj.reason)) throw fail(400, 'bad_adjustment_reason', 'A price increase needs its own reason: billing error, extended service, or other.');
+  if (adj.cents > 0 && !REDUCTION_REASONS.includes(adj.reason)) throw fail(400, 'bad_adjustment_reason', 'That reason is for a price increase, not a reduction.');
+  const note = adj.note?.trim() || null;
+  if (adj.reason === 'OTHER' && !note) throw fail(400, 'adjustment_note_required', 'Say why, in a few words, when the reason is "Other".');
+  if (note && note.length > 200) throw fail(400, 'adjustment_note_too_long', 'Keep the note to 200 characters.');
+  if (looksLikeCardNumber(note)) throw fail(400, 'card_number_refused', 'That looks like a card number. Card details are never recorded here.');
+  return { cents: adj.cents, reason: adj.reason, note };
+}
 
 export interface CheckoutSummary {
   /** The charge this check-out recorded. */
@@ -77,7 +105,7 @@ function listPrice(service: { priceCents: number | null; options: Array<{ label:
 }
 
 /** What an ACTIVE member of `planId` gets off the list price of a service in this category: the tier's percent for it, else 0. */
-async function categoryDiscount(
+export async function categoryDiscount(
   tx: Tx, planId: string,
   category: { id: string; code: string; name: string; active: boolean } | null,
 ): Promise<{ percent: number; code: string | null; name: string | null }> {
@@ -86,7 +114,7 @@ async function categoryDiscount(
   return { percent: row?.percent ?? 0, code: category.code, name: category.name };
 }
 
-const SERVICE_INCLUDE = {
+export const SERVICE_INCLUDE = {
   options: { select: { label: true, priceCents: true } },
   discountCategory: { select: { id: true, code: true, name: true, active: true } },
 } as const;
@@ -178,19 +206,7 @@ export async function checkoutVisit(tx: Tx, rec: Rec, a: { bookingId: string; ac
     discountCategory = red.discountCents > 0 ? found.code : null;
     if (red.promotionId) promotion = { id: red.promotionId, name: promos.find((p) => p.id === red.promotionId)!.name, cents: red.promotionCents };
     const afterDiscounts = recordedPrice - discountCents - (promotion?.cents ?? 0);
-    if (a.adjustment) {
-      const why = adjustmentRefusal({ listCents: recordedPrice, afterDiscountsCents: afterDiscounts, cents: a.adjustment.cents, byAdmin: !!a.byAdmin });
-      if (why === 'bad_amount') throw fail(400, 'bad_adjustment', 'An adjustment is a whole number of cents above zero.');
-      if (why === 'adjustment_too_large') throw fail(400, 'adjustment_too_large', 'An adjustment cannot take a visit below zero.', { maxCents: afterDiscounts });
-      if (why === 'adjustment_needs_admin') {
-        throw new CreditError(403 as never, 'adjustment_needs_admin', 'The front desk may adjust a visit by at most 20% of its list price or $25.00, whichever is less. An administrator must make a larger adjustment.', { capCents: deskAdjustmentCap(recordedPrice) });
-      }
-      const note = a.adjustment.note?.trim() || null;
-      if (a.adjustment.reason === 'OTHER' && !note) throw fail(400, 'adjustment_note_required', 'Say why, in a few words, when the reason is "Other".');
-      if (note && note.length > 200) throw fail(400, 'adjustment_note_too_long', 'Keep the note to 200 characters.');
-      if (looksLikeCardNumber(note)) throw fail(400, 'card_number_refused', 'That looks like a card number. Card details are never recorded here.');
-      adjustmentCents = a.adjustment.cents;
-    }
+    if (a.adjustment) adjustmentCents = checkAdjustment(a.adjustment, { listCents: recordedPrice, afterDiscountsCents: afterDiscounts, byAdmin: !!a.byAdmin }).cents;
     netCents = afterDiscounts - adjustmentCents;
     if (a.expectedNetCents != null && a.expectedNetCents !== netCents) {
       throw fail(409, 'price_changed', 'The price changed since this screen opened (the membership, its discount or a promotion was edited). Review the new amount and check out again.',
@@ -206,8 +222,8 @@ export async function checkoutVisit(tx: Tx, rec: Rec, a: { bookingId: string; ac
       // The visit's provider (rev 2.1): the covering provider when one saw the patient, else the one it was booked with.
       discountPercent, discountCents, netPriceCents: netCents, discountCategory, staffId: visitProviderId(b),
       promotionId: promotion?.id ?? null, promotionCents: promotion?.cents ?? 0,
-      adjustmentCents, adjustmentReason: adjustmentCents > 0 ? a.adjustment!.reason : null,
-      adjustmentNote: adjustmentCents > 0 ? (a.adjustment!.note?.trim() || null) : null, adjustedById: adjustmentCents > 0 ? a.accountId : null,
+      adjustmentCents, adjustmentReason: adjustmentCents !== 0 ? a.adjustment!.reason : null,
+      adjustmentNote: adjustmentCents !== 0 ? (a.adjustment!.note?.trim() || null) : null, adjustedById: adjustmentCents !== 0 ? a.accountId : null,
       batchId: a.batchId ?? null,
       planCode: membership && (paymentType === 'MEMBER' || membership.status === 'ACTIVE') ? membership.plan.code : null,
       occurredAt: a.now, recordedById: a.accountId,
@@ -216,13 +232,13 @@ export async function checkoutVisit(tx: Tx, rec: Rec, a: { bookingId: string; ac
   // Ids, codes and counts only — no amounts and no note text (rev 2.2 hard rule): the figures are on the row itself.
   await rec({ action: 'CREATE', resourceType: 'revenue_event', resourceId: row.id, meta: {
     paymentType, memberBenefit, credits, discountCategory, tierDiscount: discountCents > 0, promotionId: promotion?.id ?? null,
-    adjustmentReason: adjustmentCents > 0 ? a.adjustment!.reason : null, batchId: a.batchId ?? null,
+    adjustmentReason: adjustmentCents !== 0 ? a.adjustment!.reason : null, batchId: a.batchId ?? null,
   } });
 
   await checkOut(tx, rec, { bookingId: a.bookingId, accountId: a.accountId, now: a.now });
 
   return {
-    revenueEventId: row.id, promotion, adjustmentCents, adjustmentReason: adjustmentCents > 0 ? a.adjustment!.reason : null,
+    revenueEventId: row.id, promotion, adjustmentCents, adjustmentReason: adjustmentCents !== 0 ? a.adjustment!.reason : null,
     paymentType, memberBenefit, listPriceCents: recordedPrice, discountPercent, discountCents, netPriceCents: netCents, creditsRedeemed: credits,
     balanceBefore, balanceAfter, perkLabel: perk?.label ?? null,
     planName: membership?.plan.name ?? null, recordedAt: a.now.toISOString(), alreadyCheckedOut: false,

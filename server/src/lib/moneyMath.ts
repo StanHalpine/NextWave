@@ -50,14 +50,16 @@ export function deskAdjustmentCap(listCents: number): number {
   return Math.min(Math.floor((listCents * DESK_ADJUSTMENT_PERCENT) / 100), DESK_ADJUSTMENT_MAX_CENTS);
 }
 
-export type AdjustmentRefusal = 'bad_amount' | 'adjustment_too_large' | 'adjustment_needs_admin';
+export type AdjustmentRefusal = 'bad_amount' | 'adjustment_too_large' | 'adjustment_needs_admin' | 'increase_needs_admin';
 
 /**
- * Whether an adjustment of `cents` may be made on a visit with this list price and this much left after discounts. An admin on an
- * MFA-verified session may go above the desk's cap; nobody may take a visit below zero.
+ * Whether an adjustment of `cents` may be made on a line with this list price and this much left after discounts. A POSITIVE
+ * adjustment takes money off: the desk up to its cap, an admin on an MFA-verified session beyond it; nobody below zero. A NEGATIVE one
+ * raises the price above list (rev 2.3, decision 5): an admin only — the list price itself is never edited.
  */
 export function adjustmentRefusal(a: { listCents: number; afterDiscountsCents: number; cents: number; byAdmin: boolean }): AdjustmentRefusal | null {
-  if (!Number.isInteger(a.cents) || a.cents <= 0) return 'bad_amount';
+  if (!Number.isInteger(a.cents) || a.cents === 0) return 'bad_amount';
+  if (a.cents < 0) return a.byAdmin ? null : 'increase_needs_admin';
   if (a.cents > a.afterDiscountsCents) return 'adjustment_too_large';
   if (!a.byAdmin && a.cents > deskAdjustmentCap(a.listCents)) return 'adjustment_needs_admin';
   return null;
@@ -77,6 +79,17 @@ export function allocateOldestFirst(charges: Array<{ id: string; outstandingCent
     if (take > 0) { allocations.push({ id: c.id, cents: take }); left -= take; }
   }
   return { allocations, leftCents: left };
+}
+
+/**
+ * Sales tax on a line's net (rev 2.3, decision 2): the rate is in thousandths of a percent (5.5% = 5500), and the tax is rounded to the
+ * cent with halves UP — floor((net × rate + 50 000) / 100 000). Per line, never per receipt. The database checks the same formula
+ * (RevenueEvent_consistent), so a figure worked out any other way cannot be recorded.
+ */
+export function taxOf(netCents: number, rateMilli: number): number {
+  if (!Number.isInteger(netCents) || netCents < 0) throw new RangeError('An amount is a whole number of cents, zero or more.');
+  if (!Number.isInteger(rateMilli) || rateMilli < 0 || rateMilli > 100_000) throw new RangeError('A tax rate is a whole number of thousandths of a percent, 0 to 100 000.');
+  return Math.floor((netCents * rateMilli + 50_000) / 100_000);
 }
 
 /** Luhn check over a string of digits. */

@@ -17,6 +17,8 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { checkoutVisit, type AdjustmentInput, type CheckoutSummary } from './checkout.js';
+import { checkoutCharge, type ChargeSummary } from './charges.js';
+import { openMembership } from './membership.js';
 import { clinicDay, CreditError, lockPatient, toDateOnly } from './credits.js';
 import { lockedBooking } from './encounters.js';
 import { allocateOldestFirst, looksLikeCardNumber } from './moneyMath.js';
@@ -43,33 +45,36 @@ export interface Actor { accountId: string; mfaAdmin: boolean }
 // ---- reading: charges, balance, account credit, version -----------------------------------------------------------------------
 
 export interface ChargeRow {
-  id: string; occurredAt: Date; bookingId: string | null; serviceName: string; netCents: number;
+  id: string; occurredAt: Date; bookingId: string | null; serviceName: string;
+  /** What the line owes: its net plus its sales tax (rev 2.3; tax only on a taxable product). */
+  owedCents: number;
   preTracking: boolean; paidCents: number; creditAppliedCents: number; outstandingCents: number;
 }
 
 /**
- * Every visit charge of the patient, OLDEST FIRST, with what has settled it. Reversed payments do not count. Dues are not charges here.
- * "Oldest" is when it was recorded, then — for visits checked out together, which share that instant — when the visit was.
+ * Every charge of the patient — visits, add-on services and products — OLDEST FIRST, with what has settled it. Reversed payments do
+ * not count. Dues are not charges here. "Oldest" is when it was recorded, then — for lines checked out together, which share that
+ * instant — when the visit was, and for add-on lines (after the visits) when each was added.
  */
 export async function chargesOf(db: Pick<Tx, '$queryRaw'>, patientId: string): Promise<ChargeRow[]> {
-  const rows = await db.$queryRaw<Array<{ id: string; occurredAt: Date; bookingId: string | null; serviceName: string; net: number; pre: boolean; paid: number; credit: number }>>`
-    SELECT e."id", e."occurredAt", e."bookingId", e."serviceName", e."netPriceCents"::int AS net,
+  const rows = await db.$queryRaw<Array<{ id: string; occurredAt: Date; bookingId: string | null; serviceName: string; owed: number; pre: boolean; paid: number; credit: number }>>`
+    SELECT e."id", e."occurredAt", e."bookingId", e."serviceName", (e."netPriceCents" + e."taxCents")::int AS owed,
            EXISTS (SELECT 1 FROM "PreTrackingSettlement" s WHERE s."revenueEventId" = e."id") AS pre,
            COALESCE((SELECT SUM(a."amountCents") FROM "PaymentAllocation" a
                       WHERE a."revenueEventId" = e."id"
                         AND NOT EXISTS (SELECT 1 FROM "PaymentReversal" r WHERE r."paymentId" = a."paymentId")), 0)::int AS paid,
            COALESCE((SELECT SUM(-c."deltaCents") FROM "AccountCreditEntry" c WHERE c."revenueEventId" = e."id" AND c."kind" = 'APPLIED'), 0)::int AS credit
-    FROM "RevenueEvent" e LEFT JOIN "Booking" b ON b."id" = e."bookingId"
+    FROM "RevenueEvent" e LEFT JOIN "Booking" b ON b."id" = e."bookingId" LEFT JOIN "OpenCharge" o ON o."id" = e."openChargeId"
     WHERE e."patientId" = ${patientId} AND e."paymentType" <> 'DUES'
-    ORDER BY e."occurredAt" ASC, b."startTime" ASC NULLS LAST, e."id" ASC`;
+    ORDER BY e."occurredAt" ASC, b."startTime" ASC NULLS LAST, o."addedAt" ASC NULLS LAST, o."createdAt" ASC NULLS LAST, e."id" ASC`;
   return rows.map((r) => ({
-    id: r.id, occurredAt: r.occurredAt, bookingId: r.bookingId, serviceName: r.serviceName, netCents: r.net, preTracking: r.pre,
+    id: r.id, occurredAt: r.occurredAt, bookingId: r.bookingId, serviceName: r.serviceName, owedCents: r.owed, preTracking: r.pre,
     paidCents: r.paid, creditAppliedCents: r.credit,
-    outstandingCents: r.pre ? 0 : r.net - r.paid - r.credit,
+    outstandingCents: r.pre ? 0 : r.owed - r.paid - r.credit,
   }));
 }
 
-/** What the patient owes: Σ outstanding over their visit charges. Derived, never stored. */
+/** What the patient owes: Σ outstanding over their charges, tax included. Derived, never stored. */
 export const balanceOf = async (db: Pick<Tx, '$queryRaw'>, patientId: string): Promise<number> =>
   (await chargesOf(db, patientId)).reduce((n, c) => n + c.outstandingCents, 0);
 
@@ -93,6 +98,9 @@ export async function ledgerVersion(db: Pick<Tx, '$queryRaw'>, patientId: string
       (SELECT string_agg(r."id", ',' ORDER BY r."id") FROM "PaymentReversal" r JOIN "Payment" p ON p."id" = r."paymentId" WHERE p."patientId" = ${patientId}),
       (SELECT string_agg(f."id", ',' ORDER BY f."id") FROM "Refund" f WHERE f."patientId" = ${patientId}),
       (SELECT string_agg(c."id"::text, ',' ORDER BY c."id") FROM "AccountCreditEntry" c WHERE c."patientId" = ${patientId}),
+      -- Rev 2.3: the open lines, and whether each was removed — a charge added by anyone changes what the desk is checking out.
+      (SELECT string_agg(o."id" || ':' || CASE WHEN r."openChargeId" IS NULL THEN 'o' ELSE 'r' END, ',' ORDER BY o."id")
+         FROM "OpenCharge" o LEFT JOIN "OpenChargeRemoval" r ON r."openChargeId" = o."id" WHERE o."patientId" = ${patientId}),
       (SELECT string_agg(b."id" || ':' || COALESCE(n."status"::text, '-'), ',' ORDER BY b."id")
          FROM "Booking" b LEFT JOIN "Encounter" n ON n."bookingId" = b."id"
         WHERE b."patientId" = ${patientId} AND b."status" = 'CONFIRMED'
@@ -153,11 +161,22 @@ export interface VisitLine {
   adjustment?: AdjustmentInput | null;
 }
 
+/** Rev 2.3: an open line (add-on service or product) to check out, and how it is paid. CREDITS and PERK are for a service only. */
+export interface ChargeLine {
+  openChargeId: string;
+  pay: 'MONEY' | 'CREDITS' | 'PERK';
+  perkId?: string;
+  expectedNetCents?: number;
+  adjustment?: AdjustmentInput | null;
+}
+
 export interface SettleInput {
   patientId: string;
   idempotencyKey: string;
   expectedVersion: string;
   visits: VisitLine[];
+  /** Rev 2.3: open lines checked out with the visits (or on their own). */
+  charges?: ChargeLine[];
   /** Account credit ($) the desk chose to apply, oldest charge first (decision 4). */
   applyAccountCreditCents?: number;
   payment?: { tender: Tender; amountCents: number; reference?: string | null; note?: string | null } | null;
@@ -170,6 +189,8 @@ export interface SettleInput {
 export interface SettleResult {
   batchId: string | null;
   visits: Array<{ bookingId: string } & Omit<CheckoutSummary, 'balanceBefore' | 'balanceAfter' | 'alreadyCheckedOut' | 'recordedAt'>>;
+  /** Rev 2.3: the add-on services and products checked out — itemized, with each one's tax (decision 6). */
+  charges: ChargeSummary[];
   accountCreditApplied: Array<{ revenueEventId: string; cents: number }>;
   payment: null | {
     id: string; tender: Tender; amountCents: number; collectedOn: string;
@@ -198,9 +219,11 @@ export async function settle(tx: Tx, rec: Rec, actor: Actor, now: Date, a: Settl
   const today = clinicDay(now);
   const ids = a.visits.map((v) => v.bookingId);
   if (new Set(ids).size !== ids.length) throw fail(400, 'duplicate_visit', 'A visit is listed twice.');
+  const chargeLines = a.charges ?? [];
+  if (new Set(chargeLines.map((c) => c.openChargeId)).size !== chargeLines.length) throw fail(400, 'duplicate_charge', 'An item is listed twice.');
   const pay = a.payment && a.payment.amountCents > 0 ? a.payment : null;
   const applyCredit = a.applyAccountCreditCents ?? 0;
-  if (a.visits.length === 0 && !pay && applyCredit === 0) throw fail(400, 'nothing_to_do', 'Choose a visit to check out, or enter a payment.');
+  if (a.visits.length === 0 && chargeLines.length === 0 && !pay && applyCredit === 0) throw fail(400, 'nothing_to_do', 'Choose a visit or an item to check out, or enter a payment.');
   if (!Number.isInteger(applyCredit) || applyCredit < 0) throw fail(400, 'bad_amount', 'Account credit is a whole number of cents.');
   if (a.payment && (!Number.isInteger(a.payment.amountCents) || a.payment.amountCents < 0)) throw fail(400, 'bad_amount', 'A payment is a whole number of cents.');
   const tenderFields = pay ? checkTender(pay, 'payment') : null;
@@ -222,10 +245,10 @@ export async function settle(tx: Tx, rec: Rec, actor: Actor, now: Date, a: Settl
   await assertVersion(tx, a.patientId, today, a.expectedVersion);
 
   // 3. The visits: each priced by check-out's own function and checked out (still the only writer of CHECKED_OUT), oldest visit first.
-  const batchId = a.visits.length ? randomUUID() : null;
+  const batchId = a.visits.length || chargeLines.length ? randomUUID() : null;
   if (batchId) {
     await tx.checkoutBatch.create({ data: { id: batchId, patientId: a.patientId, createdById: actor.accountId } });
-    await rec({ action: 'CREATE', resourceType: 'checkout_batch', resourceId: batchId, meta: { visits: a.visits.length } });
+    await rec({ action: 'CREATE', resourceType: 'checkout_batch', resourceId: batchId, meta: { visits: a.visits.length, charges: chargeLines.length } });
   }
   const byId = new Map(a.visits.map((v) => [v.bookingId, v]));
   const visits: SettleResult['visits'] = [];
@@ -240,6 +263,28 @@ export async function settle(tx: Tx, rec: Rec, actor: Actor, now: Date, a: Settl
     const s = await checkoutVisit(tx, rec, { bookingId: b.id, accountId: actor.accountId, now, adjustment: line.adjustment ?? null, byAdmin: actor.mfaAdmin, batchId, ...choice });
     const { balanceBefore: _b, balanceAfter: _a, alreadyCheckedOut: _c, recordedAt: _r, ...rest } = s;
     visits.push({ bookingId: b.id, ...rest });
+  }
+
+  // 3b. Rev 2.3: the open lines — each this patient's, still open — oldest added first, priced by charges.ts.
+  const checkedOutCharges: ChargeSummary[] = [];
+  if (chargeLines.length) {
+    const lines = [];
+    for (const c of chargeLines) {
+      const oc = await tx.openCharge.findFirst({ where: { id: c.openChargeId, patientId: a.patientId }, include: { removal: true, charge: { select: { id: true } } } });
+      if (!oc) throw fail(404, 'unknown_charge', 'One of these items does not belong to this patient.');
+      if (oc.removal) throw fail(409, 'charge_removed', `${oc.name} was removed from the charges.`);
+      if (oc.charge) throw fail(409, 'already_checked_out', `${oc.name} is already checked out.`);
+      const { removal: _r, charge: _c, ...line } = oc;
+      lines.push({ line, choice: c });
+    }
+    lines.sort((x, y) => x.line.addedAt.getTime() - y.line.addedAt.getTime() || x.line.createdAt.getTime() - y.line.createdAt.getTime() || (x.line.id < y.line.id ? -1 : 1));
+    const membership = await openMembership(tx, a.patientId);
+    for (const { line, choice } of lines) {
+      checkedOutCharges.push(await checkoutCharge(tx, rec, {
+        line, pay: choice.pay, perkId: choice.perkId, expectedNetCents: choice.expectedNetCents, adjustment: choice.adjustment ?? null,
+        byAdmin: actor.mfaAdmin, batchId, accountId: actor.accountId, now, membership,
+      }));
+    }
   }
 
   // 4. What is due now, oldest first — an old carried-forward balance before today's visits.
@@ -302,7 +347,7 @@ export async function settle(tx: Tx, rec: Rec, actor: Actor, now: Date, a: Settl
   }
 
   return {
-    batchId, visits, accountCreditApplied, payment,
+    batchId, visits, charges: checkedOutCharges, accountCreditApplied, payment,
     balanceCents: await balanceOf(tx, a.patientId), accountCreditCents: await accountCreditOf(tx, a.patientId), recordedAt: now.toISOString(),
   };
 }

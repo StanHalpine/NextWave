@@ -96,7 +96,8 @@ describe('Accounting: billed vs collected, by the clinic\'s day', () => {
     const sub = (label: string) => list.body.subtotals.find((x: any) => String(x.kind).startsWith(label));
     const of = (pred: (k: string) => boolean) => list.body.rows.filter((x: any) => pred(x.kind));
     const sum = (rs: any[]) => rs.reduce((t: number, x: any) => t + x.amountCents, 0);
-    expect(list.body.subtotals.map((x: any) => x.date)).toEqual(['Subtotal', 'Subtotal', 'Subtotal']);
+    expect(list.body.subtotals.map((x: any) => x.date)).toEqual(['Subtotal', 'Subtotal', 'Subtotal', 'Subtotal']);
+    expect(list.body.subtotals.map((x: any) => String(x.kind).replace(/ \(\d+\)$/, ''))).toEqual(['Adjustments', 'Price increases', 'Payment reversals', 'Refunds']);
     expect(sub('Adjustments')).toMatchObject({ kind: `Adjustments (${of((k) => k === 'Adjustment').length})`, amountCents: sum(of((k) => k === 'Adjustment')) });
     expect(sub('Payment reversals')).toMatchObject({ amountCents: sum(of((k) => k === 'Payment reversal')) });
     expect(sub('Refunds')).toMatchObject({ amountCents: sum(of((k) => k.startsWith('Refund'))) });
@@ -108,8 +109,9 @@ describe('Accounting: billed vs collected, by the clinic\'s day', () => {
     expect(csv.text).toContain('Reference id');
     expect(csv.text).toContain('15.00');
     const lines = csv.text.slice(1).trim().split('\r\n');
-    expect(lines.slice(-3).map((l: string) => l.split(',').slice(0, 2).join(','))).toEqual([
-      expect.stringMatching(/^Subtotal,Adjustments \(\d+\)$/), expect.stringMatching(/^Subtotal,Payment reversals \(\d+\)$/), expect.stringMatching(/^Subtotal,Refunds \(\d+\)$/),
+    expect(lines.slice(-4).map((l: string) => l.split(',').slice(0, 2).join(','))).toEqual([
+      expect.stringMatching(/^Subtotal,Adjustments \(\d+\)$/), expect.stringMatching(/^Subtotal,Price increases \(\d+\)$/),
+      expect.stringMatching(/^Subtotal,Payment reversals \(\d+\)$/), expect.stringMatching(/^Subtotal,Refunds \(\d+\)$/),
     ]);
     expect(lines.some((l: string) => l.startsWith('Total,'))).toBe(false);
     const audit = await basePrisma.auditLog.findFirst({ where: { resourceType: 'accounting_report', resourceId: 'review', action: 'EXPORT' }, orderBy: { id: 'desc' } });

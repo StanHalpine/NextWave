@@ -628,7 +628,7 @@ describe('the balance is always the sum of the rows', () => {
     expect(derived).toBe(1500);
     // account credit: +5500 from the overpayment, −1000 applied
     expect(l.money.accountCreditCents).toBe(4500);
-    // per charge, never below zero and never more than its net
-    for (const ch of await chargesOf(basePrisma, p.id)) { expect(ch.outstandingCents).toBeGreaterThanOrEqual(0); expect(ch.outstandingCents).toBeLessThanOrEqual(ch.netCents); }
+    // per charge, never below zero and never more than it owes (its net plus any tax)
+    for (const ch of await chargesOf(basePrisma, p.id)) { expect(ch.outstandingCents).toBeGreaterThanOrEqual(0); expect(ch.outstandingCents).toBeLessThanOrEqual(ch.owedCents); }
   });
 });

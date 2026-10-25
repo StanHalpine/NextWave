@@ -23,3 +23,14 @@ export async function promotionsFor(db: Read, serviceId: string, visitDate: stri
   });
   return rows.map((r) => ({ id: r.id, name: r.name, kind: r.kind, value: r.value }));
 }
+
+/** Rev 2.3 (decision 3c): active promotions for this PRODUCT whose date range contains `day` — the clinic day the line was added. */
+export async function promotionsForProduct(db: Read, productId: string, day: string): Promise<ApplicablePromotion[]> {
+  const d = toDateOnly(day);
+  const rows = await db.promotion.findMany({
+    where: { active: true, startsOn: { lte: d }, endsOn: { gte: d }, products: { some: { productId } } },
+    select: { id: true, name: true, kind: true, value: true },
+    orderBy: { id: 'asc' },
+  });
+  return rows.map((r) => ({ id: r.id, name: r.name, kind: r.kind, value: r.value }));
+}

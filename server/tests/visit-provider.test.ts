@@ -353,7 +353,8 @@ describe('in the code', () => {
 
   it('decides who may write in one place: the role check is only ever called by the person rule', () => {
     expect(files.filter((p) => /\broleMayDocument\(/.test(read(p)) && !/export function roleMayDocument/.test(read(p))).map(norm)).toEqual(['src/lib/visitProvider.ts']);
-    expect(files.filter((p) => /\bwriteRefusal\(/.test(read(p)) && !/export function writeRefusal/.test(read(p))).map(norm).sort()).toEqual(['src/lib/documentation.ts', 'src/lib/providerViews.ts']);
+    // rev 2.3: a provider adds charges through a visit they may document — the same person rule, called from the charges route
+    expect(files.filter((p) => /\bwriteRefusal\(/.test(read(p)) && !/export function writeRefusal/.test(read(p))).map(norm).sort()).toEqual(['src/lib/documentation.ts', 'src/lib/providerViews.ts', 'src/routes/charges.ts']);
   });
 
   it('every function that loads a visit to write it checks the rule first', () => {

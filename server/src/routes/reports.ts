@@ -64,7 +64,7 @@ const collections = z.object({ ...dateParams, group: z.enum(['day', 'month']).op
 type Collections = z.infer<typeof collections>;
 type Custom = z.infer<typeof custom>;
 
-const MONEY_NOTE = 'Service revenue is what the front desk recorded at check-out: net = list price − member discount (or a promotion, whichever was better — never both) − any one-off adjustment, and 0 for a visit a membership covered (credits or a perk), shown under "Covered by membership". These are amounts billed; what was actually collected is under "Billed vs collected". Membership dues are billed when each month\'s credits are granted and are shown below, separately: they are never added into service revenue. Dues are collected outside this system, so a dues line means "billed", not "paid".';
+const MONEY_NOTE = 'Service revenue is what the front desk recorded at check-out: net = list price − member discount (or a promotion, whichever was better — never both) − any one-off adjustment (negative when an admin raised a price above list), and 0 for a visit a membership covered (credits or a perk), shown under "Covered by membership". Add-on services and retail products are rows like visits; sales tax on products is its own column and is not revenue. These are amounts billed; what was actually collected is under "Billed vs collected". Membership dues are billed when each month\'s credits are granted and are shown below, separately: they are never added into service revenue. Dues are collected outside this system, so a dues line means "billed", not "paid".';
 
 const ACCOUNTING: Record<string, ViewDef<any>> = {
   monthly: {

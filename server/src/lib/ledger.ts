@@ -32,6 +32,7 @@ import { balance, clinicDay, expiringSoon, getLots } from './credits.js';
 import { openMembership } from './membership.js';
 import { localDayBounds } from './time.js';
 import { moneyView } from './moneyLedger.js';
+import { openLinesView } from './charges.js';
 import { config } from '../config.js';
 
 /** Where the visit is, for check-out. `ready_to_check_out` is any checked-in visit (CHECKED_IN, IN_PROGRESS, SEEN) — the note does not matter. */
@@ -219,6 +220,11 @@ export async function patientLedger(patientId: string, now: Date) {
       })),
       /** Phase 2b: what has been posted, the balance carried forward, and account credit ($). Read in this same snapshot. */
       money: await moneyView(tx, patientId, today),
+      /**
+       * Rev 2.3: add-on services and products added but not yet checked out, priced as check-out would price them in money, with
+       * their tax. Not part of the balance until checked out. The same lines the check-out window and the Charges window show.
+       */
+      openCharges: await openLinesView(tx, patientId, now),
     };
   }, { isolationLevel: 'RepeatableRead', maxWait: 10_000, timeout: 20_000 });
 }

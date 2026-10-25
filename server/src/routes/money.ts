@@ -36,9 +36,10 @@ const overpayment = z.union([
   z.object({ as: z.literal('REFUND'), tender: tender.optional(), note: z.string().max(400).nullish() }).strict(),
   z.object({ as: z.literal('ACCOUNT_CREDIT') }).strict(),
 ]);
+// Positive cents take money off; negative raise the price above list — an admin only, refused for anyone else (rev 2.3, decision 5).
 const adjustment = z.object({
-  cents: z.number().int().min(1).max(100_000_000),
-  reason: z.enum(['SERVICE_RECOVERY', 'PRICE_MATCH', 'COURTESY', 'BILLING_ERROR', 'OTHER']),
+  cents: z.number().int().min(-100_000_000).max(100_000_000).refine((c) => c !== 0, 'An adjustment is not zero.'),
+  reason: z.enum(['SERVICE_RECOVERY', 'PRICE_MATCH', 'COURTESY', 'BILLING_ERROR', 'OTHER', 'EXTENDED_SERVICE']),
   note: z.string().max(400).nullish(),
 }).strict();
 const visit = z.object({
@@ -49,10 +50,19 @@ const visit = z.object({
   expectedNetCents: cents.optional(),
   adjustment: adjustment.nullish(),
 }).strict();
+// Rev 2.3: an open line (add-on service or product) checked out with the visits.
+const chargeLine = z.object({
+  openChargeId: z.string().regex(UUID),
+  pay: z.enum(['MONEY', 'CREDITS', 'PERK']),
+  perkId: z.string().max(64).optional(),
+  expectedNetCents: cents.optional(),
+  adjustment: adjustment.nullish(),
+}).strict();
 const settleBody = z.object({
   idempotencyKey: key,
   expectedVersion: version,
   visits: z.array(visit).max(20).default([]),
+  charges: z.array(chargeLine).max(50).default([]),
   applyAccountCreditCents: cents.optional(),
   payment: paymentBody.nullish(),
   confirmPartial: z.boolean().optional(),
@@ -68,7 +78,7 @@ function actorOf(req: Request): Actor {
  * Run one money write: idempotent, one transaction, and — on a conflict — the fresh Ledger in the answer. If a twin of this very request
  * (same key, same body) committed while this one waited, its recorded answer is returned instead of an error.
  */
-async function moneyWrite(req: Request, res: Response, scope: string, patientId: string, idemKey: string, body: unknown, run: Parameters<typeof staffTransaction>[0]) {
+export async function moneyWrite(req: Request, res: Response, scope: string, patientId: string, idemKey: string, body: unknown, run: Parameters<typeof staffTransaction>[0]) {
   if (!UUID.test(patientId)) return res.status(404).json({ error: 'Unknown patient.', code: 'unknown_patient' });
   const actor = actorOf(req);
   try {
@@ -93,13 +103,14 @@ moneyRouter.post('/fd/patients/:id/checkout', requireFrontDesk, async (req, res)
   const parsed = settleBody.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Invalid request.', code: 'bad_request' });
   const b = parsed.data;
-  if (b.visits.length === 0) return res.status(400).json({ error: 'Choose at least one visit to check out.', code: 'no_visits' });
+  // Rev 2.3: a product-only sale is a check-out too — a visit OR an item.
+  if (b.visits.length === 0 && b.charges.length === 0) return res.status(400).json({ error: 'Choose at least one visit or item to check out.', code: 'no_visits' });
   const patientId = req.params.id ?? '';
   return moneyWrite(req, res, 'checkout', patientId, b.idempotencyKey, b, (tx, rec) => settle(tx, rec, actorOf(req), now(), { patientId, ...b }));
 });
 
 moneyRouter.post('/fd/patients/:id/payments', requireFrontDesk, async (req, res) => {
-  const parsed = settleBody.omit({ visits: true }).safeParse(req.body);
+  const parsed = settleBody.omit({ visits: true, charges: true }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Invalid request.', code: 'bad_request' });
   const b = parsed.data;
   const patientId = req.params.id ?? '';

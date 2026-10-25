@@ -17,8 +17,12 @@ type Tx = Prisma.TransactionClient;
 
 export type PostedEntry =
   | { kind: 'charge'; id: string; date: string; at: string; bookingId: string | null; serviceName: string; subOption: string | null;
+      /** Rev 2.3: a visit, an add-on service (no visit), or a product — each itemized by name (decision 6). */
+      lineKind: 'VISIT' | 'ADDON_SERVICE' | 'PRODUCT';
       paymentType: 'CASH' | 'MEMBER'; listPriceCents: number | null; discountCents: number; promotionCents: number; promotionName: string | null;
-      adjustmentCents: number; adjustmentReason: string | null; amountCents: number; balanceAfterCents: number }
+      adjustmentCents: number; adjustmentReason: string | null; taxCents: number; amountCents: number; balanceAfterCents: number }
+  /** Rev 2.3: a product's sales tax, on its own line under it, named — so a receipt substantiates an HSA purchase (decision 6). */
+  | { kind: 'tax'; id: string; revenueEventId: string; date: string; at: string; serviceName: string; rateMilli: number; amountCents: number; balanceAfterCents: number }
   | { kind: 'settled_before_tracking'; id: string; date: string; at: string; amountCents: number; balanceAfterCents: number }
   | { kind: 'payment'; id: string; date: string; at: string; tender: string; totalCents: number; amountCents: number; toAccountCreditCents: number;
       refundedCents: number; reversed: boolean; reversibleByDesk: boolean; reversibleByAdmin: boolean; balanceAfterCents: number }
@@ -37,18 +41,23 @@ export interface MoneyView {
   accountCredit: AccountCreditLine[];
 }
 
-const ORDER: Record<PostedEntry['kind'], number> = { charge: 0, settled_before_tracking: 1, account_credit_applied: 2, payment: 3, reversal: 4 };
+// A tax line ranks with its charge: the sort is stable, so it stays directly under the product it is for.
+const ORDER: Record<PostedEntry['kind'], number> = { charge: 0, tax: 0, settled_before_tracking: 1, account_credit_applied: 2, payment: 3, reversal: 4 };
 
 export async function moneyView(tx: Tx, patientId: string, today: string): Promise<MoneyView> {
   const unsorted = await tx.revenueEvent.findMany({
     where: { patientId, paymentType: { not: 'DUES' } },
-    include: { promotion: { select: { name: true } }, preTracking: { select: { revenueEventId: true } } },
+    include: { promotion: { select: { name: true } }, preTracking: { select: { revenueEventId: true } }, openCharge: { select: { addedAt: true, createdAt: true } } },
   });
   // The same order as the balance (lib/money.ts chargesOf): when recorded, then — for visits checked out together — when the visit was.
   const starts = new Map((await tx.booking.findMany({ where: { id: { in: unsorted.map((c) => c.bookingId).filter((x): x is string => !!x) } }, select: { id: true, startTime: true } }))
     .map((b) => [b.id, b.startTime.getTime()]));
   const startOf = (c: (typeof unsorted)[number]) => (c.bookingId ? (starts.get(c.bookingId) ?? Infinity) : Infinity);
-  const charges = unsorted.sort((x, y) => x.occurredAt.getTime() - y.occurredAt.getTime() || startOf(x) - startOf(y) || (x.id < y.id ? -1 : 1));
+  // Rev 2.3: add-on lines (no visit) after the visits, in the order they were added.
+  const addedOf = (c: (typeof unsorted)[number]) => (c.openCharge ? c.openCharge.addedAt.getTime() : Infinity);
+  const writtenOf = (c: (typeof unsorted)[number]) => (c.openCharge ? c.openCharge.createdAt.getTime() : Infinity);
+  const charges = unsorted.sort((x, y) => x.occurredAt.getTime() - y.occurredAt.getTime() || startOf(x) - startOf(y)
+    || addedOf(x) - addedOf(y) || writtenOf(x) - writtenOf(y) || (x.id < y.id ? -1 : 1));
   const payments = await tx.payment.findMany({
     where: { patientId },
     include: { allocations: true, reversal: true, refunds: true },
@@ -64,10 +73,14 @@ export async function moneyView(tx: Tx, patientId: string, today: string): Promi
     const date = toLocalDateISO(c.occurredAt);
     drafts.push({
       kind: 'charge', id: c.id, date, at: c.occurredAt.toISOString(), bookingId: c.bookingId, serviceName: c.serviceName, subOption: c.subOption,
+      lineKind: c.productId ? 'PRODUCT' : c.openChargeId ? 'ADDON_SERVICE' : 'VISIT',
       paymentType: c.paymentType as 'CASH' | 'MEMBER', listPriceCents: c.listPriceCents, discountCents: c.discountCents, promotionCents: c.promotionCents,
-      promotionName: c.promotion?.name ?? null, adjustmentCents: c.adjustmentCents, adjustmentReason: c.adjustmentReason,
+      promotionName: c.promotion?.name ?? null, adjustmentCents: c.adjustmentCents, adjustmentReason: c.adjustmentReason, taxCents: c.taxCents,
       amountCents: c.netPriceCents, sort: c.occurredAt.getTime(),
     });
+    if (c.taxCents > 0) {
+      drafts.push({ kind: 'tax', id: `${c.id}:tax`, revenueEventId: c.id, date, at: c.occurredAt.toISOString(), serviceName: c.serviceName, rateMilli: c.taxRateMilli, amountCents: c.taxCents, sort: c.occurredAt.getTime() });
+    }
     if (c.preTracking && c.netPriceCents > 0) {
       drafts.push({ kind: 'settled_before_tracking', id: c.id, date, at: c.occurredAt.toISOString(), amountCents: -c.netPriceCents, sort: c.occurredAt.getTime() });
     }

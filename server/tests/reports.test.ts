@@ -616,7 +616,7 @@ describe('the endpoints', () => {
   it('return the totals row in cents with the column kinds the screen formats by', async () => {
     const r = await get(ctx.admin, `/api/accounting/monthly?from=${WHOLE.from}&to=${WHOLE.to}`);
     expect(r.status).toBe(200);
-    expect(r.body.columns.map((c: { key: string }) => c.key)).toEqual(['month', 'service', 'visits', 'listCents', 'discountCents', 'promotionCents', 'adjustmentCents', 'netCents', 'coveredCents', 'credits']);
+    expect(r.body.columns.map((c: { key: string }) => c.key)).toEqual(['month', 'service', 'visits', 'listCents', 'discountCents', 'promotionCents', 'adjustmentCents', 'netCents', 'coveredCents', 'credits', 'taxCents']);
     expect(r.body.columns.find((c: { key: string }) => c.key === 'netCents').kind).toBe('money');
     expect(r.body.totals).toMatchObject({ month: 'Total', ...metrics(sales) });
     expect(r.body.notes.join(' ')).toMatch(/Membership dues are billed when each month's credits are granted and are shown below, separately/);
@@ -657,9 +657,9 @@ describe('the endpoints', () => {
     // Two tables, a blank line apart: service revenue, then the dues billed, each with its own header and totals.
     const [serviceTable, duesTable_] = text.trim().split('\r\n\r\n').map((t) => t.split('\r\n'));
     expect(serviceTable![0]).toBe('Service revenue');
-    expect(serviceTable![1]).toBe('"Who paid, and how",Visits,List price,Discount,Promotions,Adjustments,Net,Covered by membership,Credits redeemed');
-    expect(serviceTable).toContain(`Member — credits,1,100.00,0.00,0.00,0.00,0.00,100.00,2`);
-    expect(serviceTable!.at(-1)).toBe(`Total,${sales.length},${dollars(sum(sales, 'list'))},${dollars(sum(sales, 'discount'))},0.00,0.00,${dollars(sum(sales, 'net'))},${dollars(sum(sales, 'covered'))},${sum(sales, 'credits')}`);
+    expect(serviceTable![1]).toBe('"Who paid, and how",Visits / items,List price,Discount,Promotions,Adjustments,Net,Covered by membership,Credits redeemed,Sales tax (not revenue)');
+    expect(serviceTable).toContain(`Member — credits,1,100.00,0.00,0.00,0.00,0.00,100.00,2,0.00`);
+    expect(serviceTable!.at(-1)).toBe(`Total,${sales.length},${dollars(sum(sales, 'list'))},${dollars(sum(sales, 'discount'))},0.00,0.00,${dollars(sum(sales, 'net'))},${dollars(sum(sales, 'covered'))},${sum(sales, 'credits')},0.00`);
     expect(serviceTable!.some((l) => l.startsWith('All members,'))).toBe(true);
     expect(serviceTable!.some((l) => l.startsWith('Non-members,'))).toBe(true);
     expect(duesTable_![0]).toBe('Membership dues (billed)');

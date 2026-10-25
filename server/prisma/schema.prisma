@@ -190,9 +190,14 @@ model Service {
   /// it is redirected rather than left for the front desk to correct.
   newPatientSlug String?
 
+  /// Rev 2.3 (Phase 2c-A): offered as a quick-add button in the Charges window — charged with no booking (InBody = body
+  /// composition). Only a service that needs no signed note may be offered (an add-on has no encounter to write one against).
+  offerAsAddOn Boolean @default(false)
+
   bookings         Booking[]
   options          ServiceOption[]
   promotions       PromotionService[]
+  openCharges      OpenCharge[]
   rooms            ServiceRoom[]
   staff            ServiceStaff[]
   planPerkServices PlanPerkService[]
@@ -757,6 +762,8 @@ model MembershipPlan {
   perks             PlanPerk[]
   /// Percent off list, per service category, when an ACTIVE member of this tier pays cash. Empty until set.
   categoryDiscounts PlanCategoryDiscount[]
+  /// Rev 2.3: percent off a discount-eligible PRODUCT when an ACTIVE member of this tier buys it. No row = 0.
+  productDiscount   PlanProductDiscount?
   memberships       Membership[]
 }
 
@@ -941,11 +948,23 @@ model RevenueEvent {
   /// The combined check-out this charge was part of.
   batchId          String?
 
+  /// Rev 2.3 (Phase 2c-A). A charge is a VISIT (encounterId), an ADD-ON SERVICE (serviceId + openChargeId, no booking) or a PRODUCT
+  /// (productId + openChargeId) — derived from these columns, never stored (RevenueEvent_kind). serviceName holds the line's name
+  /// and listPriceCents its price, both SNAPSHOTTED when the line was added (OpenCharge), so a catalog edit never changes them.
+  productId    String?
+  openChargeId String? @unique
+  /// Sales tax: the rate in thousandths of a percent (5.5% = 5500), snapshotted when the line was added, and the tax on the net,
+  /// floor((net × rate + 50 000) / 100 000) — products only; a service is never taxed. The line owes net + tax. Tax is not revenue.
+  taxRateMilli Int     @default(0)
+  taxCents     Int     @default(0)
+
   encounter   Encounter?             @relation(fields: [encounterId], references: [id], onDelete: Restrict)
   membership  Membership?            @relation(fields: [membershipId], references: [id], onDelete: Restrict)
   promotion   Promotion?             @relation(fields: [promotionId], references: [id], onDelete: Restrict)
   allocations PaymentAllocation[]
   preTracking PreTrackingSettlement?
+  product     Product?               @relation(fields: [productId], references: [id], onDelete: Restrict)
+  openCharge  OpenCharge?            @relation(fields: [openChargeId], references: [id], onDelete: Restrict)
 
   @@unique([membershipId, periodStart])
   @@index([occurredAt])
@@ -977,6 +996,8 @@ enum AdjustmentReason {
   COURTESY
   BILLING_ERROR
   OTHER
+  /// Rev 2.3: a reason for a price INCREASE above list (admin only). BILLING_ERROR and OTHER may also raise a price.
+  EXTENDED_SERVICE
 }
 
 enum PromotionKind {
@@ -1024,6 +1045,8 @@ model Promotion {
   updatedAt   DateTime      @updatedAt
 
   services PromotionService[]
+  /// Rev 2.3: products the promotion covers (a promotion may cover services, products, or both).
+  products PromotionProduct[]
   charges  RevenueEvent[]
 }
 
@@ -1381,4 +1404,105 @@ model PlanCategoryDiscount {
 
   @@id([planId, categoryId])
   @@index([categoryId])
+}
+
+// =====================================================================================================
+// Phase 2c-A (rev 2.3): charges — retail products, add-on services, sales tax. docs/CHARGES_DESIGN.md
+// =====================================================================================================
+
+/// A retail product sold at the desk (supplements, …). Edited by an admin on the catalog screen, audited. A charge never reads its
+/// price or name after the line is added: the line carries snapshots (OpenCharge), so editing a product changes no past charge.
+model Product {
+  id           String   @id @default(uuid())
+  name         String
+  /// The Charges window's button group ("Supplements", …).
+  category     String
+  priceCents   Int
+  /// Taxed at the clinic's sales-tax rate (TaxRate SALES) when true.
+  taxable      Boolean  @default(true)
+  /// Eligible for the member tier discount on products (PlanProductDiscount) when true.
+  tierDiscount Boolean  @default(true)
+  active       Boolean  @default(true)
+  sortOrder    Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  openCharges OpenCharge[]
+  charges     RevenueEvent[]
+  promotions  PromotionProduct[]
+
+  @@index([active, category, sortOrder])
+}
+
+/// The clinic's sales-tax rate (code SALES): thousandths of a percent, 5.5% = 5500. Edited in place by an admin, audited; every
+/// open line and charge keeps the rate it was added at.
+model TaxRate {
+  id          String   @id @default(uuid())
+  code        String   @unique
+  name        String
+  rateMilli   Int
+  updatedAt   DateTime @updatedAt
+  updatedById String?
+}
+
+/// Percent off a discount-eligible product for an ACTIVE member of the tier (rev 2.3, decision 3b). Admin-editable, audited.
+model PlanProductDiscount {
+  planId      String   @id
+  percent     Int
+  updatedAt   DateTime @updatedAt
+  updatedById String?
+
+  plan MembershipPlan @relation(fields: [planId], references: [id], onDelete: Restrict)
+}
+
+model PromotionProduct {
+  promotionId String
+  productId   String
+
+  promotion Promotion @relation(fields: [promotionId], references: [id], onDelete: Restrict)
+  product   Product   @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@id([promotionId, productId])
+  @@index([productId])
+}
+
+/// A line added in the Charges window, not yet checked out: an add-on service (serviceId) or a product (productId). APPEND-ONLY —
+/// removing one before check-out adds an OpenChargeRemoval row; checking it out writes the RevenueEvent that names it (once:
+/// RevenueEvent.openChargeId is unique). Name, unit price and tax rate are SNAPSHOTS taken when it was added.
+model OpenCharge {
+  id                 String   @id @default(uuid())
+  patientId          String
+  serviceId          String?
+  productId          String?
+  name               String
+  /// The service's discipline, or the product's button group (snapshot).
+  category           String
+  unitPriceCents     Int
+  /// 0 for a service (never taxed); the clinic rate for a taxable product.
+  taxRateMilli       Int      @default(0)
+  /// The clinic day it was added: a promotion applies by this date (rev 2.2 decision 2, applied to add-ons).
+  addedOn            DateTime @db.Date
+  addedAt            DateTime
+  addedById          String
+  /// Who performed an add-on service (optional); recorded on the charge as its provider.
+  performedByStaffId String?
+  /// The visit it was added from (a provider's workspace or the desk's card), for context only.
+  bookingId          String?
+  createdAt          DateTime @default(now())
+
+  service Service?           @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  product Product?           @relation(fields: [productId], references: [id], onDelete: Restrict)
+  removal OpenChargeRemoval?
+  charge  RevenueEvent?
+
+  @@index([patientId])
+}
+
+model OpenChargeRemoval {
+  openChargeId String   @id
+  removedById  String
+  removedAt    DateTime
+  createdAt    DateTime @default(now())
+
+  openCharge OpenCharge @relation(fields: [openChargeId], references: [id], onDelete: Restrict)
 }

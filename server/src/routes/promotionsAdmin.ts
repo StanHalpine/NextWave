@@ -3,7 +3,7 @@
  *
  *   GET   /api/admin/promotions        every promotion, with its services and whether a charge has used it; the services to pick from
  *   POST  /api/admin/promotions        create one: name, PERCENT (1–100) or FIXED_CENTS (> 0), clinic-local start and end dates (inclusive),
- *                                      the services it covers
+ *                                      the services it covers and — rev 2.3, decision 3c — the products (at least one of either)
  *   PATCH /api/admin/promotions/:id    change it. Once a charge has used it, its kind, value, dates and services are FROZEN (a database
  *                                      trigger backs this up) — deactivate it and create a new one; its name and `active` may still change
  *
@@ -28,13 +28,15 @@ const fields = {
   value: z.number().int().min(1),
   startsOn: ISO,
   endsOn: ISO,
-  serviceIds: z.array(z.string().min(1).max(64)).min(1, 'Choose at least one service.').max(50),
+  serviceIds: z.array(z.string().min(1).max(64)).max(50),
+  productIds: z.array(z.string().min(1).max(64)).max(50),
   active: z.boolean(),
 };
-const createBody = z.object({ ...fields, active: fields.active.optional() }).strict();
+const createBody = z.object({ ...fields, active: fields.active.optional(), serviceIds: fields.serviceIds.default([]), productIds: fields.productIds.default([]) }).strict()
+  .refine((b) => b.serviceIds.length + b.productIds.length > 0, 'Choose at least one service or product.');
 const patchBody = z.object(Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, v.optional()])) as { [K in keyof typeof fields]: z.ZodOptional<(typeof fields)[K]> }).strict();
 
-const FROZEN = ['kind', 'value', 'startsOn', 'endsOn', 'serviceIds'] as const;
+const FROZEN = ['kind', 'value', 'startsOn', 'endsOn', 'serviceIds', 'productIds'] as const;
 
 function shapeProblem(p: { kind: string; value: number; startsOn: string; endsOn: string }): string | null {
   if (p.kind === 'PERCENT' && (p.value < 1 || p.value > 100)) return 'A percentage is from 1 to 100.';
@@ -44,21 +46,23 @@ function shapeProblem(p: { kind: string; value: number; startsOn: string; endsOn
 
 async function view() {
   const rows = await basePrisma.promotion.findMany({
-    include: { services: { include: { service: { select: { id: true, name: true } } } }, _count: { select: { charges: true } } },
+    include: { services: { include: { service: { select: { id: true, name: true } } } }, products: { include: { product: { select: { id: true, name: true } } } }, _count: { select: { charges: true } } },
     orderBy: [{ startsOn: 'desc' }, { name: 'asc' }],
   });
   return rows.map((p) => ({
     id: p.id, name: p.name, kind: p.kind, value: p.value, startsOn: fromDateOnly(p.startsOn), endsOn: fromDateOnly(p.endsOn), active: p.active,
     services: p.services.map((s) => ({ id: s.service.id, name: s.service.name })).sort((a, b) => a.name.localeCompare(b.name)),
+    products: p.products.map((x) => ({ id: x.product.id, name: x.product.name })).sort((a, b) => a.name.localeCompare(b.name)),
     used: p._count.charges > 0,
   }));
 }
 
 promotionsAdminRouter.get('/admin/promotions', admin, async (_req, res) => {
   const services = await basePrisma.service.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' } });
+  const products = await basePrisma.product.findMany({ select: { id: true, name: true, active: true }, orderBy: [{ category: 'asc' }, { sortOrder: 'asc' }, { name: 'asc' }] });
   const promotions = await view();
   audit.read('promotion', null, { count: promotions.length }, 'admin-promotions');
-  res.json({ promotions, services });
+  res.json({ promotions, services, products });
 });
 
 promotionsAdminRouter.post('/admin/promotions', admin, async (req, res) => {
@@ -69,12 +73,14 @@ promotionsAdminRouter.post('/admin/promotions', admin, async (req, res) => {
   if (problem) return res.status(400).json({ error: problem, code: 'bad_request' });
   const ids = [...new Set(b.serviceIds)];
   if ((await basePrisma.service.count({ where: { id: { in: ids } } })) !== ids.length) return res.status(400).json({ error: 'Unknown service.', code: 'unknown_service' });
+  const productIds = [...new Set(b.productIds)];
+  if ((await basePrisma.product.count({ where: { id: { in: productIds } } })) !== productIds.length) return res.status(400).json({ error: 'Unknown product.', code: 'unknown_product' });
   const id = await staffTransaction(async (tx, rec) => {
     const p = await tx.promotion.create({
       data: { name: b.name, kind: b.kind, value: b.value, startsOn: toDateOnly(b.startsOn), endsOn: toDateOnly(b.endsOn), active: b.active ?? true, createdById: req.auth!.account.id,
-        services: { create: ids.map((serviceId) => ({ serviceId })) } },
+        services: { create: ids.map((serviceId) => ({ serviceId })) }, products: { create: productIds.map((productId) => ({ productId })) } },
     });
-    await rec({ action: 'CREATE', resourceType: 'promotion', resourceId: p.id, meta: { kind: b.kind, services: ids.length } });
+    await rec({ action: 'CREATE', resourceType: 'promotion', resourceId: p.id, meta: { kind: b.kind, services: ids.length, products: productIds.length } });
     return p.id;
   });
   res.status(201).json({ promotion: (await view()).find((p) => p.id === id) });
@@ -87,14 +93,16 @@ promotionsAdminRouter.patch('/admin/promotions/:id', admin, async (req, res) => 
   const id = req.params.id ?? '';
   const out = await staffTransaction(async (tx, rec) => {
     await tx.$queryRaw`SELECT id FROM "Promotion" WHERE id = ${id} FOR UPDATE`;
-    const cur = await tx.promotion.findUnique({ where: { id }, include: { services: true, _count: { select: { charges: true } } } });
+    const cur = await tx.promotion.findUnique({ where: { id }, include: { services: true, products: true, _count: { select: { charges: true } } } });
     if (!cur) return { status: 404, body: { error: 'Unknown promotion.', code: 'not_found' } };
     const used = cur._count.charges > 0;
     const curServices = cur.services.map((s) => s.serviceId).sort();
+    const curProducts = cur.products.map((x) => x.productId).sort();
     const next = {
       kind: b.kind ?? cur.kind, value: b.value ?? cur.value,
       startsOn: b.startsOn ?? fromDateOnly(cur.startsOn), endsOn: b.endsOn ?? fromDateOnly(cur.endsOn),
       serviceIds: b.serviceIds ? [...new Set(b.serviceIds)].sort() : curServices,
+      productIds: b.productIds ? [...new Set(b.productIds)].sort() : curProducts,
     };
     const changed: string[] = [];
     if (b.name !== undefined && b.name !== cur.name) changed.push('name');
@@ -104,14 +112,19 @@ promotionsAdminRouter.patch('/admin/promotions/:id', admin, async (req, res) => 
     if (next.startsOn !== fromDateOnly(cur.startsOn)) changed.push('startsOn');
     if (next.endsOn !== fromDateOnly(cur.endsOn)) changed.push('endsOn');
     if (next.serviceIds.join(',') !== curServices.join(',')) changed.push('serviceIds');
+    if (next.productIds.join(',') !== curProducts.join(',')) changed.push('productIds');
     if (used && changed.some((f) => (FROZEN as readonly string[]).includes(f))) {
-      return { status: 409, body: { error: 'This promotion has been used at check-out, so its type, amount, dates and services can no longer change. Switch it off and create a new one.', code: 'promotion_in_use' } };
+      return { status: 409, body: { error: 'This promotion has been used at check-out, so its type, amount, dates, services and products can no longer change. Switch it off and create a new one.', code: 'promotion_in_use' } };
     }
     const problem = shapeProblem(next);
     if (problem) return { status: 400, body: { error: problem, code: 'bad_request' } };
     if (changed.includes('serviceIds') && (await tx.service.count({ where: { id: { in: next.serviceIds } } })) !== next.serviceIds.length) {
       return { status: 400, body: { error: 'Unknown service.', code: 'unknown_service' } };
     }
+    if (changed.includes('productIds') && (await tx.product.count({ where: { id: { in: next.productIds } } })) !== next.productIds.length) {
+      return { status: 400, body: { error: 'Unknown product.', code: 'unknown_product' } };
+    }
+    if (next.serviceIds.length + next.productIds.length === 0) return { status: 400, body: { error: 'Choose at least one service or product.', code: 'bad_request' } };
     if (changed.length === 0) return { status: 200, body: null };
     await tx.promotion.update({
       where: { id },
@@ -120,6 +133,10 @@ promotionsAdminRouter.patch('/admin/promotions/:id', admin, async (req, res) => 
     if (changed.includes('serviceIds')) {
       await tx.promotionService.deleteMany({ where: { promotionId: id, serviceId: { notIn: next.serviceIds } } });
       for (const serviceId of next.serviceIds) await tx.promotionService.upsert({ where: { promotionId_serviceId: { promotionId: id, serviceId } }, create: { promotionId: id, serviceId }, update: {} });
+    }
+    if (changed.includes('productIds')) {
+      await tx.promotionProduct.deleteMany({ where: { promotionId: id, productId: { notIn: next.productIds } } });
+      for (const productId of next.productIds) await tx.promotionProduct.upsert({ where: { promotionId_productId: { promotionId: id, productId } }, create: { promotionId: id, productId }, update: {} });
     }
     await rec({ action: 'UPDATE', resourceType: 'promotion', resourceId: id, meta: { fields: changed } });
     return { status: 200, body: null };

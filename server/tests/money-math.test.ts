@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   adjustmentRefusal, allocateOldestFirst, betterOf, DESK_ADJUSTMENT_MAX_CENTS, deskAdjustmentCap, looksLikeCardNumber, luhnOk, percentOf, promotionOff,
+  taxOf,
 } from '../src/lib/moneyMath.js';
 
 /** lib/moneyMath.ts — the money layer's arithmetic, at its boundaries (Phase 2b, rev 2.2). */
@@ -72,10 +73,16 @@ describe('the desk adjustment cap (decision 3): 20% of list or $25.00, whichever
     expect(at(4000, true, 20000, 20000)).toBeNull();
   });
 
-  it('never takes a visit below zero, for anyone; and an amount is whole cents above zero', () => {
+  it('never takes a visit below zero, for anyone; and an amount is whole cents, not zero', () => {
     expect(adjustmentRefusal({ listCents: 5500, afterDiscountsCents: 500, cents: 501, byAdmin: true })).toBe('adjustment_too_large');
     expect(adjustmentRefusal({ listCents: 5500, afterDiscountsCents: 500, cents: 500, byAdmin: false })).toBeNull();
-    for (const c of [0, -1, 1.5]) expect(adjustmentRefusal({ listCents: 5500, afterDiscountsCents: 5500, cents: c, byAdmin: true })).toBe('bad_amount');
+    for (const c of [0, 1.5, -1.5]) expect(adjustmentRefusal({ listCents: 5500, afterDiscountsCents: 5500, cents: c, byAdmin: true })).toBe('bad_amount');
+  });
+
+  it('rev 2.3: a negative adjustment raises the price above list — an admin only, by any amount; never the desk, not even a cent', () => {
+    expect(adjustmentRefusal({ listCents: 5500, afterDiscountsCents: 5500, cents: -1, byAdmin: false })).toBe('increase_needs_admin');
+    expect(adjustmentRefusal({ listCents: 5500, afterDiscountsCents: 5500, cents: -1, byAdmin: true })).toBeNull();
+    expect(adjustmentRefusal({ listCents: 5500, afterDiscountsCents: 0, cents: -90000, byAdmin: true })).toBeNull();
   });
 });
 
@@ -101,5 +108,23 @@ describe('no card data (decision 5)', () => {
   it('refuses a card-shaped run, with spaces or dashes; allows cheque and receipt numbers', () => {
     for (const t of ['4242424242424242', '4242 4242 4242 4242', '4242-4242-4242-4242', 'card 5555555555554444 ok', '378282246310005']) expect(looksLikeCardNumber(t), t).toBe(true);
     for (const t of ['1042', 'chk 004512', '4242424242424241', '123456789012', 'receipt 20261013-0042', null, '', '12345678901234567890123']) expect(looksLikeCardNumber(t), String(t)).toBe(false);
+  });
+});
+
+describe('sales tax (rev 2.3, decision 2): per line, in whole cents, halves up', () => {
+  it('5.5% at its boundaries: a half cent rounds up, just under rounds down', () => {
+    // worked by hand (n × 0.055, halves up), not with the code under test
+    const cases: Array<[number, number]> = [[0, 0], [1, 0], [9, 0], [10, 1], [3499, 192], [3500, 193], [3150, 173], [2975, 164], [2800, 154], [1818, 100], [100_000_000, 5_500_000]];
+    for (const [net, tax] of cases) expect(taxOf(net, 5500), `${net}`).toBe(tax);
+  });
+  it('any rate in thousandths of a percent, 0 to 100%', () => {
+    expect(taxOf(2900, 7000)).toBe(203);          // 7% of 29.00 = 2.03
+    expect(taxOf(1000, 8025)).toBe(80);           // 8.025% of 10.00 = 0.8025 → 0.80
+    expect(taxOf(2000, 8025)).toBe(161);          // 1.605 → 1.61 (a half cent, up)
+    expect(taxOf(1234, 0)).toBe(0);
+    expect(taxOf(1234, 100_000)).toBe(1234);
+  });
+  it('refuses what is not whole cents or a real rate', () => {
+    for (const [net, rate] of [[-1, 5500], [1.5, 5500], [100, -1], [100, 100_001], [100, 55.5]] as const) expect(() => taxOf(net, rate), `${net} ${rate}`).toThrow(RangeError);
   });
 });

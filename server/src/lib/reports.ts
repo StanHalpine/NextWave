@@ -43,11 +43,12 @@ export interface RevenueFilter {
   providerId?: string | undefined;
 }
 
-export type RevenueGroup = 'service' | 'month' | 'day' | 'serviceMonth' | 'paymentType' | 'bucket' | 'provider' | 'category' | 'discountCategory' | 'tier';
-export const REVENUE_GROUPS: readonly RevenueGroup[] = ['service', 'month', 'day', 'serviceMonth', 'paymentType', 'bucket', 'provider', 'category', 'discountCategory', 'tier'];
+export type RevenueGroup = 'service' | 'month' | 'day' | 'serviceMonth' | 'paymentType' | 'bucket' | 'provider' | 'category' | 'discountCategory' | 'tier' | 'lineKind';
+export const REVENUE_GROUPS: readonly RevenueGroup[] = ['service', 'month', 'day', 'serviceMonth', 'paymentType', 'bucket', 'provider', 'category', 'discountCategory', 'tier', 'lineKind'];
 
 export const METRIC_COLUMNS: Column[] = [
-  { key: 'visits', label: 'Visits', kind: 'int' },
+  // Rev 2.3: a row counts visits AND add-on and product lines (one unit each).
+  { key: 'visits', label: 'Visits / items', kind: 'int' },
   { key: 'listCents', label: 'List price', kind: 'money' },
   { key: 'discountCents', label: 'Discount', kind: 'money' },
   // Rev 2.2: a promotion (instead of the tier discount, never both) and a one-off adjustment are their own reductions.
@@ -56,6 +57,9 @@ export const METRIC_COLUMNS: Column[] = [
   { key: 'netCents', label: 'Net', kind: 'money' },
   { key: 'coveredCents', label: 'Covered by membership', kind: 'money' },
   { key: 'credits', label: 'Credits redeemed', kind: 'int' },
+  // Rev 2.3 (decision 2): sales tax on products — billed with the line, NOT revenue, so it is outside the identity
+  // list = discount + promotions + adjustments + covered + net.
+  { key: 'taxCents', label: 'Sales tax (not revenue)', kind: 'money' },
 ];
 
 /** How a visit was paid, in the words the desk uses. A member who pays cash is a CASH payment by a member. */
@@ -69,18 +73,24 @@ export const PAYMENT_LABEL: Record<string, string> = { CASH: 'Cash', MEMBER: 'Co
 
 export interface Dimension { select: Prisma.Sql; join: Prisma.Sql; groupBy: Prisma.Sql; orderBy: Prisma.Sql; columns: Column[] }
 
+/** Rev 2.3: what a charge line is for — a service (a visit or an add-on) or a product. */
+const ITEM = Prisma.sql`COALESCE(e."serviceId", 'product:' || e."productId")`;
+/** Rev 2.3: the kind of charge, derived from its columns (RevenueEvent_kind), numbered so the rows come out in this order. */
+const LINE_KIND = Prisma.sql`CASE WHEN e."productId" IS NOT NULL THEN '3 Products' WHEN e."openChargeId" IS NOT NULL THEN '2 Add-on services' ELSE '1 Visits' END`;
+
 export function dimension(g: RevenueGroup): Dimension {
   const none = Prisma.empty;
   const month = Prisma.sql`to_char(${local(Prisma.sql`e."occurredAt"`)}, 'YYYY-MM')`;
   const dayExpr = Prisma.sql`to_char(${local(Prisma.sql`e."occurredAt"`)}, 'YYYY-MM-DD')`;
   switch (g) {
-    case 'service': return { select: Prisma.sql`MAX(e."serviceName") AS "service"`, join: none, groupBy: Prisma.sql`e."serviceId"`, orderBy: Prisma.sql`MAX(e."serviceName")`, columns: [{ key: 'service', label: 'Service', kind: 'text' }] };
+    // A row per service or per product (rev 2.3: a product line has no service id).
+    case 'service': return { select: Prisma.sql`MAX(e."serviceName") AS "service"`, join: none, groupBy: Prisma.sql`${ITEM}`, orderBy: Prisma.sql`MAX(e."serviceName")`, columns: [{ key: 'service', label: 'Service / product', kind: 'text' }] };
     case 'month': return { select: Prisma.sql`${month} AS "month"`, join: none, groupBy: Prisma.sql`1`, orderBy: Prisma.sql`1`, columns: [{ key: 'month', label: 'Month', kind: 'text' }] };
     case 'day': return { select: Prisma.sql`${dayExpr} AS "day"`, join: none, groupBy: Prisma.sql`1`, orderBy: Prisma.sql`1`, columns: [{ key: 'day', label: 'Date', kind: 'text' }] };
     case 'serviceMonth': return {
       select: Prisma.sql`${month} AS "month", MAX(e."serviceName") AS "service"`, join: none,
-      groupBy: Prisma.sql`1, e."serviceId"`, orderBy: Prisma.sql`1, MAX(e."serviceName")`,
-      columns: [{ key: 'month', label: 'Month', kind: 'text' }, { key: 'service', label: 'Service', kind: 'text' }],
+      groupBy: Prisma.sql`1, ${ITEM}`, orderBy: Prisma.sql`1, MAX(e."serviceName")`,
+      columns: [{ key: 'month', label: 'Month', kind: 'text' }, { key: 'service', label: 'Service / product', kind: 'text' }],
     };
     case 'paymentType': return { select: Prisma.sql`e."paymentType"::text AS "paymentType"`, join: none, groupBy: Prisma.sql`e."paymentType"`, orderBy: Prisma.sql`e."paymentType"::text`, columns: [{ key: 'paymentType', label: 'Payment', kind: 'text' }] };
     case 'bucket': {
@@ -94,6 +104,7 @@ export function dimension(g: RevenueGroup): Dimension {
     };
     case 'category': return { select: Prisma.sql`e."serviceCategory" AS "category"`, join: none, groupBy: Prisma.sql`e."serviceCategory"`, orderBy: Prisma.sql`e."serviceCategory"`, columns: [{ key: 'category', label: 'Discipline', kind: 'text' }] };
     case 'discountCategory': return { select: Prisma.sql`COALESCE(e."discountCategory", '(no discount category)') AS "discountCategory"`, join: none, groupBy: Prisma.sql`COALESCE(e."discountCategory", '(no discount category)')`, orderBy: Prisma.sql`COALESCE(e."discountCategory", '(no discount category)')`, columns: [{ key: 'discountCategory', label: 'Discount category', kind: 'text' }] };
+    case 'lineKind': return { select: Prisma.sql`${LINE_KIND} AS "lineKind"`, join: none, groupBy: Prisma.sql`1`, orderBy: Prisma.sql`1`, columns: [{ key: 'lineKind', label: 'Visits, add-ons and products', kind: 'text' }] };
     case 'tier': return { select: Prisma.sql`COALESCE(e."planCode", 'Non-member') AS "tier"`, join: none, groupBy: Prisma.sql`COALESCE(e."planCode", 'Non-member')`, orderBy: Prisma.sql`COALESCE(e."planCode", 'Non-member')`, columns: [{ key: 'tier', label: 'Tier', kind: 'text' }] };
   }
 }
@@ -128,7 +139,8 @@ export const revenueSql = (f: RevenueFilter, d: Dimension): Prisma.Sql => Prisma
            COALESCE(SUM(e."netPriceCents"), 0)::bigint AS "netCents",
            -- what the membership covered: whatever is left of the list price after every reduction and the net (only a member visit has any)
            COALESCE(SUM(COALESCE(e."listPriceCents", 0) - e."discountCents" - e."promotionCents" - e."adjustmentCents" - e."netPriceCents"), 0)::bigint AS "coveredCents",
-           COALESCE(SUM(e."creditsRedeemed"), 0)::bigint AS "credits"
+           COALESCE(SUM(e."creditsRedeemed"), 0)::bigint AS "credits",
+           COALESCE(SUM(e."taxCents"), 0)::bigint AS "taxCents"
     FROM "RevenueEvent" e ${d.join}
     WHERE ${revenueWhere(f)}
     GROUP BY ${d.groupBy}
@@ -195,7 +207,7 @@ export async function revenueTable(f: RevenueFilter, group: RevenueGroup): Promi
     const row: Record<string, string | number> = {};
     for (const c of d.columns) {
       const v = String(r[c.key]);
-      row[c.key] = group === 'bucket' ? (BUCKET_LABEL[v] ?? v) : group === 'paymentType' ? (PAYMENT_LABEL[v] ?? v) : v;
+      row[c.key] = group === 'bucket' ? (BUCKET_LABEL[v] ?? v) : group === 'paymentType' ? (PAYMENT_LABEL[v] ?? v) : group === 'lineKind' ? v.slice(2) : v;
     }
     for (const c of METRIC_COLUMNS) row[c.key] = num(r[c.key]);
     return row;
