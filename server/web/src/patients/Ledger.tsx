@@ -6,7 +6,7 @@ import { credits as creditsLabel, fmtDay, fmtDayLong, fmtInstantTime, fmtMoney, 
 import { CheckoutBatchDialog } from './CheckoutBatchDialog';
 import { ChargesDialog } from './Charges';
 import { RefundAccountCreditDialog, ReversePaymentDialog } from './MoneyDialogs';
-import { ACCOUNT_CREDIT_LABEL, canReverse, MEMBERSHIP_CREDITS_LABEL, postedLabel, ratePercent, reasonLabel, type PostedEntry } from '../money';
+import { ACCOUNT_CREDIT_LABEL, canReverse, MEMBERSHIP_CREDITS_LABEL, postedLabel, ratePercent, reasonLabel, withQuantity, type PostedEntry } from '../money';
 import { canCheckOut, LEDGER_REFRESH_MS, notesPendingNote, paidWithLabel, pendingNote, stateLabel, type LedgerVisit, type PatientLedger } from '../ledger';
 
 const STATE_PILL: Record<LedgerVisit['state'], string> = {
@@ -228,8 +228,8 @@ function OpenCharges({ data }: { data: PatientLedger }) {
         <tbody>
           {o.lines.map((l) => (
             <tr key={l.id}>
-              <td>{l.name} <span className="muted small">· {l.kind === 'PRODUCT' ? 'product' : 'service add-on'}</span>{l.addedOn !== data.today && <div className="muted small">added {fmtDay(l.addedOn)}</div>}</td>
-              <td className="num">{fmtMoney(l.unitPriceCents)}</td>
+              <td>{withQuantity(l.name, l.quantity)} <span className="muted small">· {l.kind === 'PRODUCT' ? 'product' : 'service add-on'}</span>{l.addedOn !== data.today && <div className="muted small">added {fmtDay(l.addedOn)}</div>}</td>
+              <td className="num">{fmtMoney(l.listCents)}{l.quantity > 1 && <div className="muted small">{l.quantity} × {fmtMoney(l.unitPriceCents)}</div>}</td>
               <td className="num">{l.discountCents + (l.promotion?.cents ?? 0) > 0 ? `−${fmtMoney(l.discountCents + (l.promotion?.cents ?? 0))}` : <span className="muted">—</span>}</td>
               <td className="num">{fmtMoney(l.netCents)}</td>
               <td className="num">{l.taxRateMilli > 0 ? <>{fmtMoney(l.taxCents)}<div className="muted small">{ratePercent(l.taxRateMilli)}</div></> : <span className="muted">—</span>}</td>

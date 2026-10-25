@@ -344,3 +344,5 @@ textarea[readonly] { background: #f3f1ec; }
 .checkout-actions { flex-wrap: wrap; }
 .checkout-actions .btn[disabled][title] { cursor: not-allowed; }
 .receipt tr.muted td { color: var(--muted, #6b7476); font-size: 13px; }
+/* Rev 2.3 review: a line's quantity in the Charges window. */
+.charges input.qty { width: 3.5em; padding: 6px 8px; text-align: right; }

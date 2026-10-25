@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { errorText, Notice } from '../ui';
 
-interface Category { id: string; code: string; name: string; active: boolean; sortOrder: number; serviceIds: string[]; percents: Record<string, number> }
+interface Category { id: string; code: string; name: string; active: boolean; sortOrder: number; serviceIds: string[]; percents: Record<string, number>;
+  /** 'products': this category reads the member discount on products (Supplements, rev 2.3 review) — shown, edited on Product catalog. */
+  percentsFrom: 'category' | 'products' }
 interface Plan { id: string; code: string; name: string }
 interface Svc { id: string; name: string; category: string; durationMin: number; discountCategoryId: string | null; priceCents: number | null }
 interface View { categories: Category[]; plans: Plan[]; services: Svc[] }
@@ -44,7 +47,8 @@ function CategoryRow({ cat, view, onChanged }: { cat: Category; view: View; onCh
 
   const sameIds = ids.length === cat.serviceIds.length && ids.every((i) => cat.serviceIds.includes(i));
   const pctOk = view.plans.every((p) => /^\d{1,3}$/.test(pct[p.id] ?? '') && Number(pct[p.id]) <= 100);
-  const pctChanged = view.plans.some((p) => Number(pct[p.id]) !== (cat.percents[p.id] ?? 0));
+  const shared = cat.percentsFrom === 'products';
+  const pctChanged = !shared && view.plans.some((p) => Number(pct[p.id]) !== (cat.percents[p.id] ?? 0));
   const dirty = name.trim() !== cat.name || active !== cat.active || !sameIds || pctChanged;
 
   async function save() {
@@ -78,10 +82,11 @@ function CategoryRow({ cat, view, onChanged }: { cat: Category; view: View; onCh
       <div className="percent-grid" role="group" aria-label={`Percent off for ${cat.name}`}>
         {view.plans.map((p) => (
           <label key={p.id}>{p.name} (%)
-            <input type="number" min={0} max={100} step={1} inputMode="numeric" value={pct[p.id]} onChange={(e) => setPct({ ...pct, [p.id]: e.target.value })} />
+            <input type="number" min={0} max={100} step={1} inputMode="numeric" value={pct[p.id]} disabled={shared} onChange={(e) => setPct({ ...pct, [p.id]: e.target.value })} />
           </label>
         ))}
       </div>
+      {shared && <p className="hint">These are the member discount on products — one setting for supplements, sold as products or as a service. Change them on <Link to="/admin/catalog">Admin → Product catalog</Link>.</p>}
       <details>
         <summary>{ids.length === 0 ? 'No services yet' : `${ids.length} service${ids.length === 1 ? '' : 's'}`}</summary>
         <div className="check-list">

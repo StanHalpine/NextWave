@@ -5,7 +5,7 @@ import { errorText, Modal, Notice, useInterval } from '../ui';
 import { credits as creditsLabel, fmtDay, fmtMoney, fmtTime12, parseDollars } from '../lib';
 import {
   ACCOUNT_CREDIT_LABEL, ADJUSTMENT_REASONS, betterOf, deskAdjustmentCap, INCREASE_REASONS, lineFigure, newKey, paymentShape, ratePercent, TENDERS, tenderLabel,
-  type AdjustmentReason, type OpenLine, type Tender,
+  withQuantity, type AdjustmentReason, type OpenLine, type Tender,
 } from '../money';
 import type { PatientLedger, LedgerVisit } from '../ledger';
 import type { CheckoutPreview } from '../types';
@@ -23,7 +23,7 @@ const signed = (l: Adjust): number => (l.adjusting ? (parseDollars(l.adjCents) ?
 const adjustOk = (l: Adjust): boolean => !l.adjusting || ((parseDollars(l.adjCents) ?? 0) > 0 && (l.adjReason !== 'OTHER' || l.adjNote.trim() !== ''));
 const adjustBody = (l: Adjust) => (signed(l) !== 0 ? { adjustment: { cents: signed(l), reason: l.adjReason, ...(l.adjNote.trim() ? { note: l.adjNote.trim() } : {}) } } : {});
 
-interface ChargeResult { openChargeId: string; kind: 'SERVICE' | 'PRODUCT'; name: string; netPriceCents: number; taxRateMilli: number; taxCents: number; paymentType: string; memberBenefit: string | null; creditsRedeemed: number }
+interface ChargeResult { openChargeId: string; kind: 'SERVICE' | 'PRODUCT'; name: string; quantity: number; netPriceCents: number; taxRateMilli: number; taxCents: number; paymentType: string; memberBenefit: string | null; creditsRedeemed: number }
 interface SettleResult {
   batchId: string | null;
   visits: Array<{ bookingId: string; netPriceCents: number; paymentType: string; memberBenefit: string | null; creditsRedeemed: number; promotion: { name: string; cents: number } | null; adjustmentCents: number }>;
@@ -262,7 +262,7 @@ export function CheckoutBatchDialog({ patientId, preselect = [], mode = 'checkou
                   return (
                     <tr key={c.id}>
                       <td><input type="checkbox" aria-label={`Include ${c.name}`} checked={line.include} onChange={(e) => setCharge(c.id, { include: e.target.checked })} /></td>
-                      <td>{c.name} <span className="muted small">· {product ? 'product' : 'service add-on'}</span>
+                      <td>{withQuantity(c.name, c.quantity)} <span className="muted small">· {product ? 'product' : 'service add-on'}</span>
                         <div className="muted small">added{c.addedBy ? ` by ${c.addedBy}` : ''}{c.performedBy ? ` · performed by ${c.performedBy.name}` : ''}</div>
                         {line.include && line.pay === 'MONEY' && <AdjustEditor line={line} cap={c.adjustmentCapCents} isAdmin={isAdmin} onChange={(p) => setCharge(c.id, p)} />}
                       </td>
@@ -276,7 +276,7 @@ export function CheckoutBatchDialog({ patientId, preselect = [], mode = 'checkou
                           {line.pay === 'PERK' && <select value={line.perkId} onChange={(e) => setCharge(c.id, { perkId: e.target.value })} aria-label="Perk">{c.perks!.map((p) => <option key={p.perkId} value={p.perkId}>{p.label}</option>)}</select>}
                         </>)}
                       </td>
-                      <td className="num">{line.pay !== 'MONEY' ? '—' : fmtMoney(c.unitPriceCents)}</td>
+                      <td className="num">{line.pay !== 'MONEY' ? '—' : <>{fmtMoney(c.listCents)}{c.quantity > 1 && <div className="muted small">{c.quantity} × {fmtMoney(c.unitPriceCents)}</div>}</>}</td>
                       <td className="num">{line.pay !== 'MONEY' ? '—' : <Off discount={f.discountCents} promotion={f.promotion} adjustment={f.adjustmentCents} tierPercent={c.tierPercent} />}</td>
                       <td className="num">{line.include ? (f.netCents < 0 ? <span className="error small">below zero</span> : fmtMoney(f.netCents)) : <span className="muted">—</span>}</td>
                       <td className="num">{line.include && c.taxRateMilli > 0 ? <>{fmtMoney(f.taxCents)}<div className="muted small">{ratePercent(c.taxRateMilli)}</div></> : <span className="muted">—</span>}</td>
@@ -393,8 +393,8 @@ function Receipt({ result, mode, visitNames, onClose }: { result: SettleResult; 
           <tbody>
             {result.visits.map((v) => <tr key={v.bookingId}><td>{visitNames[v.bookingId] ?? 'Visit'}</td><td className="num">{covered(v) ?? fmtMoney(v.netPriceCents)}</td></tr>)}
             {result.charges.flatMap((c) => [
-              <tr key={c.openChargeId}><td>{c.name}</td><td className="num">{covered(c) ?? fmtMoney(c.netPriceCents)}</td></tr>,
-              ...(c.taxCents > 0 ? [<tr key={`${c.openChargeId}:tax`} className="muted"><td>Sales tax {ratePercent(c.taxRateMilli)} — {c.name}</td><td className="num">{fmtMoney(c.taxCents)}</td></tr>] : []),
+              <tr key={c.openChargeId}><td>{withQuantity(c.name, c.quantity)}</td><td className="num">{covered(c) ?? fmtMoney(c.netPriceCents)}</td></tr>,
+              ...(c.taxCents > 0 ? [<tr key={`${c.openChargeId}:tax`} className="muted"><td>Sales tax {ratePercent(c.taxRateMilli)} — {withQuantity(c.name, c.quantity)}</td><td className="num">{fmtMoney(c.taxCents)}</td></tr>] : []),
             ])}
           </tbody>
           <tfoot><tr className="carried"><td><strong>Total</strong>{tax > 0 && <span className="muted small"> · sales tax {fmtMoney(tax)}</span>}</td><td className="num"><strong>{fmtMoney(inMoney + tax)}</strong></td></tr></tfoot>

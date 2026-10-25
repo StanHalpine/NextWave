@@ -38,7 +38,7 @@ export const reasonLabel = (r: string | null | undefined): string =>
 
 export type PostedEntry =
   | { kind: 'charge'; id: string; date: string; at: string; bookingId: string | null; serviceName: string; subOption: string | null;
-      lineKind: 'VISIT' | 'ADDON_SERVICE' | 'PRODUCT';
+      lineKind: 'VISIT' | 'ADDON_SERVICE' | 'PRODUCT'; quantity: number;
       paymentType: 'CASH' | 'MEMBER'; listPriceCents: number | null; discountCents: number; promotionCents: number; promotionName: string | null;
       adjustmentCents: number; adjustmentReason: string | null; taxCents: number; amountCents: number; balanceAfterCents: number }
   | { kind: 'tax'; id: string; revenueEventId: string; date: string; at: string; serviceName: string; rateMilli: number; amountCents: number; balanceAfterCents: number }
@@ -59,7 +59,7 @@ export interface MoneyView {
 /** What a posted line says, in the desk's words. */
 export function postedLabel(e: PostedEntry): string {
   switch (e.kind) {
-    case 'charge': return e.paymentType === 'MEMBER' ? `${e.serviceName} — covered by the membership` : e.serviceName;
+    case 'charge': return `${withQuantity(e.serviceName, e.quantity)}${e.paymentType === 'MEMBER' ? ' — covered by the membership' : ''}`;
     case 'tax': return `Sales tax ${ratePercent(e.rateMilli)} — ${e.serviceName}`;
     case 'settled_before_tracking': return 'Settled — before payments were tracked';
     case 'account_credit_applied': return `${ACCOUNT_CREDIT_LABEL} applied`;
@@ -92,6 +92,9 @@ export function betterOf(listCents: number, tierPercent: number, promotions: Pro
   }
   return best && best.cents > tier ? { discountCents: 0, promotion: best } : { discountCents: tier, promotion: null };
 }
+
+/** A line's name with its units when there is more than one: "Magnesium glycinate × 3". */
+export const withQuantity = (name: string, quantity: number | undefined): string => (quantity && quantity > 1 ? `${name} × ${quantity}` : name);
 
 /** Rev 2.3: sales tax on a line's net, the rate in thousandths of a percent (5.5% = 5500), halves up — the server's taxOf. */
 export function taxOf(netCents: number, rateMilli: number): number { return Math.floor((netCents * rateMilli + 50_000) / 100_000); }
@@ -127,7 +130,7 @@ export interface ChargeCatalog { groups: Array<{ name: string; items: CatalogIte
 /** One open line as the server prices it (lib/charges.ts openLinesView). `credits` and `perks` are for a service only. */
 export interface OpenLine {
   id: string; kind: 'SERVICE' | 'PRODUCT'; serviceId: string | null; productId: string | null; name: string; category: string;
-  unitPriceCents: number; taxRateMilli: number; addedOn: string; addedAt: string; addedBy: string | null; performedBy: { id: string; name: string } | null;
+  unitPriceCents: number; quantity: number; listCents: number; taxRateMilli: number; addedOn: string; addedAt: string; addedBy: string | null; performedBy: { id: string; name: string } | null;
   bookingId: string | null; tierPercent: number; discountPercent: number; discountCents: number; promotion: { id: string; name: string; cents: number } | null;
   promotions: PromotionTerms[]; netCents: number; taxCents: number; adjustmentCapCents: number;
   credits?: { cost: number | null; available: boolean; reason: string | null } | null;
@@ -139,8 +142,9 @@ export interface OpenLines { lines: OpenLine[]; totals: { listCents: number; dis
  * What a line comes to when paid in money, with an adjustment typed at the desk: positive takes money off, negative (an admin) raises
  * it above list. The same arithmetic as the server; the server recomputes and refuses a figure that differs.
  */
-export function lineFigure(l: Pick<OpenLine, 'unitPriceCents' | 'tierPercent' | 'promotions' | 'taxRateMilli'>, adjustmentCents = 0) {
-  const red = betterOf(l.unitPriceCents, l.tierPercent, l.promotions);
-  const net = l.unitPriceCents - red.discountCents - (red.promotion?.cents ?? 0) - adjustmentCents;
+export function lineFigure(l: Pick<OpenLine, 'listCents' | 'tierPercent' | 'promotions' | 'taxRateMilli'>, adjustmentCents = 0) {
+  // On the LINE total (unit price × quantity), as the server prices it; per-line rounding.
+  const red = betterOf(l.listCents, l.tierPercent, l.promotions);
+  const net = l.listCents - red.discountCents - (red.promotion?.cents ?? 0) - adjustmentCents;
   return { discountCents: red.discountCents, promotion: red.promotion, adjustmentCents, netCents: net, taxCents: net >= 0 ? taxOf(net, l.taxRateMilli) : 0 };
 }

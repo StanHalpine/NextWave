@@ -94,7 +94,7 @@ export default function AdminCatalog() {
             <label key={d.planId}>{d.name}{!d.active && <span className="muted small"> (inactive tier)</span>} — % off<input inputMode="numeric" value={percents[d.planId] ?? ''} onChange={(e) => setPercents((p) => ({ ...p, [d.planId]: e.target.value }))} style={{ maxWidth: 100 }} /></label>
           ))}
         </div>
-        <p className="hint">For an active member, on products marked eligible, when they pay in money. A promotion on the product applies instead when it is better for the patient — never both. Membership credits never pay for a product.</p>
+        <p className="hint">The one setting for supplements: it applies to products marked eligible and to the services in the Supplements discount category (Supplementation). For an active member, when they pay in money. A promotion on the product applies instead when it is better for the patient — never both. Membership credits never pay for a product.</p>
         <div className="sheet-actions"><button className="btn primary" disabled={!percentOk}>Save discounts</button></div>
       </form>
 

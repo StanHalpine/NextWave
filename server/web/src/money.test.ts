@@ -65,14 +65,22 @@ describe('rev 2.3: tax and the price of an added line, as the server works them 
     expect([ratePercent(5500), ratePercent(8025), ratePercent(7000), ratePercent(0), ratePercent(100_000)]).toEqual(['5.5%', '8.025%', '7%', '0%', '100%']);
   });
   it('a line: better of tier and promotion, then an adjustment (negative raises it), then tax on what is left', () => {
-    const base = { unitPriceCents: 3500, tierPercent: 20, promotions: [], taxRateMilli: 5500 };
+    const base = { listCents: 3500, tierPercent: 20, promotions: [], taxRateMilli: 5500 };
     expect(lineFigure(base)).toMatchObject({ discountCents: 700, netCents: 2800, taxCents: 154 });
     expect(lineFigure(base, 300)).toMatchObject({ netCents: 2500, taxCents: 138 });
     expect(lineFigure(base, -500)).toMatchObject({ netCents: 3300, taxCents: 182 });
     expect(lineFigure({ ...base, promotions: [{ id: 'p', name: 'p', kind: 'PERCENT', value: 25 }] })).toMatchObject({ discountCents: 0, promotion: { cents: 875 }, netCents: 2625, taxCents: 144 });
     expect(lineFigure({ ...base, taxRateMilli: 0 })).toMatchObject({ taxCents: 0 });
   });
+  it('a line of several: everything on the line total — 3 × $33.33 = $99.99, 15% off it, tax on what is left', () => {
+    expect(lineFigure({ listCents: 3 * 3333, tierPercent: 15, promotions: [], taxRateMilli: 5500 })).toMatchObject({ discountCents: 1500, netCents: 8499, taxCents: 467 });
+    expect(lineFigure({ listCents: 3 * 2000, tierPercent: 0, promotions: [{ id: 'f', name: 'f', kind: 'FIXED_CENTS', value: 500 }], taxRateMilli: 5500 })).toMatchObject({ promotion: { cents: 500 }, netCents: 5500 });
+  });
   it('a product\'s tax line names the product and its rate', () => {
+    const charge = { kind: 'charge', id: 'x', date: '2026-10-13', at: '', bookingId: null, serviceName: 'Vitamin D3', subOption: null, lineKind: 'PRODUCT', quantity: 3,
+      paymentType: 'CASH', listPriceCents: 7500, discountCents: 0, promotionCents: 0, promotionName: null, adjustmentCents: 0, adjustmentReason: null, taxCents: 413, amountCents: 7500, balanceAfterCents: 0 } as const;
+    expect(postedLabel(charge)).toBe('Vitamin D3 × 3');
+    expect(postedLabel({ ...charge, quantity: 1 })).toBe('Vitamin D3');
     const e: PostedEntry = { kind: 'tax', id: 'x:tax', revenueEventId: 'x', date: '2026-10-13', at: '', serviceName: 'Magnesium glycinate', rateMilli: 5500, amountCents: 193, balanceAfterCents: 0 };
     expect(postedLabel(e)).toBe('Sales tax 5.5% — Magnesium glycinate');
   });
