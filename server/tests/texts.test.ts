@@ -183,7 +183,11 @@ describe('confirmation texts', () => {
     expect(callsFor(calls, p)).toHaveLength(1);
     expect(await prisma.messageLog.count({ where: { bookingId: b.id } })).toBe(1);
 
-    expect(blob(await auditRows({ resourceType: 'message', resourceId: log[0]!.id }, 2))).not.toMatch(/Ingrid|555/);
+    // The patient's name and phone, exactly — a bare "555" also matched a random request id now and then (e.g. "…-4555-…"). Seven
+    // digits or more: a shorter run could turn up inside a generated id by chance.
+    const digits = p.phone.replace(/\D/g, '');
+    const audit = blob(await auditRows({ resourceType: 'message', resourceId: log[0]!.id }, 2));
+    for (const pii of ['Ingrid', p.lastName, digits, digits.slice(-7)]) expect(audit, pii).not.toContain(pii);
   });
 
   it('uses the preferred name when there is one', async () => {
