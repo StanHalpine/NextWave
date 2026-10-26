@@ -199,8 +199,16 @@ async function tierFor(tx: Tx, line: OpenLine, membership: Membership): Promise<
   return { percent: row?.percent ?? 0, code: PRODUCT_DISCOUNT_CODE, name: 'Products' };
 }
 
-const promotionsOf = (tx: Tx, line: OpenLine): Promise<ApplicablePromotion[]> =>
-  line.serviceId ? promotionsFor(tx, line.serviceId, fromDateOnly(line.addedOn)) : promotionsForProduct(tx, line.productId!, fromDateOnly(line.addedOn));
+/**
+ * The promotions a line qualifies for, as they apply to THAT line. On a PRODUCT a fixed-amount promotion comes off per unit — "$5 off" on
+ * a quantity of 2 is $10 off (owner's decision at the rev 2.3 review) — and betterOf caps any promotion at the line total, so a line never
+ * goes below $0.00. A percentage is unchanged (it is already on the line total), and a SERVICE add-on keeps one amount per line.
+ */
+async function promotionsOf(tx: Tx, line: OpenLine, quantity: number): Promise<ApplicablePromotion[]> {
+  if (line.serviceId) return promotionsFor(tx, line.serviceId, fromDateOnly(line.addedOn));
+  const promos = await promotionsForProduct(tx, line.productId!, fromDateOnly(line.addedOn));
+  return promos.map((p) => (p.kind === 'FIXED_CENTS' ? { ...p, value: p.value * quantity } : p));
+}
 
 export interface OpenLineView {
   id: string;
@@ -224,6 +232,7 @@ export interface OpenLineView {
   discountPercent: number;
   discountCents: number;
   promotion: { id: string; name: string; cents: number } | null;
+  /** As they apply to this line: a product's fixed amount is already × its quantity, so the screen prices it the same way. */
   promotions: Array<{ id: string; name: string; kind: 'PERCENT' | 'FIXED_CENTS'; value: number }>;
   netCents: number;
   taxCents: number;
@@ -246,7 +255,7 @@ export async function openLinesView(tx: Tx, patientId: string, now: Date): Promi
   const lines: OpenLineView[] = [];
   for (const l of open) {
     const tier = await tierFor(tx, l, membership);
-    const promos = await promotionsOf(tx, l);
+    const promos = await promotionsOf(tx, l, quantityOf(l));
     const quantity = quantityOf(l);
     const listCents = l.unitPriceCents * quantity;
     const red = betterOf(listCents, tier.percent, promos);
@@ -350,7 +359,7 @@ export async function checkoutCharge(tx: Tx, rec: Rec, a: {
     }
   } else {
     const tier = await tierFor(tx, l, a.membership);
-    const promos = await promotionsOf(tx, l);
+    const promos = await promotionsOf(tx, l, quantityOf(l));
     const red = betterOf(listCents, tier.percent, promos);
     discountPercent = red.discountPercent;
     discountCents = red.discountCents;

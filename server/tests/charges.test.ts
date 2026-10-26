@@ -682,7 +682,7 @@ describe('quantity (rev 2.3 review)', () => {
     expect(ok.body.charges[0]).toMatchObject({ quantity: 4, listPriceCents: 2000 });
   });
 
-  it('a service line: credits for each unit; a perk covers one; a fixed-amount promotion comes off the line once', async () => {
+  it('a service line: credits for each unit; a perk covers one; a fixed-amount promotion on a service comes off the line once', async () => {
     const fd = await frontDeskLogin();
     const s = await visit({ encounter: null, requiresNote: false });
     await basePrisma.service.update({ where: { id: s.service.id }, data: { offerAsAddOn: true, priceCents: 4000, creditCost: 2 } });
@@ -697,13 +697,56 @@ describe('quantity (rev 2.3 review)', () => {
     const r = await checkout(fd, p.id, { charges: [{ openChargeId: id, pay: 'CREDITS' }] });
     expect(r.body.charges[0]).toMatchObject({ quantity: 2, creditsRedeemed: 4, paymentType: 'MEMBER' });
     expect(await ledgerSum(p.id)).toBe(2);
-    // a fixed $5.00 promotion on a product: once on the line, whatever the quantity
-    const pr = await product({ price: 2000, tierDiscount: false });
-    await basePrisma.promotion.create({ data: { name: 'Five off', kind: 'FIXED_CENTS', value: 500, startsOn: new Date('2026-10-01T00:00:00Z'), endsOn: new Date('2026-10-31T00:00:00Z'), createdById: 'test', products: { create: [{ productId: pr.id }] } } });
+    // services keep their behaviour: a fixed $5.00 promotion on a service add-on comes off its line once, whatever the quantity
+    await basePrisma.promotion.create({ data: { name: 'Five off the service', kind: 'FIXED_CENTS', value: 500, startsOn: new Date('2026-10-01T00:00:00Z'), endsOn: new Date('2026-10-31T00:00:00Z'), createdById: 'test', services: { create: [{ serviceId: s.service.id }] } } });
     const q = await makePatient();
-    const pid = (await add(fd, q.id, { productId: pr.id })).body.id;
-    await setQty(fd, q.id, pid, 3);
-    expect((await openLines(fd, q.id)).lines[0]).toMatchObject({ listCents: 6000, promotion: { cents: 500 }, netCents: 5500, taxCents: tax55(5500) });
+    const sid = (await add(fd, q.id, { serviceId: s.service.id })).body.id;
+    await setQty(fd, q.id, sid, 3);
+    expect((await openLines(fd, q.id)).lines[0]).toMatchObject({ listCents: 12000, promotion: { cents: 500 }, netCents: 11500, taxCents: 0 });
+  });
+
+  it('a fixed-amount promotion on a PRODUCT comes off per unit, capped at the line total so a line never goes below $0.00; a percentage is unchanged', async () => {
+    const fd = await frontDeskLogin();
+    const promo = (productId: string, kind: 'FIXED_CENTS' | 'PERCENT', value: number) => basePrisma.promotion.create({
+      data: { name: `${kind} ${value}`, kind, value, startsOn: new Date('2026-10-01T00:00:00Z'), endsOn: new Date('2026-10-31T00:00:00Z'), createdById: 'test', products: { create: [{ productId }] } },
+    });
+    const lineFor = async (unit: number, quantity: number, kind: 'FIXED_CENTS' | 'PERCENT', value: number) => {
+      const pr = await product({ price: unit, tierDiscount: false });
+      await promo(pr.id, kind, value);
+      const p = await makePatient();
+      const id = (await add(fd, p.id, { productId: pr.id })).body.id;
+      if (quantity > 1) await setQty(fd, p.id, id, quantity);
+      return { p, line: (await openLines(fd, p.id)).lines[0] };
+    };
+    // "$5 off Magnesium" on two: $10 off
+    expect((await lineFor(2000, 2, 'FIXED_CENTS', 500)).line).toMatchObject({ listCents: 4000, promotion: { cents: 1000 }, netCents: 3000, taxCents: tax55(3000) });
+    // at the cap: $5.00 × 3 on a $5.00 item is exactly the line, net $0.00; a cent more is still capped there; a cent less leaves 3¢
+    expect((await lineFor(500, 3, 'FIXED_CENTS', 500)).line).toMatchObject({ listCents: 1500, promotion: { cents: 1500 }, netCents: 0, taxCents: 0 });
+    expect((await lineFor(500, 3, 'FIXED_CENTS', 501)).line).toMatchObject({ listCents: 1500, promotion: { cents: 1500 }, netCents: 0, taxCents: 0 });
+    expect((await lineFor(500, 3, 'FIXED_CENTS', 499)).line).toMatchObject({ listCents: 1500, promotion: { cents: 1497 }, netCents: 3, taxCents: 0 });
+    // a percentage is on the line total, as before
+    expect((await lineFor(2000, 2, 'PERCENT', 25)).line).toMatchObject({ listCents: 4000, promotion: { cents: 1000 }, netCents: 3000 });
+    // and the charge records what the screen showed — a line at $0.00 checks out, with nothing to pay
+    const { p, line } = await lineFor(500, 2, 'FIXED_CENTS', 900);
+    expect(line).toMatchObject({ listCents: 1000, promotion: { cents: 1000 }, netCents: 0 });
+    const r = await checkout(fd, p.id, { charges: [{ openChargeId: line.id, pay: 'MONEY', expectedNetCents: 0 }] });
+    expect(r.status).toBe(200);
+    expect(r.body.charges[0]).toMatchObject({ quantity: 2, listPriceCents: 1000, promotion: { cents: 1000 }, netPriceCents: 0, taxCents: 0 });
+    expect(r.body.balanceCents).toBe(0);
+    // the better of tier and promotion still holds, per unit against the tier on the line total: Optimize 20% of $40.00 = $8.00 beats 2 × $3.00
+    const tierWins = await product({ price: 2000 });
+    await promo(tierWins.id, 'FIXED_CENTS', 300);
+    const m = await makePatient();
+    await makeMembership(m.id, 'OPTIMIZE', '2026-10-01');
+    const id = (await add(fd, m.id, { productId: tierWins.id })).body.id;
+    await setQty(fd, m.id, id, 2);
+    expect((await openLines(fd, m.id)).lines[0]).toMatchObject({ discountCents: 800, promotion: null, netCents: 3200 });
+    await setQty(fd, m.id, id, 2);
+    const pr5 = await product({ price: 2000 });
+    await promo(pr5.id, 'FIXED_CENTS', 500);
+    const id5 = (await add(fd, m.id, { productId: pr5.id })).body.id;
+    await setQty(fd, m.id, id5, 2);
+    expect((await openLines(fd, m.id)).lines.find((l: any) => l.id === id5)).toMatchObject({ discountCents: 0, promotion: { cents: 1000 }, netCents: 3000 });   // 2 × $5 beats $8
   });
 
   it('Accounting counts units, and a provider can set the quantity from their visit', async () => {

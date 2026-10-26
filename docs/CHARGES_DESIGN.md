@@ -60,8 +60,9 @@ field names. A price change never rewrites past sales: each charge keeps a snaps
 
 **Quantity (decided at review).** A line carries a quantity, 1 to 99. A click on an item already open today — same price snapshot, same
 performer — adds one to that line rather than a second line; a quantity can also be typed. The list price is unit price × quantity, and
-every discount, adjustment and tax is worked out on that line total, rounded per line (so a fixed-amount promotion comes off once per
-line). A change is an append-only `OpenChargeQuantity` row; the charge must carry the quantity as it stood (`nw_open_charge_guard`).
+every discount, adjustment and tax is worked out on that line total, rounded per line. A fixed-amount promotion on a PRODUCT comes
+off per unit ("$5 off" on 2 = $10 off), capped at the line total so a line never goes below $0.00; on a service add-on it comes off once
+per line; a percentage is on the line total either way. A change is an append-only `OpenChargeQuantity` row; the charge must carry the quantity as it stood (`nw_open_charge_guard`).
 Credits pay the service's cost for each unit; a perk covers one unit.
 
 **Clicked items wait as "open charges" until check-out.** New table `OpenCharge`: patient, service or product, quantity, the
