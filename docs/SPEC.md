@@ -102,6 +102,16 @@ Version 2.3 · 2026-10-25 · Status: **Phases 1–5, L1, 2a, rev 2.1 and Phase 2
 > | Revenue basis | *[superseded by rev 1.7: dues are now a separate line in every Accounting view]* **Membership dues are not in Accounting**: nothing records them (A-13 assumed they would be). Revenue is what was recorded at check-out |
 > | Not built | *[rev 1.7: the Twilio adapter and dues are built]* A **Twilio sending adapter** (texts still go to the stub; only the inbound webhook, its signature check and the wording are real), the **AWS adapters**, a dues record, void/refund, print/PDF, a free-form analytics builder |
 
+> **Revision 2.4.x — Front Desk fixes from staging.** No change to the booking, availability, hold, time or scheduling files.
+>
+> | # | Change |
+> |---|---|
+> | 1 | **"Open on Front Desk"** from a Schedule appointment opens the Front Desk on that appointment's **clinic day** (America/Chicago) with its dialog open. The day and the open dialog live in the URL — `/app/front-desk?date=YYYY-MM-DD&appt=<id>` — so a refresh or a shared link lands in the same place; no date means today; a malformed date or id is ignored |
+> | 2 | A **date picker** beside ‹ Today › on the Front Desk, as on the Schedule |
+> | 3 | **"Still open from earlier days (N)"** at the top of TODAY's Front Desk, only when N > 0: visits from earlier clinic days still CHECKED_IN or IN_PROGRESS (date, patient, service, provider), oldest first, each opening its dialog to check out or undo the check-in. Front desk and admins only, like the rest of the board |
+>
+> *(Rev 2.4 — patients choosing their provider — is proposed and not approved; this is separate.)*
+
 > **Revision 2.3 — Phase 2c-A (charges: add-on services, products, sales tax) approved, with the owner's decisions (Chase).** The
 > design is `docs/CHARGES_DESIGN.md`, updated to match; where it and this table differ, this table wins. 2c-B (card on file) and
 > 2c-C (returns of paid items) are not approved.

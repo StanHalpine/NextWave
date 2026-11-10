@@ -222,6 +222,10 @@ services were seeded long ago and the seed skips them — that is the point. No 
 - [ ] **Never on products:** membership credits and perks are not offered for a product line. **Price above list:** only an admin (MFA) sees
       *Raise by* under *Edit fee…*, and it needs a reason. **Accounting** → Custom → *Visits, add-ons and products*: products and add-ons are their
       own rows and the sales tax is its own column, outside revenue; Billed vs collected shows *Sales tax billed*.
+- [ ] **Front Desk fixes (rev 2.4.x).** From the Schedule, open an appointment on another day → **Open on Front Desk**: the Front Desk opens on THAT day
+      with its dialog open, and a refresh keeps both (the address bar shows `?date=…&appt=…`). The date picker beside ‹ Today › jumps to any day. Leave a test
+      visit checked in and look at tomorrow's board: **Still open from earlier days (1)** lists it at the top; open it, check it out (or undo the check-in), and the
+      section disappears.
 - [ ] A signed note: only the provider who signed it is offered **Amend**; another provider is offered **Add addendum**; an admin is offered neither.
 - [ ] Reports are quick on the real host: the current month appears at once; a three-year range in a second or two. (The timings
       in `docs/PHASE5_NOTES.md` §4 are from a laptop; `npm run perf:reports` repeats them against any database you can create a schema in.)
