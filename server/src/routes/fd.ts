@@ -35,7 +35,19 @@ export const fdRouter = Router();
 
 const isoDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD.');
 /** The most earlier-day open visits listed on today's board; the count says how many there are beyond it. */
-const STALE_LIMIT = 100;
+export const STALE_LIMIT = 100;
+
+/**
+ * Still open from earlier days: checked in on an earlier clinic day and never checked out. "Earlier" is the clinic's calendar — before
+ * the start of `today` in America/Chicago — so a visit at 23:30 last night is one and a visit at 00:15 today is not. A cancelled booking
+ * and a soft-deleted encounter are not.
+ */
+export function staleOpenWhere(today: string) {
+  return {
+    status: 'CONFIRMED' as const, startTime: { lt: localDayBounds(today).dayStart },
+    encounter: { is: { status: { in: ['CHECKED_IN' as const, 'IN_PROGRESS' as const] }, deletedAt: null } },
+  };
+}
 
 // ---- dashboard ---------------------------------------------------------------
 
@@ -74,12 +86,8 @@ fdRouter.get('/fd/dashboard', requireFrontDesk, async (req, res) => {
   const unpaid = (v: ReturnType<typeof appointmentView>) => (v.encounter?.status === 'SEEN' ? 0 : 1);
   done.sort((a, b) => unpaid(a) - unpaid(b));            // stable: the rows arrived in start-time order
 
-  // Still open from earlier days (today's board only): checked in on an earlier clinic day and never checked out. "Earlier" is the
-  // clinic's calendar — before the start of today in America/Chicago — so a visit at 23:30 last night is listed and one at 00:15 is not.
-  const staleWhere = {
-    status: 'CONFIRMED' as const, startTime: { lt: localDayBounds(today).dayStart },
-    encounter: { is: { status: { in: ['CHECKED_IN' as const, 'IN_PROGRESS' as const] }, deletedAt: null } },
-  };
+  // Still open from earlier days — today's board only (staleOpenWhere).
+  const staleWhere = staleOpenWhere(today);
   const [staleRows, staleOpenCount] = date === today
     ? await Promise.all([
       prisma.booking.findMany({ where: staleWhere, include: APPT_INCLUDE, orderBy: [{ startTime: 'asc' }, { id: 'asc' }], take: STALE_LIMIT }),

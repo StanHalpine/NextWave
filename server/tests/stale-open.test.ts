@@ -10,7 +10,9 @@ import { makeClinic, makePatient, slotAt } from './phase2.js';
  *   • "Still open from earlier days": on TODAY's board, visits from earlier clinic days still CHECKED_IN or IN_PROGRESS.
  *   • The deep link /front-desk?date=<the appointment's localDate>&appt=<id>: the day it names is the clinic's (America/Chicago) day the
  *     appointment is on, and the dashboard for that day lists it — across midnight and both DST changes.
- * Days in 2033 that nothing else uses, because the schema is shared: assertions are on this file's own rows, never on totals alone.
+ * The schema is shared, and other files leave visits checked in on their own (2026 and later) days — so the "still open" tests run on a
+ * TODAY in 2001, before any of them: nothing else is "earlier", the 100-row cap never hides this file's rows, and the assertions are on
+ * this file's own rows. The deep-link tests use days in 2033 that nothing else uses.
  */
 
 afterEach(() => setClockForTests(null));
@@ -39,16 +41,16 @@ describe('still open from earlier days (today\'s Front Desk)', () => {
   it('lists earlier-day visits still checked in or with the provider, oldest first — not today\'s, not finished ones, not cancelled', async () => {
     const fd = await fdLogin();
     const clinic = await makeClinic({ rooms: 2, staff: 2 });
-    setClockForTests(new Date('2033-05-11T15:00:00Z'));                                        // Wed 11 May 2033, 10:00 CDT
-    const twoWeeks = await visitAt(clinic, '2033-04-27', '09:00', 'IN_PROGRESS');
-    const yesterdayIn = await visitAt(clinic, '2033-05-10', '14:00', 'CHECKED_IN');
-    const yesterdayLate = await visitAt(clinic, '2033-05-10', '23:30', 'CHECKED_IN');       // 04:30 UTC on the 11th: still the 10th in Chicago
-    const seen = await visitAt(clinic, '2033-05-10', '10:00', 'SEEN');
-    const out = await visitAt(clinic, '2033-05-10', '11:00', 'CHECKED_OUT');
-    const noShow = await visitAt(clinic, '2033-05-10', '12:00', 'NO_SHOW');
-    const cancelled = await visitAt(clinic, '2033-05-10', '13:00', 'CHECKED_IN', 'CANCELLED');
-    const todayIn = await visitAt(clinic, '2033-05-11', '09:00', 'CHECKED_IN');
-    const justAfterMidnight = await visitAt(clinic, '2033-05-11', '00:15', 'CHECKED_IN');  // 05:15 UTC: today in Chicago, so not "earlier"
+    setClockForTests(new Date('2001-05-09T15:00:00Z'));                                        // Wed 9 May 2001, 10:00 CDT
+    const twoWeeks = await visitAt(clinic, '2001-04-25', '09:00', 'IN_PROGRESS');
+    const yesterdayIn = await visitAt(clinic, '2001-05-08', '14:00', 'CHECKED_IN');
+    const yesterdayLate = await visitAt(clinic, '2001-05-08', '23:30', 'CHECKED_IN');       // 04:30 UTC on the 9th: still the 8th in Chicago
+    const seen = await visitAt(clinic, '2001-05-08', '10:00', 'SEEN');
+    const out = await visitAt(clinic, '2001-05-08', '11:00', 'CHECKED_OUT');
+    const noShow = await visitAt(clinic, '2001-05-08', '12:00', 'NO_SHOW');
+    const cancelled = await visitAt(clinic, '2001-05-08', '13:00', 'CHECKED_IN', 'CANCELLED');
+    const todayIn = await visitAt(clinic, '2001-05-09', '09:00', 'CHECKED_IN');
+    const justAfterMidnight = await visitAt(clinic, '2001-05-09', '00:15', 'CHECKED_IN');  // 05:15 UTC: today in Chicago, so not "earlier"
 
     const r = await fd.agent.get('/api/fd/dashboard');
     expect(r.status).toBe(200);
@@ -57,22 +59,29 @@ describe('still open from earlier days (today\'s Front Desk)', () => {
     expect(listed.filter((id: string) => mine.includes(id))).toEqual(mine);                    // all three, oldest first
     for (const v of [seen, out, noShow, cancelled, todayIn, justAfterMidnight]) expect(listed, v.booking.id).not.toContain(v.booking.id);
     expect(r.body.staleOpenCount).toBeGreaterThanOrEqual(3);
-    expect(r.body.staleOpenCount).toBeGreaterThanOrEqual(r.body.staleOpen.length);
+    // whatever else is in the shared schema: at most 100, oldest first, every one from an earlier day and still open
+    const list = r.body.staleOpen as Array<{ start: string; localDate: string; encounter: { status: string } }>;
+    expect(list.length).toBeLessThanOrEqual(Math.min(r.body.staleOpenCount, 100));
+    expect(list.map((a) => a.start)).toEqual([...list.map((a) => a.start)].sort());
+    for (const a of list) {
+      expect(a.localDate < r.body.today, a.localDate).toBe(true);
+      expect(['CHECKED_IN', 'IN_PROGRESS']).toContain(a.encounter.status);
+    }
     // today's checked-in visits stay in their column
     expect(ids(r.body.checkedIn)).toEqual(expect.arrayContaining([todayIn.booking.id, justAfterMidnight.booking.id]));
     // each row says its own clinic day — the late one is the 10th, not the 11th — which is the day its deep link opens
     const late = r.body.staleOpen.find((a: { id: string }) => a.id === yesterdayLate.booking.id);
-    expect([late.localDate, late.localStart, late.encounter.status]).toEqual(['2033-05-10', '23:30', 'CHECKED_IN']);
+    expect([late.localDate, late.localStart, late.encounter.status]).toEqual(['2001-05-08', '23:30', 'CHECKED_IN']);
     expect(late.patient.name).toContain(yesterdayLate.patient.firstName);
   });
 
   it('is on today\'s board only; once checked out or moved back, a visit leaves the list', async () => {
     const fd = await fdLogin();
     const clinic = await makeClinic({ rooms: 2, staff: 2 });
-    setClockForTests(new Date('2033-06-08T15:00:00Z'));                                        // Wed 8 June 2033
-    const v = await visitAt(clinic, '2033-06-07', '15:00', 'CHECKED_IN');
+    setClockForTests(new Date('2001-06-06T15:00:00Z'));                                        // Wed 6 June 2001
+    const v = await visitAt(clinic, '2001-06-05', '15:00', 'CHECKED_IN');
     expect(ids((await fd.agent.get('/api/fd/dashboard')).body.staleOpen)).toContain(v.booking.id);
-    const other = await fd.agent.get('/api/fd/dashboard?date=2033-06-07');
+    const other = await fd.agent.get('/api/fd/dashboard?date=2001-06-05');
     expect([other.body.isToday, other.body.staleOpen, other.body.staleOpenCount]).toEqual([false, [], 0]);
     expect(ids(other.body.checkedIn)).toContain(v.booking.id);                                  // on its own day, where it always was
     const undo = await fd.agent.post(`/api/fd/appointments/${v.booking.id}/undo-check-in`).set('x-csrf-token', fd.csrf).send({});
@@ -82,8 +91,8 @@ describe('still open from earlier days (today\'s Front Desk)', () => {
 
   it('is scoped like the rest of the Front Desk: refused to anonymous callers and providers; the audit row carries a count, no names', async () => {
     const clinic = await makeClinic({ rooms: 1, staff: 1 });
-    setClockForTests(new Date('2033-07-13T15:00:00Z'));
-    const v = await visitAt(clinic, '2033-07-12', '09:30', 'CHECKED_IN');
+    setClockForTests(new Date('2001-07-11T15:00:00Z'));
+    const v = await visitAt(clinic, '2001-07-10', '09:30', 'CHECKED_IN');
     expect((await request(app).get('/api/fd/dashboard')).status).toBe(401);
     const staff = await chiroStaff();
     const prov = await signInFully((await makeAccount({ roles: ['PROVIDER_CHIRO'], staffId: staff.id })).email);
