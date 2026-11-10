@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { deskActions, visitStateLabel, type DeskAction } from './frontdesk';
+import { frontDeskHref, readDeskParams, deskActions, visitStateLabel, type DeskAction } from './frontdesk';
 import type { Appt, EncounterStatus } from './types';
 
 function appt(enc: EncounterStatus | null, over: Partial<Appt> = {}, linked = true): Appt {
@@ -85,5 +85,26 @@ describe('the words for where a visit is', () => {
     expect(visitStateLabel(appt('SEEN'))).toBe('Seen — needs check-out');
     expect(visitStateLabel(appt('CHECKED_OUT'))).toBe('Checked out');
     for (const e of ['SCHEDULED', 'CHECKED_IN', 'IN_PROGRESS', 'SEEN', 'CHECKED_OUT', 'NO_SHOW'] as const) expect(visitStateLabel(appt(e)) ?? '', e).not.toMatch(/done/i);
+  });
+});
+
+describe('rev 2.4.x: the Front Desk URL — /front-desk?date=YYYY-MM-DD&appt=<id>', () => {
+  const ID = '0b9d3c1e-5f2a-4c6b-9e8d-7a1b2c3d4e5f';
+  it('carries the appointment\'s own clinic day and its id; no date means today', () => {
+    expect(frontDeskHref({ date: '2026-11-01', appt: ID })).toBe(`/front-desk?date=2026-11-01&appt=${ID}`);
+    expect(frontDeskHref({ date: '2026-10-23' })).toBe('/front-desk?date=2026-10-23');
+    expect(frontDeskHref()).toBe('/front-desk');
+  });
+  it('reads back what it wrote, so a refresh or a shared link lands in the same place', () => {
+    const href = frontDeskHref({ date: '2027-03-14', appt: ID });
+    expect(readDeskParams(new URLSearchParams(href.split('?')[1]))).toEqual({ date: '2027-03-14', appt: ID });
+    expect(readDeskParams(new URLSearchParams(''))).toEqual({ date: undefined, appt: null });
+  });
+  it('ignores a malformed or impossible date, and an appt that is not an id — never trusted', () => {
+    for (const d of ['2026-02-30', '2026-13-01', '26-10-23', '2026-10-23T05:00', 'today', '']) {
+      expect(readDeskParams(new URLSearchParams({ date: d, appt: ID })).date, d).toBeUndefined();
+    }
+    for (const a of ['x', '1', `${ID}x`, '<script>', '']) expect(readDeskParams(new URLSearchParams({ appt: a })).appt, a).toBeNull();
+    expect(readDeskParams(new URLSearchParams({ date: '2028-02-29' })).date).toBe('2028-02-29');   // a real leap day
   });
 });

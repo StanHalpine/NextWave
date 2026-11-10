@@ -8,6 +8,9 @@
  * A visit in either of the first two columns can be checked out whether or not its note is signed (rev 2.0); each card carries the note's
  * status (`note` on the appointment) for the desk to see, and nothing waits on it.
  * No-shows are listed apart so they neither clutter nor vanish from the day.
+ *
+ * Rev 2.4.x: on TODAY's board, `staleOpen` lists visits from EARLIER clinic days still CHECKED_IN or IN_PROGRESS (checked in, never
+ * checked out), oldest first, so they do not sit invisible on a past day; `staleOpenCount` is how many there are in all.
  */
 
 import { Router } from 'express';
@@ -31,6 +34,8 @@ import { sendSchedulingError } from './http.js';
 export const fdRouter = Router();
 
 const isoDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD.');
+/** The most earlier-day open visits listed on today's board; the count says how many there are beyond it. */
+const STALE_LIMIT = 100;
 
 // ---- dashboard ---------------------------------------------------------------
 
@@ -69,11 +74,25 @@ fdRouter.get('/fd/dashboard', requireFrontDesk, async (req, res) => {
   const unpaid = (v: ReturnType<typeof appointmentView>) => (v.encounter?.status === 'SEEN' ? 0 : 1);
   done.sort((a, b) => unpaid(a) - unpaid(b));            // stable: the rows arrived in start-time order
 
-  audit.read('appointment', null, { count: rows.length, scope: 'front_desk_dashboard' }, `dashboard:${date}`);
+  // Still open from earlier days (today's board only): checked in on an earlier clinic day and never checked out. "Earlier" is the
+  // clinic's calendar — before the start of today in America/Chicago — so a visit at 23:30 last night is listed and one at 00:15 is not.
+  const staleWhere = {
+    status: 'CONFIRMED' as const, startTime: { lt: localDayBounds(today).dayStart },
+    encounter: { is: { status: { in: ['CHECKED_IN' as const, 'IN_PROGRESS' as const] }, deletedAt: null } },
+  };
+  const [staleRows, staleOpenCount] = date === today
+    ? await Promise.all([
+      prisma.booking.findMany({ where: staleWhere, include: APPT_INCLUDE, orderBy: [{ startTime: 'asc' }, { id: 'asc' }], take: STALE_LIMIT }),
+      prisma.booking.count({ where: staleWhere }),
+    ])
+    : [[], 0] as const;
+
+  audit.read('appointment', null, { count: rows.length, staleOpen: staleOpenCount, scope: 'front_desk_dashboard' }, `dashboard:${date}`);
   res.json({
     date, today, isToday: date === today, timezone: config.clinicTimezone, now: t.toISOString(),
     pendingReview,
     scheduled, checkedIn, done, noShows,
+    staleOpen: staleRows.map(appointmentView), staleOpenCount,
   });
 });
 

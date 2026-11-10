@@ -11,7 +11,7 @@ import { CheckoutBatchDialog } from '../patients/CheckoutBatchDialog';
 import { ChargesDialog } from '../patients/Charges';
 import { DeskActions } from './DeskActions';
 import { PatientLedger } from '../patients/Ledger';
-import { visitStateLabel, type DeskVerb } from '../frontdesk';
+import { frontDeskHref, visitStateLabel, type DeskVerb } from '../frontdesk';
 import { ChangeProviderDialog } from './ChangeProviderDialog';
 import { providerLine } from '../coveringProvider';
 
@@ -461,7 +461,8 @@ export function AppointmentDialog({ id, today, desk = false, onClose, onChanged 
             )}
             {desk && a.patient.linked && a.patient.id && <button className="btn small" disabled={busy} onClick={() => setSub('ledger')}>Ledger…</button>}
             {!desk && !a.patient.linked && a.status !== 'CANCELLED' && <button className="btn" disabled={busy} onClick={() => setSub('link')}>Link patient…</button>}
-            {!desk && started && <button className="btn" onClick={() => { onClose(); nav('/front-desk'); }}>Open on Front Desk</button>}
+            {/* Rev 2.4.x: on the appointment's own clinic day, with its dialog open — not always today. */}
+            {!desk && started && <button className="btn" onClick={() => { onClose(); nav(frontDeskHref({ date: a.localDate, appt: a.id })); }}>Open on Front Desk</button>}
           </div>
           {started && <p className="hint">{startedHint(a, desk)}</p>}
         </div>

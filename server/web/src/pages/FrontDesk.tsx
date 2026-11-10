@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { api, ApiError } from '../api';
 import { useInterval, errorText, Modal, NotePill, Notice, ServiceDot, sourceLabel } from '../ui';
-import { addDays, fmtDayLong, fmtInstantTime, fmtTime12, nowHHMM, serviceLabel, toMinutes } from '../lib';
+import { addDays, fmtDay, fmtDayLong, fmtInstantTime, fmtTime12, nowHHMM, serviceLabel, toMinutes } from '../lib';
 import type { Appt, Dashboard, ServiceLite } from '../types';
 import { PatientPicker } from '../patients/PatientPicker';
 import { AppointmentDialog, LinkPatientDialog } from '../schedule/dialogs';
@@ -10,18 +10,26 @@ import { CheckoutDialog } from '../schedule/CheckoutDialog';
 import { CheckoutBatchDialog } from '../patients/CheckoutBatchDialog';
 import { ChargesDialog } from '../patients/Charges';
 import { DeskActions } from '../schedule/DeskActions';
-import { deskActions, visitStateLabel, type DeskVerb } from '../frontdesk';
+import { deskActions, readDeskParams, visitStateLabel, type DeskVerb } from '../frontdesk';
 import FrontDeskNav from './FrontDeskNav';
 import { providerLine } from '../coveringProvider';
 
 export default function FrontDesk() {
-  const [date, setDate] = useState<string | undefined>(undefined);   // undefined = today
+  // The day (no date = today) and the open dialog are in the URL — /front-desk?date=YYYY-MM-DD&appt=<id> — so a link from the Schedule
+  // lands on that appointment's clinic day with its dialog open, and a refresh keeps both (rev 2.4.x).
+  const [params, setParams] = useSearchParams();
+  const { date, appt: open } = readDeskParams(params);
+  const setDate = (d: string | undefined) => setParams(d ? { date: d } : {});                       // a new day closes any dialog
+  const setOpen = (id: string | null) => {
+    const next: Record<string, string> = date ? { date } : {};
+    if (id) next.appt = id;
+    setParams(next, { replace: true });                                                               // opening a dialog is not a page
+  };
   const [data, setData] = useState<Dashboard | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [rowError, setRowError] = useState<{ id: string; text: string } | null>(null);
   const [walkIn, setWalkIn] = useState(false);
-  const [open, setOpen] = useState<string | null>(null);
   const [link, setLink] = useState<Appt | null>(null);
   const [checkout, setCheckout] = useState<Appt | null>(null);
   const [charges, setCharges] = useState<Appt | null>(null);
@@ -69,6 +77,7 @@ export default function FrontDesk() {
             <button className="btn small" onClick={() => setDate(undefined)} disabled={data?.isToday}>Today</button>
             <button className="btn small" onClick={() => viewing && setDate(addDays(viewing, 1))} aria-label="Next day">›</button>
           </div>
+          <input type="date" className="date-input" aria-label="Go to date" value={viewing} onChange={(e) => e.target.value && setDate(e.target.value === data?.today ? undefined : e.target.value)} />
           <button className="btn primary" onClick={() => setWalkIn(true)} disabled={data ? !data.isToday : false} title={data && !data.isToday ? 'Walk-ins are for today' : ''}>+ Walk-in</button>
         </div>
       </div>
@@ -80,6 +89,7 @@ export default function FrontDesk() {
         </Notice>
       )}
       {data && !data.isToday && <Notice>You are looking at {fmtDayLong(data.date)}. Check-in and walk-ins are for today only.</Notice>}
+      {data?.isToday && data.staleOpenCount > 0 && <StaleOpen list={data.staleOpen} count={data.staleOpenCount} onOpen={setOpen} />}
 
       <div className="columns" aria-busy={!data}>
         <Column title="Today’s appointments" hint="Still to arrive" count={data?.scheduled.length ?? 0}>
@@ -151,6 +161,32 @@ function Column({ title, hint, count, children }: { title: string; hint: string;
 }
 
 const Empty = ({ children }: { children: React.ReactNode }) => <p className="empty">{children}</p>;
+
+/**
+ * Rev 2.4.x: visits from earlier clinic days still checked in or with the provider — never checked out — so they do not sit invisible on
+ * a past day. Each opens its dialog, where the desk can check it out or undo the check-in. Shown on today's board only, and only when
+ * there are any.
+ */
+function StaleOpen({ list, count, onOpen }: { list: Appt[]; count: number; onOpen: (id: string) => void }) {
+  return (
+    <section className="stale-open" aria-label="Still open from earlier days">
+      <h2>Still open from earlier days ({count})</h2>
+      <ul className="plain">
+        {list.map((a) => (
+          <li key={a.id}>
+            <button type="button" className="linklike stale-row" onClick={() => onOpen(a.id)}>
+              <span className="nowrap">{fmtDay(a.localDate)} · {fmtTime12(a.localStart)}</span>
+              <strong>{a.patient.name}</strong>
+              <span>{a.service.name}{a.subOption ? ` · ${a.subOption}` : ''}</span>
+              <span className="muted">{providerLine(a)} · {visitStateLabel(a)}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+      {count > list.length && <p className="hint">Showing the oldest {list.length}.</p>}
+    </section>
+  );
+}
 
 function Card({ a, onOpen, children, extra, muted, error }: {
   a: Appt; onOpen: () => void; children?: React.ReactNode; extra?: React.ReactNode; muted?: boolean; error: string | null;

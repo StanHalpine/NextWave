@@ -346,3 +346,9 @@ textarea[readonly] { background: #f3f1ec; }
 .receipt tr.muted td { color: var(--muted, #6b7476); font-size: 13px; }
 /* Rev 2.3 review: a line's quantity in the Charges window. */
 .charges input.qty { width: 3.5em; padding: 6px 8px; text-align: right; }
+
+/* Rev 2.4.x: earlier-day visits still open, at the top of today's Front Desk. */
+.stale-open { background: #fff; border: 1px solid var(--line); border-left: 4px solid var(--warn); border-radius: 0 10px 10px 0; padding: 10px 14px; margin: 0 0 14px; }
+.stale-open h2 { font-size: 15px; margin: 0 0 6px; }
+.stale-open ul { margin: 0; }
+.stale-open .stale-row { display: flex; flex-wrap: wrap; gap: 4px 12px; padding: 4px 0; text-align: left; }

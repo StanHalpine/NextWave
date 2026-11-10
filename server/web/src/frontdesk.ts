@@ -66,3 +66,34 @@ export function visitStateLabel(a: Appt): string | null {
     default: return null;
   }
 }
+
+// ---- rev 2.4.x: the Front Desk's day and open dialog live in the URL --------------------------------------------------------------
+
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** A real calendar date in YYYY-MM-DD (not 2026-02-30). */
+const isDay = (s: string): boolean => {
+  if (!ISO_DAY.test(s)) return false;
+  const d = new Date(`${s}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;      // month 13 is no date at all; 30 Feb rolls into March
+};
+
+/**
+ * The Front Desk on a clinic day, with an appointment's dialog open: /front-desk?date=YYYY-MM-DD&appt=<id>. `date` is the CLINIC's
+ * calendar day (America/Chicago) — the appointment's own `localDate`, worked out by the server — so a visit at 23:30 opens on its day,
+ * not on the next day in UTC. No date means today.
+ */
+export function frontDeskHref(o: { date?: string | null; appt?: string | null } = {}): string {
+  const q = new URLSearchParams();
+  if (o.date) q.set('date', o.date);
+  if (o.appt) q.set('appt', o.appt);
+  const s = q.toString();
+  return `/front-desk${s ? `?${s}` : ''}`;
+}
+
+/** Read the Front Desk's URL: a malformed or impossible date, or an id that is not one, is ignored rather than trusted. */
+export function readDeskParams(params: URLSearchParams): { date: string | undefined; appt: string | null } {
+  const date = params.get('date') ?? '';
+  const appt = params.get('appt') ?? '';
+  return { date: isDay(date) ? date : undefined, appt: ID.test(appt) ? appt : null };
+}

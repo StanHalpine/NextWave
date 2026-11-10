@@ -35,6 +35,8 @@ export interface Dashboard {
   date: string; today: string; isToday: boolean; timezone: string; now: string;
   pendingReview: number;
   scheduled: Appt[]; checkedIn: Appt[]; done: Appt[]; noShows: Appt[];
+  /** Rev 2.4.x, today's board only: earlier-day visits still CHECKED_IN or IN_PROGRESS (oldest first, at most 100), and how many in all. */
+  staleOpen: Appt[]; staleOpenCount: number;
 }
 
 export interface CalendarDay { date: string; open: string | null; close: string | null; closed: boolean }
