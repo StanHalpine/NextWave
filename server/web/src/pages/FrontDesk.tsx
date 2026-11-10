@@ -163,7 +163,7 @@ function Column({ title, hint, count, children }: { title: string; hint: string;
 const Empty = ({ children }: { children: React.ReactNode }) => <p className="empty">{children}</p>;
 
 /**
- * Rev 2.4.x: visits from earlier clinic days still checked in or with the provider — never checked out — so they do not sit invisible on
+ * Rev 2.4.x: visits from earlier clinic days still checked in, with the provider, or seen — never checked out — so they do not sit invisible on
  * a past day. Each opens its dialog, where the desk can check it out or undo the check-in. Shown on today's board only, and only when
  * there are any.
  */

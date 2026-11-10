@@ -108,7 +108,7 @@ Version 2.3 · 2026-10-25 · Status: **Phases 1–5, L1, 2a, rev 2.1 and Phase 2
 > |---|---|
 > | 1 | **"Open on Front Desk"** from a Schedule appointment opens the Front Desk on that appointment's **clinic day** (America/Chicago) with its dialog open. The day and the open dialog live in the URL — `/app/front-desk?date=YYYY-MM-DD&appt=<id>` — so a refresh or a shared link lands in the same place; no date means today; a malformed date or id is ignored |
 > | 2 | A **date picker** beside ‹ Today › on the Front Desk, as on the Schedule |
-> | 3 | **"Still open from earlier days (N)"** at the top of TODAY's Front Desk, only when N > 0: visits from earlier clinic days still CHECKED_IN or IN_PROGRESS (date, patient, service, provider), oldest first, each opening its dialog to check out or undo the check-in. Front desk and admins only, like the rest of the board |
+> | 3 | **"Still open from earlier days (N)"** at the top of TODAY's Front Desk, only when N > 0: visits from earlier clinic days still CHECKED_IN, IN_PROGRESS or **SEEN** (signed but never checked out — added at review), not cancelled and not soft-deleted (date, patient, service, provider, state), oldest first, each opening its dialog to check out (or, for a visit still only checked in, undo the check-in). Front desk and admins only, like the rest of the board |
 >
 > *(Rev 2.4 — patients choosing their provider — is proposed and not approved; this is separate.)*
 

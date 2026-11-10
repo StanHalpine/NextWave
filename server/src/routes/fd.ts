@@ -9,8 +9,8 @@
  * status (`note` on the appointment) for the desk to see, and nothing waits on it.
  * No-shows are listed apart so they neither clutter nor vanish from the day.
  *
- * Rev 2.4.x: on TODAY's board, `staleOpen` lists visits from EARLIER clinic days still CHECKED_IN or IN_PROGRESS (checked in, never
- * checked out), oldest first, so they do not sit invisible on a past day; `staleOpenCount` is how many there are in all.
+ * Rev 2.4.x: on TODAY's board, `staleOpen` lists visits from EARLIER clinic days still CHECKED_IN, IN_PROGRESS or SEEN (checked in,
+ * never checked out — SEEN since the review), oldest first, so they do not sit invisible on a past day; `staleOpenCount` is how many.
  */
 
 import { Router } from 'express';
@@ -38,14 +38,15 @@ const isoDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD.');
 export const STALE_LIMIT = 100;
 
 /**
- * Still open from earlier days: checked in on an earlier clinic day and never checked out. "Earlier" is the clinic's calendar — before
+ * Still open from earlier days: checked in on an earlier clinic day and never checked out — CHECKED_IN, IN_PROGRESS, or SEEN (the
+ * provider signed but the desk never checked it out; added at review). "Earlier" is the clinic's calendar — before
  * the start of `today` in America/Chicago — so a visit at 23:30 last night is one and a visit at 00:15 today is not. A cancelled booking
  * and a soft-deleted encounter are not.
  */
 export function staleOpenWhere(today: string) {
   return {
     status: 'CONFIRMED' as const, startTime: { lt: localDayBounds(today).dayStart },
-    encounter: { is: { status: { in: ['CHECKED_IN' as const, 'IN_PROGRESS' as const] }, deletedAt: null } },
+    encounter: { is: { status: { in: ['CHECKED_IN' as const, 'IN_PROGRESS' as const, 'SEEN' as const] }, deletedAt: null } },
   };
 }
 

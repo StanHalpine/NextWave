@@ -38,7 +38,7 @@ async function visitAt(clinic: Awaited<ReturnType<typeof makeClinic>>, date: str
 const ids = (xs: Array<{ id: string }>) => xs.map((x) => x.id);
 
 describe('still open from earlier days (today\'s Front Desk)', () => {
-  it('lists earlier-day visits still checked in or with the provider, oldest first — not today\'s, not finished ones, not cancelled', async () => {
+  it('lists earlier-day visits still checked in, with the provider, or seen, oldest first — not today\'s, not checked out, not cancelled', async () => {
     const fd = await fdLogin();
     const clinic = await makeClinic({ rooms: 2, staff: 2 });
     setClockForTests(new Date('2001-05-09T15:00:00Z'));                                        // Wed 9 May 2001, 10:00 CDT
@@ -55,17 +55,19 @@ describe('still open from earlier days (today\'s Front Desk)', () => {
     const r = await fd.agent.get('/api/fd/dashboard');
     expect(r.status).toBe(200);
     const listed = ids(r.body.staleOpen);
-    const mine = [twoWeeks, yesterdayIn, yesterdayLate].map((v) => v.booking.id);
-    expect(listed.filter((id: string) => mine.includes(id))).toEqual(mine);                    // all three, oldest first
-    for (const v of [seen, out, noShow, cancelled, todayIn, justAfterMidnight]) expect(listed, v.booking.id).not.toContain(v.booking.id);
-    expect(r.body.staleOpenCount).toBeGreaterThanOrEqual(3);
+    // SEEN (signed, never checked out) is listed too — added at review
+    const mine = [twoWeeks, seen, yesterdayIn, yesterdayLate].map((v) => v.booking.id);
+    expect(listed.filter((id: string) => mine.includes(id))).toEqual(mine);                    // all four, oldest first
+    for (const v of [out, noShow, cancelled, todayIn, justAfterMidnight]) expect(listed, v.booking.id).not.toContain(v.booking.id);
+    expect(r.body.staleOpen.find((a: { id: string }) => a.id === seen.booking.id).encounter.status).toBe('SEEN');
+    expect(r.body.staleOpenCount).toBeGreaterThanOrEqual(4);
     // whatever else is in the shared schema: at most 100, oldest first, every one from an earlier day and still open
     const list = r.body.staleOpen as Array<{ start: string; localDate: string; encounter: { status: string } }>;
     expect(list.length).toBeLessThanOrEqual(Math.min(r.body.staleOpenCount, 100));
     expect(list.map((a) => a.start)).toEqual([...list.map((a) => a.start)].sort());
     for (const a of list) {
       expect(a.localDate < r.body.today, a.localDate).toBe(true);
-      expect(['CHECKED_IN', 'IN_PROGRESS']).toContain(a.encounter.status);
+      expect(['CHECKED_IN', 'IN_PROGRESS', 'SEEN']).toContain(a.encounter.status);
     }
     // today's checked-in visits stay in their column
     expect(ids(r.body.checkedIn)).toEqual(expect.arrayContaining([todayIn.booking.id, justAfterMidnight.booking.id]));
@@ -87,6 +89,25 @@ describe('still open from earlier days (today\'s Front Desk)', () => {
     const undo = await fd.agent.post(`/api/fd/appointments/${v.booking.id}/undo-check-in`).set('x-csrf-token', fd.csrf).send({});
     expect(undo.status).toBe(200);
     expect(ids((await fd.agent.get('/api/fd/dashboard')).body.staleOpen)).not.toContain(v.booking.id);
+  });
+
+  it('a SEEN visit leaves the list once it is checked out; a soft-deleted visit never appears; a cancelled SEEN one does not either', async () => {
+    const fd = await fdLogin();
+    const clinic = await makeClinic({ rooms: 2, staff: 2 });
+    setClockForTests(new Date('2001-08-08T15:00:00Z'));                                        // Wed 8 Aug 2001
+    const seen = await visitAt(clinic, '2001-08-07', '16:00', 'SEEN');
+    const cancelledSeen = await visitAt(clinic, '2001-08-07', '17:00', 'SEEN', 'CANCELLED');
+    const deleted = await visitAt(clinic, '2001-08-07', '15:00', 'SEEN');
+    await prisma.encounter.update({ where: { bookingId: deleted.booking.id }, data: { deletedAt: new Date('2001-08-07T23:00:00Z') } });
+    let listed = ids((await fd.agent.get('/api/fd/dashboard')).body.staleOpen);
+    expect(listed).toContain(seen.booking.id);
+    expect(listed).not.toContain(cancelledSeen.booking.id);
+    expect(listed).not.toContain(deleted.booking.id);
+    // checked out (here through the single-visit check-out route, which records the charge)
+    const out = await fd.agent.post(`/api/fd/appointments/${seen.booking.id}/check-out`).set('x-csrf-token', fd.csrf).send({ payment: 'CASH', priceCents: 5500 });
+    expect(out.status).toBe(200);
+    listed = ids((await fd.agent.get('/api/fd/dashboard')).body.staleOpen);
+    expect(listed).not.toContain(seen.booking.id);
   });
 
   it('is scoped like the rest of the Front Desk: refused to anonymous callers and providers; the audit row carries a count, no names', async () => {
