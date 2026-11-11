@@ -110,7 +110,14 @@ Version 2.3 · 2026-10-25 · Status: **Phases 1–5, L1, 2a, rev 2.1 and Phase 2
 > | 2 | A **date picker** beside ‹ Today › on the Front Desk, as on the Schedule |
 > | 3 | **"Still open from earlier days (N)"** at the top of TODAY's Front Desk, only when N > 0: visits from earlier clinic days still CHECKED_IN, IN_PROGRESS or **SEEN** (signed but never checked out — added at review), not cancelled and not soft-deleted (date, patient, service, provider, state), oldest first, each opening its dialog to check out (or, for a visit still only checked in, undo the check-in). Front desk and admins only, like the rest of the board |
 >
-> *(Rev 2.4 — patients choosing their provider — is proposed and not approved; this is separate.)*
+> **Revision 2.4.x — one approved booking-engine fix: confirming a lapsed hold.** `POST /api/bookings` on a hold that has lapsed now also
+> locks the providers (after the rooms — the hold route's lock order) and requires the hold's OWN provider and room to still be free:
+> otherwise **409**, with a message saying which, and never a substitute. Before, it re-checked only that the time was still open with
+> someone, somewhere, so a lapsed hold could be confirmed onto a provider or room booked in the meantime — a double booking. A time
+> gone altogether is still 410. `src/routes/bookings.ts` is the only booking-engine file changed; availability, holds, time and scheduling
+> are unchanged.
+>
+> *(Rev 2.4 — patients choosing their provider — is ON HOLD until the clinic has a second provider; not built.)*
 
 > **Revision 2.3 — Phase 2c-A (charges: add-on services, products, sales tax) approved, with the owner's decisions (Chase).** The
 > design is `docs/CHARGES_DESIGN.md`, updated to match; where it and this table differ, this table wins. 2c-B (card on file) and

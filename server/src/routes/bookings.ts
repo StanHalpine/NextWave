@@ -80,12 +80,36 @@ bookingsRouter.post('/bookings', async (req, res) => {
         // open before promoting it. computeDayAvailability already ignores
         // expired holds, so this row does not mask its own conflict.
         if (lapsed) {
+          // The providers too, AFTER the rooms — the hold route's lock order
+          // (Resource then Staff, each by id) — so the re-check below cannot
+          // interleave with another confirm or hold for the same person.
+          await tx.$queryRaw`
+            SELECT st.id FROM "Staff" st
+            JOIN "ServiceStaff" ss ON ss."staffId" = st.id
+            WHERE ss."serviceId" = ${hold.serviceId}
+            ORDER BY st.id
+            FOR UPDATE OF st`;
           const day = await computeDayAvailability(tx, hold.serviceId, toLocalDateISO(hold.startTime), now);
-          const stillFree = day?.slots.some((s) => s.start === hold.startTime.toISOString());
-          if (!stillFree) {
+          const slot = day?.slots.find((s) => s.start === hold.startTime.toISOString());
+          if (!slot) {
             return {
               status: 410 as const,
               error: 'Your hold expired and the slot has been taken. Please choose another time.',
+            };
+          }
+          // "Some provider and some room are free" is not enough: the hold names
+          // THIS provider and THIS room, and the request keeps them — so each
+          // must still be free. Never substitute another (a double booking).
+          if (hold.staffId && !slot.staffIds.includes(hold.staffId)) {
+            return {
+              status: 409 as const,
+              error: 'Your hold expired and that provider has been booked at this time since. Please choose another time.',
+            };
+          }
+          if (!slot.resourceIds.includes(hold.resourceId)) {
+            return {
+              status: 409 as const,
+              error: 'Your hold expired and the room for this time has been booked since. Please choose another time.',
             };
           }
         }
