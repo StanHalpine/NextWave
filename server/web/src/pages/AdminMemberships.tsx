@@ -27,7 +27,7 @@ export default function AdminMemberships() {
       <Notice kind="warn">
         <strong>Nothing is discounted yet.</strong> Member discounts are set per tier per <em>service category</em> at the bottom of this page; until you set some, members pay list price in cash.<br />
         <strong>Perks start switched off.</strong> They are pre-filled from your tier copy (a monthly shot or IV, a quarterly body-composition analysis, guest passes) but nothing offers them at check-out until you confirm the quantities and switch them on.
-        Each service’s price and credit cost are edited on <a href="/admin.html">Catalogue &amp; staff</a>.
+        Each service’s price and credit cost are edited under <a href="/admin.html">Catalogue &amp; staff (the Configuration page)</a>.
       </Notice>
       {error && <Notice kind="error">{error}</Notice>}
       {!plans && !error && <p className="muted">Loading…</p>}

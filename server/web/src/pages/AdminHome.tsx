@@ -21,7 +21,7 @@ export default function AdminHome() {
         <Link className="tile" to="/admin/catalog"><h2>Product catalog</h2><p>Products and service add-ons for the Charges window, their prices, the sales tax on products, and the member discount on products.</p></Link>
         <Link className="tile" to="/admin/macros"><h2>Macro sets</h2><p>Shared text blocks providers insert into their notes, by section and role.</p></Link>
         <Link className="tile" to="/admin/note-signers"><h2>Notes signed by another provider</h2><p>Signed before only the visit’s own provider could sign. Confirm the signer as covering, or leave it flagged.</p></Link>
-        <a className="tile" href="/admin.html"><h2>Catalogue &amp; staff</h2><p>Services, prices and credit costs, rooms, bookable staff and their shifts.</p></a>
+        <a className="tile" href="/admin.html"><h2>Catalogue &amp; staff →</h2><p>Services, prices and credit costs, rooms, bookable staff and their shifts.</p><p style={{ marginTop: 6 }}><strong>Opens the separate Configuration page</strong> — use its “← Back to NextWave Staff” link to return here.</p></a>
       </div>
 
       <h2 className="section">Integrations</h2>
