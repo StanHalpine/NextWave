@@ -12,5 +12,6 @@ export default defineConfig({
     // Same-origin in development too, so the SameSite=Strict session cookie works.
     proxy: { '/api': 'http://localhost:4000' },
   },
-  test: { include: ['src/**/*.test.ts'] },
+  // css.include: tests read styles.css as text (?raw); by default Vitest replaces CSS with an empty string.
+  test: { include: ['src/**/*.test.ts'], css: { include: [/styles\.css/] } },
 });

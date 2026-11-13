@@ -6,9 +6,9 @@ import { addDays, fmtDay, fmtDow, fmtRange, fmtTime12, layoutLanes, nowHHMM, toM
 import type { Appt, Calendar, CalendarStaff } from '../types';
 import { NOTE_LABEL, NOTE_SHORT } from '../notes';
 import { AppointmentDialog, NewAppointmentDialog } from '../schedule/dialogs';
+import { GUTTER_COLUMN, HourGutter } from '../schedule/hourGutter';
 
 const PX_PER_MIN = 1.3;          // 15 minutes = 19.5px
-const GUTTER = 58;               // px, the hour labels
 const SNAP = 15;                 // minutes
 
 type View = 'day' | 'week';
@@ -136,18 +136,14 @@ export default function Schedule() {
       {cal && cols.length === 0 && <p className="empty">Nothing to show — the clinic is closed {view === 'day' ? 'that day' : 'all week'}.</p>}
       {cal && cols.length > 0 && (
         <div className="cal-scroll" ref={scroller}>
-          <div className="cal" style={{ gridTemplateColumns: `${GUTTER}px repeat(${cols.length}, minmax(${view === 'week' ? 150 : 170}px, 1fr))` }}>
+          <div className="cal" style={{ gridTemplateColumns: `${GUTTER_COLUMN} repeat(${cols.length}, minmax(${view === 'week' ? 150 : 170}px, 1fr))` }}>
             <div className="cal-corner" />
             {cols.map((c) => (
               <div key={c.key} className={`cal-head${c.isToday ? ' today' : ''}`}>
                 <strong>{c.title}</strong>{c.sub && <span className="muted small"> {c.sub}</span>}
               </div>
             ))}
-            <div className="cal-gutter" style={{ height: (closeMin - openMin) * PX_PER_MIN }}>
-              {hourMarks(openMin, closeMin).map((m) => (
-                <span key={m} className="hour-label" style={{ top: (m - openMin) * PX_PER_MIN }}>{fmtTime12(`${String(Math.floor(m / 60)).padStart(2, '0')}:00`)}</span>
-              ))}
-            </div>
+            <HourGutter openMin={openMin} closeMin={closeMin} pxPerMin={PX_PER_MIN} />
             {cols.map((c) => (
               <GridColumn
                 key={c.key} col={c} openMin={openMin} closeMin={closeMin} tz={tz}
@@ -217,7 +213,6 @@ function build(cal: Calendar | null, view: View, providerId: string): { cols: Co
 }
 
 const roleShort = (s: CalendarStaff) => ({ CHIROPRACTOR: 'DC', NURSE_PRACTITIONER: 'NP', REGISTERED_NURSE: 'RN' } as Record<string, string>)[s.role] ?? '';
-const hourMarks = (openMin: number, closeMin: number) => Array.from({ length: Math.floor((closeMin - openMin) / 60) + 1 }, (_, i) => openMin + i * 60);
 
 // ---- one column of the grid -----------------------------------------------------------------
 

@@ -165,7 +165,11 @@ textarea { font: inherit; font-weight: 400; padding: 10px 12px; border: 1px soli
 .cal-head { padding: 9px 10px; border-left: 1px solid var(--line); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cal-head.today { background: #e9eee6; box-shadow: inset 0 -3px 0 var(--sage-deep); }
 .cal-gutter { position: sticky; left: 0; z-index: 7; background: #fcfbf8; border-right: 1px solid var(--line); }
-.hour-label { white-space: nowrap; position: absolute; right: 8px; transform: translateY(-50%); font: 500 11px var(--mono); color: var(--ink-soft); background: #fcfbf8; padding: 0 2px; }
+/* The gutter column is max-content; .hour-sizer (an invisible "12:00 PM", in flow) sets its width, so it always fits
+   the widest label in the label's own font. Its padding = the label's 2px padding + 8px right offset / 6px left room. */
+.hour-label, .hour-sizer { white-space: nowrap; font: 500 11px var(--mono); }
+.hour-label { position: absolute; right: 8px; text-align: right; transform: translateY(-50%); color: var(--ink-soft); background: #fcfbf8; padding: 0 2px; }
+.hour-sizer { display: block; height: 0; visibility: hidden; padding: 0 10px 0 8px; }
 .cal-gutter .hour-label:first-child { transform: translateY(2px); }
 .cal-col { position: relative; border-left: 1px solid var(--line); cursor: cell;
   background-color: #fff;
