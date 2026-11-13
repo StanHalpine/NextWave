@@ -272,15 +272,25 @@ a.nav-cta-mobile { display: none; }
     padding-right: var(--pad);
     padding-bottom: 48px;
     gap: 24px;
-    transform: translateX(100%);
-    transition: transform 0.4s ease;
+    /* Closed: clipped away, not moved off-screen. A translateX(100%) panel
+       sat past the right edge and made the page twice as wide — phones then
+       zoomed out or panned sideways. clip-path changes no layout. Hidden too,
+       so keyboard focus cannot land on links nobody can see; visibility
+       switches off only after the closing animation. */
+    clip-path: inset(0 0 0 100%);
+    visibility: hidden;
+    transition: clip-path 0.4s ease, visibility 0s linear 0.4s;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
     box-sizing: border-box;
   }
   .nav-links li { width: 100%; }
   .nav-item-home { display: block; }
-  .nav-links.open { transform: translateX(0); }
+  .nav-links.open {
+    clip-path: inset(0);
+    visibility: visible;
+    transition: clip-path 0.4s ease, visibility 0s;
+  }
   .nav-cta { display: none; }
   .nav-toggle { display: block; margin-left: auto; }
   .logo-full { display: none !important; }
