@@ -10,6 +10,9 @@
  * rendered template — renderTemplate() enforces "first name, day, time and nothing else"), and StatusCallback
  * ({APP_BASE_URL}/api/sms/status), so Twilio reports delivery to routes/smsStatus.ts.
  *
+ * WHO IT MAY TEXT — outside live mode, only the numbers in SMS_ALLOWED_NUMBERS (integrations/smsAllowList.ts); anyone else is
+ * refused BEFORE the request is built ('not_allow_listed'), and an empty list sends nothing. In live mode, anyone the job picks.
+ *
  * WHAT IT NEVER DOES — log or store a message body, a recipient number, or Twilio's error text (which can echo the number).
  * Log lines carry the message SID, the status, a numeric error code and the template id. A failure leaves here as a CATEGORY
  * (MessagingError) plus the numeric code; the text job decides what to do with it.
@@ -28,6 +31,7 @@
 import { config } from '../config.js';
 import { logger } from '../lib/logger.js';
 import { renderTemplate } from './templates.js';
+import { smsAllowList, smsAllowListCount } from './smsAllowList.js';
 import { MessagingError, type Messaging, type MessagingFailure } from './types.js';
 
 export const OPTED_OUT_CODE = 21610;
@@ -41,6 +45,11 @@ export interface TwilioOptions {
   from: string;
   /** Where Twilio reports status: {APP_BASE_URL}/api/sms/status. */
   statusCallbackUrl: string;
+  /**
+   * The staging guard: the only E.164 numbers a text may go to, or null for no restriction (live mode). Required, so every way of
+   * building the adapter has to decide; fromEnv() derives it from BOOKING_MODE and SMS_ALLOWED_NUMBERS.
+   */
+  allowedRecipients: ReadonlySet<string> | null;
   /** Tests point this at a local fake. */
   baseUrl?: string;
   fetchImpl?: typeof fetch;
@@ -86,13 +95,24 @@ export class TwilioMessaging implements Messaging {
     const statusCallbackUrl = `${config.appBaseUrl}/api/sms/status`;
     const problem = statusCallbackProblem(statusCallbackUrl, config.isProduction);
     if (problem) throw new Error(`Refusing to start: ${problem}`);
+    const allowedRecipients = smsAllowList(config.bookingMode, env.SMS_ALLOWED_NUMBERS);   // throws on a malformed entry
+    if (allowedRecipients) {
+      logger.info('sms_allow_list_active', { bookingMode: config.bookingMode, allowListed: allowedRecipients.size, sendsNothing: allowedRecipients.size === 0 });
+    } else if (smsAllowListCount(env.SMS_ALLOWED_NUMBERS) > 0) {
+      logger.warn('sms_allow_list_ignored', { bookingMode: config.bookingMode, allowListed: smsAllowListCount(env.SMS_ALLOWED_NUMBERS) });
+    }
     return new TwilioMessaging({
       accountSid: (env.TWILIO_ACCOUNT_SID ?? '').trim(), authToken: (env.TWILIO_AUTH_TOKEN ?? '').trim(),
-      from: config.twilioFromNumber, statusCallbackUrl,
+      from: config.twilioFromNumber, statusCallbackUrl, allowedRecipients,
     });
   }
 
   async sendSms(input: { to: string; templateId: string; variables: Record<string, string> }): Promise<{ providerMessageId: string }> {
+    // The staging guard, first: a recipient outside the allow-list is refused before anything is built or sent.
+    if (this.o.allowedRecipients && !this.o.allowedRecipients.has(input.to)) {
+      logger.info('twilio_message_skipped', { reason: 'not allow-listed', templateId: input.templateId });
+      throw new MessagingError('not_allow_listed');
+    }
     const body = renderTemplate(input.templateId, input.variables);          // throws on anything but the allowed three fields
     const form = new URLSearchParams({ To: input.to, From: this.o.from, Body: body, StatusCallback: this.o.statusCallbackUrl });
     const url = `${this.o.baseUrl ?? 'https://api.twilio.com'}/2010-04-01/Accounts/${this.o.accountSid}/Messages.json`;

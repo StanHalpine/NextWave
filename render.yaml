@@ -152,6 +152,10 @@ services:
       #     sync: false
       #   - key: TWILIO_AUTH_TOKEN
       #     sync: false
+      # The staging guard (src/integrations/smsAllowList.ts). While BOOKING_MODE is not "live", texts go ONLY to these
+      # comma-separated E.164 numbers; empty or unset = no texts at all. Ignored in live mode. Set the same on the cron job.
+      #   - key: SMS_ALLOWED_NUMBERS
+      #     sync: false
 
       # Staging with FAKE patients only: lets the AI scribe run on the local stub storage and scribe
       # (it is switched off in production while either is a stub). Never set where real patients are
@@ -193,6 +197,10 @@ services:
         value: production
       - key: CLINIC_TIMEZONE
         value: America/Chicago
+      # This job SENDS the texts, so it needs the mode too: outside "live" it texts only SMS_ALLOWED_NUMBERS (nothing at all
+      # when that is empty). Unset means "demo". At go-live set "live" HERE as well as on the web service.
+      - key: BOOKING_MODE
+        value: demo
       # The same Postgres as the web service, through the same (pooled) URL. Must end ?sslmode=require. No DIRECT_URL here: this
       # job runs no migrations, and `prisma generate` in its build needs no database.
       - key: DATABASE_URL
@@ -207,6 +215,8 @@ services:
       #   - key: TWILIO_ACCOUNT_SID    # both of these, the same as the web service's: this job sends the texts
       #     sync: false
       #   - key: TWILIO_AUTH_TOKEN
+      #     sync: false
+      #   - key: SMS_ALLOWED_NUMBERS   # staging: the only numbers texts may go to (see the web service)
       #     sync: false
       # Optional: days after a note is signed that raw visit audio is deleted (this job does it). Default 30.
       #   - key: AUDIO_RETENTION_DAYS

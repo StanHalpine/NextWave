@@ -73,7 +73,8 @@ Secrets marked `sync: false` in `render.yaml` are entered in the dashboard, **se
 | `MFA_ENCRYPTION_KEY` | ✔ | ✔ | `npm run gen-secrets` on your machine, paste the **same** value into both. Losing or changing it invalidates every enrolled authenticator |
 | `APP_BASE_URL` | ✔ | ✔ | the public `https://` origin of the web service, no trailing slash, **no underscore in the host name** (Twilio refuses those; the app refuses to start with one). Setup links, the Twilio signature check and every text's status-callback address use it |
 | `NODE_ENV=production`, `CLINIC_TIMEZONE=America/Chicago` | ✔ | ✔ | already in the blueprint |
-| `BOOKING_MODE=demo` | ✔ | | already in the blueprint; stays `demo` for staging |
+| `BOOKING_MODE=demo` | ✔ | ✔ | in the blueprint; stays `demo` for staging. **The cron job reads it too**: it is what sends texts, and outside `live` it sends only to `SMS_ALLOWED_NUMBERS`. Unset means `demo`. **At go-live set `live` on BOTH**, or the cron job keeps the guard on and texts no patient |
+| `SMS_ALLOWED_NUMBERS` | ✔ | ✔ | stage 7, **staging only**. Comma-separated E.164 numbers (`+16125550142,+16125550199`) — the ONLY numbers a text may go to while `BOOKING_MODE` is not `live`. **Empty or unset there = no texts at all.** Every other recipient is recorded "not sent (not allow listed)" and never retried. A malformed entry stops the app at start-up. Ignored in `live` (with a warning in the log if set). Inbound STOP/START/HELP/C work for any number |
 | `TWILIO_ACCOUNT_SID` | ✔ | ✔ | stage 7. `AC` + 32 hex characters; any other shape stops the app at start-up. **Texts go through Twilio only when this AND the token are both set** |
 | `TWILIO_AUTH_TOKEN` | ✔ | ✔ | stage 7. Also the key both webhooks are verified against; with `NODE_ENV=production` and no token they refuse everything (503) |
 | `TWILIO_FROM_NUMBER`, `CLINIC_PHONE` | ✔ | ✔ | optional. Default `+18665241007` (must be E.164) and `(308) 830-1951` |
@@ -265,7 +266,10 @@ With `APP_BASE_URL` = your public `https://` address (no trailing slash):
 
 ### 7.2 Credentials and start-up
 
+- [ ] **First**, on both services: `BOOKING_MODE=demo` and `SMS_ALLOWED_NUMBERS` = the test phones' numbers in E.164. (Or leave it empty to prove nothing is
+      sent at all.) This is the guard that keeps real credentials on staging from texting anyone else.
 - [ ] Enter `TWILIO_ACCOUNT_SID` and `TWILIO_AUTH_TOKEN` **in the Render dashboard, on both services**, and redeploy. Never in a file, a commit or a message to me.
+- [ ] The cron job's log shows `sms_allow_list_active` with `bookingMode: demo` and `allowListed: <how many>` (never the numbers).
 - [ ] The services start. (They refuse to if the SID is not `AC` + 32 hex, or `APP_BASE_URL` is not `https://` / has an underscore in its host.) The logs show no
       `twilio_partially_configured` warning (that means only one of the two is set, so the app is still on the stub).
 - [ ] Admin → home → Integrations shows **Messaging (Twilio) · twilio · Live**, not "Development stub".
@@ -283,7 +287,9 @@ fields, keyed with the auth token), never against a request Twilio actually sign
 
 ### 7.4 Real texts and delivery status
 
-- [ ] A **consenting staging patient's** confirmation arrives on a real phone **within about five minutes** of approving the appointment, from `+18665241007`, with
+- [ ] A consenting staging patient whose number is **not** on `SMS_ALLOWED_NUMBERS` gets nothing: the Schedule's appointment detail reads
+      "not sent (not allow listed)", and the cron log has `sms_skipped` / `not allow-listed` with ids only. No message in Twilio's log.
+- [ ] A **consenting staging patient's** (on an allow-listed number) confirmation arrives on a real phone **within about five minutes** of approving the appointment, from `+18665241007`, with
       the first name, day and time and nothing else. In Twilio's message log the message is **delivered**.
 - [ ] A few seconds later the appointment's detail on the Schedule reads **"sent … · delivered"** — that is the status callback arriving. (In Twilio's log the
       callback to `/api/sms/status` shows `200`.)

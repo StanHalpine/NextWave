@@ -257,6 +257,13 @@ async function send(id: string, t: Target, to: Recipient, attempt: number, deps:
     // The provider's NUMERIC code (21610 …) when it gave one: safe to keep; its message text never reaches here.
     const providerErrorCode = err instanceof MessagingError ? (err.providerCode ?? null) : null;
     if (!(err instanceof MessagingError)) logger.error('sms_send_unexpected_error', err, { messageLogId: id }); // class + sanitised message only
+    if (failure === 'not_allow_listed') {
+      // The staging guard (integrations/smsAllowList.ts): nothing reached the provider. Recorded as SKIPPED and never retried —
+      // consent and the do-not-text list are left alone. Ids only in the log, never the number.
+      logger.info('sms_skipped', { reason: 'not allow-listed', messageLogId: id, bookingId: t.bookingId, kind: t.kind });
+      await finish(id, { status: 'SKIPPED', failureCode: 'not_allow_listed', nextAttemptAt: null, providerErrorCode: null }, out, 'skipped');
+      return;
+    }
     if (failure === 'transient' && attempt < MAX_ATTEMPTS) {
       const wait = BACKOFF_MS[Math.min(attempt - 1, BACKOFF_MS.length - 1)]!;
       await finish(id, { nextAttemptAt: new Date(at.getTime() + wait), failureCode: 'transient', providerErrorCode }, out, 'retry');

@@ -117,6 +117,13 @@ Version 2.3 · 2026-10-25 · Status: **Phases 1–5, L1, 2a, rev 2.1 and Phase 2
 > gone altogether is still 410. `src/routes/bookings.ts` is the only booking-engine file changed; availability, holds, time and scheduling
 > are unchanged.
 >
+> **Revision 2.4.x — the staging guard on outbound texts.** While `BOOKING_MODE` is not `live`, the Twilio adapter texts **only** the
+> numbers in `SMS_ALLOWED_NUMBERS` (comma-separated E.164); any other recipient is refused before anything reaches Twilio, recorded as
+> `SKIPPED` / `not_allow_listed` (never retried; consent and the do-not-text list untouched) and logged by ids only. **Empty or unset
+> outside `live` = no texts at all.** A malformed entry stops the app at start-up. In `live` the list is ignored. Inbound STOP / START /
+> HELP / C replies go back in the webhook's own response, not through the adapter, so they work for any number. The cron job (which
+> sends) now has `BOOKING_MODE` in the blueprint too. No template wording changed. `src/integrations/smsAllowList.ts`.
+>
 > *(Rev 2.4 — patients choosing their provider — is ON HOLD until the clinic has a second provider; not built.)*
 
 > **Revision 2.3 — Phase 2c-A (charges: add-on services, products, sales tax) approved, with the owner's decisions (Chase).** The

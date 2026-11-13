@@ -57,7 +57,7 @@ afterAll(async () => {
 afterEach(() => { vi.restoreAllMocks(); seen = []; reply = () => ({ status: 201, body: { sid: 'SM0123456789abcdef0123456789abcdef', status: 'queued', error_code: null } }); });
 
 const adapter = (over: Partial<ConstructorParameters<typeof TwilioMessaging>[0]> = {}) =>
-  new TwilioMessaging({ accountSid: SID, authToken: TOKEN, from: FROM, statusCallbackUrl: CALLBACK, baseUrl, ...over });
+  new TwilioMessaging({ accountSid: SID, authToken: TOKEN, from: FROM, statusCallbackUrl: CALLBACK, baseUrl, allowedRecipients: null, ...over });
 
 /** Everything the app writes to its logs while `fn` runs. */
 async function logged<T>(fn: () => Promise<T>): Promise<{ result: T; text: string }> {
@@ -142,7 +142,7 @@ describe('sending: what a failure becomes', () => {
   });
 
   it('a network failure and a timeout are transient', async () => {
-    const dead = new TwilioMessaging({ accountSid: SID, authToken: TOKEN, from: FROM, statusCallbackUrl: CALLBACK, baseUrl: 'http://127.0.0.1:1', timeoutMs: 500 });
+    const dead = new TwilioMessaging({ accountSid: SID, authToken: TOKEN, from: FROM, statusCallbackUrl: CALLBACK, baseUrl: 'http://127.0.0.1:1', timeoutMs: 500, allowedRecipients: null });
     const e1 = await dead.sendSms({ to: freshNumber().e164, templateId: 'appt_reminder_24h_v3', variables: { first: 'Ingrid', time: '8:00 AM' } }).catch((e) => e);
     expect(e1).toMatchObject({ name: 'MessagingError', failure: 'transient' });
     reply = () => ({ status: 200, hang: true });

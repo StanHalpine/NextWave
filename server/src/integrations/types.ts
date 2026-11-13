@@ -76,8 +76,10 @@ export interface Messaging {
  *   invalid_recipient  not a number that can receive texts
  *   transient          network / provider hiccup — safe to retry
  *   rejected           refused for another reason (content, account) — do not retry
+ *   not_allow_listed   not sent: outside live mode the adapter texts only SMS_ALLOWED_NUMBERS
+ *                      (integrations/smsAllowList.ts) — nothing reached the provider; do not retry
  */
-export type MessagingFailure = 'opted_out' | 'invalid_recipient' | 'transient' | 'rejected';
+export type MessagingFailure = 'opted_out' | 'invalid_recipient' | 'transient' | 'rejected' | 'not_allow_listed';
 
 export class MessagingError extends Error {
   /**
