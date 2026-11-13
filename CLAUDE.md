@@ -209,6 +209,22 @@ value in `contact.html`.
 Inline JS also writes the selected label into the hidden `subject` field, so
 the notification email arrives as "Appointment request: Biomarker Testing".
 
+**Two more parameters** come from the service pages:
+
+- `&type=appointment|consultation` — "Request an appointment" sends the first,
+  "Request a consultation" the second. It prefills the visible **Requesting**
+  select (`request_type`, sent with the form), and a consultation changes the
+  h1 to "Request a consultation." and the subject to "Consultation request: …".
+  Hidden and not sent for a membership request.
+- `&option=<label>` (URL-encoded) — the panel or shot chosen on a
+  biomarker-testing or vitamin-shots card. Shown under "Interested in" as
+  "Interested in: Vitamin Shots — NAD (25 mg)", sent as `option`, and added to
+  the subject. **Only labels in the `OPTIONS` list in contact.html's inline
+  script are accepted** (anything else is ignored, so a link cannot put its own
+  words into a request), and only while that service stays selected. **Adding,
+  renaming or removing a card means updating `OPTIONS` too** — it must match
+  the cards' `data-booking-option` values.
+
 When any membership value is selected, inline JS swaps the page title, the
 subhead, and the email subject line to membership-request framing. This is a
 placeholder until real signup/billing exists — the copy promises a phone or
@@ -227,9 +243,10 @@ var BOOKING_BASE_URL = '';     // the PRODUCTION app's address — never staging
 ```
 
 - **Markup (the default, and what a no-JS visitor gets):**
-  `<a href="../contact.html?interest=<slug>" class="btn btn-primary" data-booking-service="<slug>">Request an appointment</a>`,
-  plus `data-booking-option="<label>"` on the biomarker panel and vitamin-shot
-  cards (plain text, HTML-escaped — e.g. `NAD (25 mg)`).
+  `<a href="../contact.html?interest=<slug>&amp;type=appointment" class="btn btn-primary" data-booking-service="<slug>">Request an appointment</a>`.
+  On the biomarker panel and vitamin-shot cards the link also carries
+  `&amp;option=<URL-encoded label>` and the element `data-booking-option="<label>"`
+  (plain text, HTML-escaped — e.g. `NAD (25 mg)`).
 - **`BOOKING_ENABLED = true` and a non-empty `BOOKING_BASE_URL`:** script.js
   rewrites each `[data-booking-service]` to "Book now" →
   `BOOKING_BASE_URL?service=<slug>[&option=<label>]`. With the URL empty the
@@ -239,7 +256,8 @@ var BOOKING_BASE_URL = '';     // the PRODUCTION app's address — never staging
 - 22 buttons on 12 service pages carry it. functional-medicine-consult and
   peptide-therapy have none. On spinal-postural-exam it is the only button (it
   replaced "Request a consultation"); elsewhere it sits beside "Request a
-  consultation", which goes to the same contact URL while the switch is off.
+  consultation" (`&amp;type=consultation`), and the contact form shows which
+  of the two was asked for.
 - A new service page with an appointment button needs `data-booking-service`
   set to its slug (= its filename) and a matching `<option>` in contact.html.
 - Check after any change: `grep -rn onrender --exclude-dir=.git .` should find

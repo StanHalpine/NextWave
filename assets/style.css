@@ -995,6 +995,10 @@ section { padding-top: clamp(56px, 8vw, 104px); padding-bottom: clamp(56px, 8vw,
 }
 .field { display: flex; flex-direction: column; gap: 8px; }
 .field.full { grid-column: 1 / -1; }
+/* .field is display:flex, which would beat the [hidden] attribute's display:none */
+.field[hidden] { display: none; }
+/* The panel or shot chosen on a service page, under "Interested in" (contact.html) */
+.field-note { margin: 0; font-size: 13px; color: var(--ink-soft); }
 label {
   font-family: var(--font-mono);
   font-size: 11px;

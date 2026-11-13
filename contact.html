@@ -141,12 +141,21 @@
                   <option value="membership">Membership — not sure which tier yet</option>
                 </optgroup>
               </select>
+              <p class="field-note" id="interest-option" hidden></p>
+              <input type="hidden" name="option" id="option-field" value="" disabled>
             </div>
             <div class="field">
               <label for="preferred-contact">Preferred contact method</label>
               <select id="preferred-contact" name="preferred_contact">
                 <option value="email">Email</option>
                 <option value="phone">Phone</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="request-type">Requesting</label>
+              <select id="request-type" name="request_type">
+                <option value="appointment">An appointment</option>
+                <option value="consultation">A consultation</option>
               </select>
             </div>
             <div class="field full">
@@ -276,15 +285,44 @@
     var titleEl = document.getElementById('page-title');
     var subheadEl = document.getElementById('page-subhead');
     var subjectField = document.querySelector('input[name="subject"]');
+    var typeField = document.getElementById('request-type');
+    var typeWrap = typeField ? typeField.closest('.field') : null;
+    var optionNote = document.getElementById('interest-option');
+    var optionField = document.getElementById('option-field');
 
     var defaultTitle = titleEl ? titleEl.textContent : '';
     var defaultSubhead = subheadEl ? subheadEl.textContent : '';
+
+    // The panel or shot a patient chose on a service page (?option=). Only a
+    // label that page actually offers is accepted — anything else in the URL is
+    // ignored, so a link cannot put its own words into a request. Keep in step
+    // with the cards' data-booking-option values on these two pages.
+    var OPTIONS = {
+      'biomarker-testing': ['Baseline', 'Total Toxin Testing', 'Gut Health', 'Food Sensitivity', 'Galleri Cancer Test'],
+      'vitamin-shots': ['Glutathione', 'NAD (25 mg)', 'NAD (50 mg)', 'Vitamin B12', 'Vitamin D3 (12,500 IU)', 'Vitamin D3 (50,000 IU)']
+    };
+    var chosen = null;   // { service, option } while it applies
 
     function applyInterestContext() {
       if (!field) { return; }
       var isMembership = field.value.indexOf('membership') === 0;
       var selected = field.selectedOptions[0];
       var label = selected ? selected.textContent.trim() : '';
+      // The chosen option belongs to its service: shown and sent only while that service is selected.
+      var option = chosen && field.value === chosen.service ? chosen.option : '';
+      var consultation = !!typeField && typeField.value === 'consultation';
+
+      if (optionNote) {
+        optionNote.textContent = option ? 'Interested in: ' + label + ' — ' + option : '';
+        optionNote.hidden = !option;
+      }
+      if (optionField) {
+        optionField.value = option;
+        optionField.disabled = !option;   // a disabled field is not sent
+      }
+      // Appointment vs consultation does not apply to a membership request.
+      if (typeWrap) typeWrap.hidden = isMembership;
+      if (typeField) typeField.disabled = isMembership;
 
       if (isMembership) {
         if (titleEl) titleEl.textContent = 'Request your membership.';
@@ -292,19 +330,39 @@
         // "Membership — Prevent" reads as just "Prevent" once prefixed below
         if (subjectField) subjectField.value = 'Membership request: ' + label.replace(/^Membership\s*—\s*/, '') + ' — NextWave Wellness';
       } else {
-        if (titleEl) titleEl.textContent = defaultTitle;
+        if (titleEl) titleEl.textContent = consultation ? 'Request a consultation.' : defaultTitle;
         if (subheadEl) subheadEl.textContent = defaultSubhead;
-        if (subjectField) subjectField.value = 'Appointment request: ' + label + ' — NextWave Wellness';
+        if (subjectField) {
+          subjectField.value = (consultation ? 'Consultation request: ' : 'Appointment request: ')
+            + label + (option ? ' — ' + option : '') + ' — NextWave Wellness';
+        }
       }
     }
 
-    var urlInterest = new URLSearchParams(window.location.search).get('interest');
-    if (urlInterest && field && field.querySelector('option[value="' + urlInterest + '"]')) {
+    var params = new URLSearchParams(window.location.search);
+    // Compared value by value rather than through a CSS selector, so a stray quote in the URL cannot break the page.
+    var urlInterest = params.get('interest');
+    if (urlInterest && field && [].some.call(field.options, function (o) { return o.value === urlInterest; })) {
       field.value = urlInterest;
+      var urlOption = (params.get('option') || '').trim();
+      if (urlOption && urlOption.length <= 60 && (OPTIONS[urlInterest] || []).indexOf(urlOption) !== -1) {
+        chosen = { service: urlInterest, option: urlOption };
+      }
     }
+    var urlType = params.get('type');
+    if (typeField && (urlType === 'appointment' || urlType === 'consultation')) { typeField.value = urlType; }
 
     applyInterestContext();
     if (field) { field.addEventListener('change', applyInterestContext); }
+    if (typeField) { typeField.addEventListener('change', applyInterestContext); }
+    // After a successful send the form is reset: forget the chosen option and redraw once the reset has applied.
+    var formEl = document.getElementById('contact-form');
+    if (formEl) {
+      formEl.addEventListener('reset', function () {
+        chosen = null;
+        setTimeout(applyInterestContext, 0);
+      });
+    }
   })();
 
   document.getElementById('contact-form').addEventListener('submit', function (e) {
