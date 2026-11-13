@@ -1,3 +1,23 @@
+// Booking switch — the ONE place that decides where appointment buttons go.
+// The markup always ships the contact-form version ("Request an appointment"
+// → contact.html?interest=<slug>), so pages work with JavaScript off. When
+// BOOKING_ENABLED is true, every element carrying data-booking-service becomes
+// "Book now" → BOOKING_BASE_URL?service=<slug>[&option=<data-booking-option>].
+// BOOKING_BASE_URL is currently the STAGING app (fake patients): switch it to
+// the production app before turning BOOKING_ENABLED on.
+var BOOKING_ENABLED = false;
+var BOOKING_BASE_URL = 'https://nextwave-scheduling.onrender.com/';
+
+if (BOOKING_ENABLED && BOOKING_BASE_URL) {
+  document.querySelectorAll('[data-booking-service]').forEach(function (a) {
+    var url = BOOKING_BASE_URL + '?service=' + encodeURIComponent(a.getAttribute('data-booking-service'));
+    var option = a.getAttribute('data-booking-option');
+    if (option) { url += '&option=' + encodeURIComponent(option); }
+    a.href = url;
+    a.textContent = 'Book now';
+  });
+}
+
 // Services submenu — "Services" expands a grouped list of every service
 // instead of navigating straight to services.html, on mobile and desktop alike
 var servicesItem = document.querySelector('.nav-item-services');

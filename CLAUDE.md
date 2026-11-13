@@ -88,16 +88,18 @@ Two variants of the same pattern, both using native `<dialog>`:
 - `.shot-card` / `.shot-dialog` — vitamin shots. Has a product photo.
 - `.test-card` / `.test-dialog` — lab panels. Text-only, plus a one-line
   description; the dialog scrolls internally for long content. Each card
-  carries its own Learn more + Book now pair in `.test-card-actions`, since
+  carries its own Learn more + appointment pair in `.test-card-actions`, since
   booking only makes sense once a specific panel is chosen — which is why
-  biomarker-testing has no page-level Book now.
+  biomarker-testing has no page-level appointment button.
 
-**Button pair styling** (identical for both card types):
+**Button pair styling** (identical for both card types). The appointment button
+is the booking-switch markup (see *Booking switch* below):
 
 ```html
 <div class="test-card-actions">
   <button type="button" class="btn btn-ghost test-card-cta" data-dialog-target="id">Learn more</button>
-  <span class="btn btn-primary test-card-cta btn-disabled" aria-disabled="true">Book now</span>
+  <a href="../contact.html?interest=biomarker-testing" class="btn btn-primary test-card-cta"
+     data-booking-service="biomarker-testing" data-booking-option="Baseline">Request an appointment</a>
 </div>
 ```
 
@@ -212,6 +214,35 @@ subhead, and the email subject line to membership-request framing. This is a
 placeholder until real signup/billing exists — the copy promises a phone or
 email follow-up based on the form's "Preferred contact method" field.
 
+### Booking switch
+
+Until the production booking app exists, the site must **not** send patients to
+the staging app (`nextwave-scheduling.onrender.com`, fake patients). Every
+appointment button ships as the contact-form version, and one switch at the top
+of `assets/script.js` turns them into booking links:
+
+```js
+var BOOKING_ENABLED = false;                                     // the switch
+var BOOKING_BASE_URL = 'https://nextwave-scheduling.onrender.com/';  // STAGING — set to production first
+```
+
+- **Markup (the default, and what a no-JS visitor gets):**
+  `<a href="../contact.html?interest=<slug>" class="btn btn-primary" data-booking-service="<slug>">Request an appointment</a>`,
+  plus `data-booking-option="<label>"` on the biomarker panel and vitamin-shot
+  cards (plain text, HTML-escaped — e.g. `NAD (25 mg)`).
+- **`BOOKING_ENABLED = true`:** script.js rewrites each `[data-booking-service]`
+  to "Book now" → `BOOKING_BASE_URL?service=<slug>[&option=<label>]`.
+  **Change `BOOKING_BASE_URL` to the production app before turning it on**
+  (planned `app.nextwave-wellness.com`, not yet decided).
+- 22 buttons on 12 service pages carry it. functional-medicine-consult and
+  peptide-therapy have none. On spinal-postural-exam it is the only button (it
+  replaced "Request a consultation"); elsewhere it sits beside "Request a
+  consultation", which goes to the same contact URL while the switch is off.
+- A new service page with an appointment button needs `data-booking-service`
+  set to its slug (= its filename) and a matching `<option>` in contact.html.
+- Check after any change: `grep -rn onrender --exclude-dir=.git .` should find
+  only `assets/script.js` and this file.
+
 ### Copy notes
 
 - Membership CTA on service detail pages reads "One credit balance covers
@@ -240,12 +271,11 @@ code is broken.
 - **Placeholders still to fill**: testimonial quotes and photo/video blocks in
   every Learn More section (9 pages); the 6 vitamin shot card photos;
   `Photography placeholder` panels on about/contact/services.
-- **"Book now" buttons are disabled** (`.btn-disabled`, `aria-disabled`)
-  pending a booking system. "Request a consultation" is the live path.
-  Exception: functional-medicine-consult and spinal-postural-exam have
-  no Book now at all — the two read as redundant on a page that *is* the
-  consult/assessment. When booking ships, those pages should get a real Book
-  now for picking a time.
+- **Booking is switched off** (`BOOKING_ENABLED = false`, see *Booking
+  switch*): appointment buttons read "Request an appointment" and go to the
+  contact form until the production booking app exists.
+  functional-medicine-consult still has no appointment button (undecided);
+  peptide-therapy has none either.
 - **IV menu** is marked "Coming Soon" — single $185 price until the full menu
   is defined.
 - **Unused images** safe to delete: `ChiroHero.png` (duplicate of
