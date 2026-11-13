@@ -222,18 +222,20 @@ appointment button ships as the contact-form version, and one switch at the top
 of `assets/script.js` turns them into booking links:
 
 ```js
-var BOOKING_ENABLED = false;                                     // the switch
-var BOOKING_BASE_URL = 'https://nextwave-scheduling.onrender.com/';  // STAGING — set to production first
+var BOOKING_ENABLED = false;   // the switch
+var BOOKING_BASE_URL = '';     // the PRODUCTION app's address — never staging
 ```
 
 - **Markup (the default, and what a no-JS visitor gets):**
   `<a href="../contact.html?interest=<slug>" class="btn btn-primary" data-booking-service="<slug>">Request an appointment</a>`,
   plus `data-booking-option="<label>"` on the biomarker panel and vitamin-shot
   cards (plain text, HTML-escaped — e.g. `NAD (25 mg)`).
-- **`BOOKING_ENABLED = true`:** script.js rewrites each `[data-booking-service]`
-  to "Book now" → `BOOKING_BASE_URL?service=<slug>[&option=<label>]`.
-  **Change `BOOKING_BASE_URL` to the production app before turning it on**
-  (planned `app.nextwave-wellness.com`, not yet decided).
+- **`BOOKING_ENABLED = true` and a non-empty `BOOKING_BASE_URL`:** script.js
+  rewrites each `[data-booking-service]` to "Book now" →
+  `BOOKING_BASE_URL?service=<slug>[&option=<label>]`. With the URL empty the
+  buttons stay "Request an appointment" whatever the flag says, so turning
+  booking on takes both: the production address (planned
+  `app.nextwave-wellness.com`, not yet decided) and the flag.
 - 22 buttons on 12 service pages carry it. functional-medicine-consult and
   peptide-therapy have none. On spinal-postural-exam it is the only button (it
   replaced "Request a consultation"); elsewhere it sits beside "Request a
@@ -241,7 +243,7 @@ var BOOKING_BASE_URL = 'https://nextwave-scheduling.onrender.com/';  // STAGING 
 - A new service page with an appointment button needs `data-booking-service`
   set to its slug (= its filename) and a matching `<option>` in contact.html.
 - Check after any change: `grep -rn onrender --exclude-dir=.git .` should find
-  only `assets/script.js` and this file.
+  only this file.
 
 ### Copy notes
 

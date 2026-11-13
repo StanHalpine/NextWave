@@ -3,10 +3,11 @@
 // → contact.html?interest=<slug>), so pages work with JavaScript off. When
 // BOOKING_ENABLED is true, every element carrying data-booking-service becomes
 // "Book now" → BOOKING_BASE_URL?service=<slug>[&option=<data-booking-option>].
-// BOOKING_BASE_URL is currently the STAGING app (fake patients): switch it to
-// the production app before turning BOOKING_ENABLED on.
+// BOOKING_BASE_URL must be the PRODUCTION booking app's address (with a
+// trailing slash) — never the staging app. While it is empty, the buttons stay
+// "Request an appointment" even if BOOKING_ENABLED is true.
 var BOOKING_ENABLED = false;
-var BOOKING_BASE_URL = 'https://nextwave-scheduling.onrender.com/';
+var BOOKING_BASE_URL = '';
 
 if (BOOKING_ENABLED && BOOKING_BASE_URL) {
   document.querySelectorAll('[data-booking-service]').forEach(function (a) {
